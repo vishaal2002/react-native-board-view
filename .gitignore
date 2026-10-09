@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+.expo/
+.expo-shared/
+agent-tools/
+*.log
+.DS_Store
+android/.gradle/
+android/build/
+android/app/build/
+ios/Pods/
+ios/build/
+*.tsbuildinfo
+.idea/
+.vscode/
