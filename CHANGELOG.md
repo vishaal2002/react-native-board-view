@@ -2,7 +2,15 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
-## 0.1.0 (unreleased)
+## 0.2.0
+
+`react-native-board-view` only. `board-view-core` stays 0.1.0.
+
+- **Read only.** `readOnly` keeps scroll, paging, collapse, and Show more, and turns off drag, swipe, the Move sheet, and screen-reader move actions. `onMove` stays required.
+- **Show more.** A swimlane cell reveals the next page of cards. The row was skipping updates when the limit changed.
+- **Paged tabs.** The highlighted tab matches the column on screen after a layout change.
+
+## 0.1.0
 
 First public pre-release of `react-native-board-view` and `board-view-core`.
 

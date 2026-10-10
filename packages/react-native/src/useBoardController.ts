@@ -194,6 +194,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   const pendingIds = useMemo(() => new Set(snapshot.overlays.map((op) => op.id)), [snapshot.overlays]);
 
   const canDropTo = useCallback((itemId: string, cellId: string) => {
+    if (latest.current.props.readOnly) return false;
     const item = itemsRef.current.get(itemId);
     const canDrop = latest.current.props.canDrop;
     if (item == null) return false;
@@ -202,6 +203,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
 
   const moveItem = useCallback(
     (itemId: string, toCellId: string, toIndex: number, source: MoveSource) => {
+      if (latest.current.props.readOnly) return false;
       const item = itemsRef.current.get(itemId);
       const current = modelRef.current;
       const target = current.cellById.get(toCellId);

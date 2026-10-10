@@ -101,6 +101,23 @@ describe('useBoardController', () => {
     expect(context.signal.aborted).toBe(false);
   });
 
+  it('refuses every move while readOnly is set', () => {
+    const onMove = vi.fn();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove, readOnly: true }),
+    });
+
+    let moved = true;
+    act(() => {
+      moved = result.current.moveItem('a', done, 0, 'drag');
+    });
+
+    expect(moved).toBe(false);
+    expect(result.current.canDropTo('a', done)).toBe(false);
+    expect(onMove).not.toHaveBeenCalled();
+    expect(idsIn(result.current.model, todo)).toEqual(['a', 'b']);
+  });
+
   it('announces a move only once onMove accepts it, and clears the overlay when items show it', async () => {
     const pending = deferred();
     let sent: MoveOperation | null = null;

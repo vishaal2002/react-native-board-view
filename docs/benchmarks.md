@@ -52,6 +52,8 @@ The engine itself was instrumented with timers for this run; the timers were rem
 - Auto-scroll used to stop when the finger moved past a column's top or bottom edge, for example onto a footer or tab bar. It now keeps scrolling the last column under the finger, as long as the finger stays within that column's width.
 - Placeholder moves caused by auto-scroll no longer run a layout animation.
 
+A later debug session on the same emulator (2026-10-10) checked Show more, read-only mode, paging, and a long-press reorder. It was not a release build, so it added no frame-rate numbers.
+
 ## Still to measure (release gates)
 
 | Device                                        | Build   | Workload                        |
