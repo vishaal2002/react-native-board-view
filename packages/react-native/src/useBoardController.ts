@@ -17,6 +17,7 @@ import {
   type MoveQueueEvent,
   type MoveSource,
 } from 'board-view-core';
+import { createValueStore, type ValueStore } from './context';
 import type { BoardLabels, BoardProps, MoveTarget } from './types';
 
 export interface BoardController<T> {
@@ -30,6 +31,8 @@ export interface BoardController<T> {
   moveItem(itemId: string, toCellId: string, toIndex: number, source: MoveSource): boolean;
   canDropTo(itemId: string, cellId: string): boolean;
   itemLabel(itemId: string): string;
+  /** The card that should take screen-reader focus once it renders in its new place. */
+  readonly focusRequest: ValueStore<string | null>;
 }
 
 const warned = new Set<string>();
@@ -96,6 +99,8 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
     return item != null && getLabel ? getLabel(item) : itemId;
   }, []);
 
+  const [focusRequest] = useState(() => createValueStore<string | null>(null));
+
   // "Moved" is announced once the app accepts the move, so it never reports a move that rolls back.
   const announcements = useRef(new Map<string, string>());
 
@@ -151,18 +156,18 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
     [onEvent],
   );
   const [queue, setQueue] = useState(createQueue);
-  const retired = useRef(new WeakSet<MoveQueue>());
+  const [retired] = useState(() => new WeakSet<MoveQueue>());
   useEffect(() => {
     // StrictMode unmounts and remounts once: replace the queue it disposed.
-    if (retired.current.has(queue)) {
+    if (retired.has(queue)) {
       setQueue(createQueue());
       return;
     }
     return () => {
-      retired.current.add(queue);
+      retired.add(queue);
       queue.dispose();
     };
-  }, [createQueue, queue]);
+  }, [createQueue, queue, retired]);
 
   const snapshot = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
 
@@ -233,12 +238,14 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
         }),
       );
       queue.enqueue(op);
+      // Moves made without a finger on the card keep the screen reader on it.
+      if (source === 'sheet' || source === 'accessibility') focusRequest.set(itemId);
       return true;
     },
-    [canDropTo, itemLabel, queue],
+    [canDropTo, focusRequest, itemLabel, queue],
   );
 
   const isPending = useCallback((itemId: string) => pendingIds.has(itemId), [pendingIds]);
 
-  return { model, itemsById, isPending, moveItem, canDropTo, itemLabel };
+  return { model, itemsById, isPending, moveItem, canDropTo, itemLabel, focusRequest };
 }

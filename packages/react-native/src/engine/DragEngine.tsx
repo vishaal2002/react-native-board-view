@@ -418,7 +418,7 @@ function DragBoard(props: DragBoardProps) {
       !propsRef.current.reducedMotion && !scrolling,
     );
     propsRef.current.onDragOver?.({ itemId: active.itemId, cellId: desired.cellId, index: desired.index });
-  }, [outline, store]);
+  }, [allowedIn, outline, store]);
 
   /** The last cell's scroller while the pointer is beyond that cell's top or bottom, within its width. */
   const outerScroller = useCallback(

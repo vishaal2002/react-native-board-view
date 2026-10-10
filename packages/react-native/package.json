@@ -1,42 +1,87 @@
 {
   "name": "react-native-board-view",
-  "version": "0.0.0",
-  "description": "Board view for React Native and Expo. The board is a projection of your items, not the source of truth.",
+  "version": "0.1.0",
+  "description": "Kanban and swimlane boards for React Native and Expo. Virtualized columns, long-press drag, a Move to… sheet, and optimistic moves with rollback. Your items stay the source of truth.",
   "license": "MIT",
   "sideEffects": false,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "react-native": "./src/index.ts",
+  "main": "./lib/commonjs/index.js",
+  "module": "./lib/module/index.js",
+  "types": "./lib/typescript/commonjs/index.d.ts",
   "exports": {
     ".": {
-      "react-native": "./src/index.ts",
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "source": "./src/index.ts",
+      "import": {
+        "types": "./lib/typescript/module/index.d.ts",
+        "default": "./lib/module/index.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/index.d.ts",
+        "default": "./lib/commonjs/index.js"
+      }
     },
     "./package.json": "./package.json"
   },
   "files": [
-    "src"
+    "lib",
+    "src",
+    "!**/*.test.ts",
+    "!**/*.tsbuildinfo",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
+    "build": "bob build",
+    "prepack": "bob build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "board-view-core": "0.0.0"
+    "board-view-core": "0.1.0"
   },
   "peerDependencies": {
-    "@shopify/flash-list": ">=2.0.0",
+    "@shopify/flash-list": ">=2.0.2 <3",
     "react": ">=19.0.0",
     "react-native": ">=0.83.0",
     "react-native-gesture-handler": ">=2.28.0 <4",
     "react-native-reanimated": ">=4.1.0 <5",
-    "react-native-worklets": ">=0.7.0"
+    "react-native-worklets": ">=0.5.0 <1"
   },
   "keywords": [
     "react-native",
     "expo",
     "kanban",
     "board",
-    "drag-and-drop"
-  ]
+    "swimlanes",
+    "drag-and-drop",
+    "flash-list",
+    "reanimated",
+    "accessibility"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "commonjs",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ],
+    "exclude": "**/*.test.ts"
+  }
 }

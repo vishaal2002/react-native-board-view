@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runS1Cases } from './index';
+import { runS1Cases } from './s1';
 
 describe('runS1Cases', () => {
   it('passes every checklist case', () => {

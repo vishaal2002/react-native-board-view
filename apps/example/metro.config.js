@@ -11,4 +11,7 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+// Workspace packages export their TypeScript sources under the "source" condition.
+config.resolver.unstable_conditionNames = ['source', ...config.resolver.unstable_conditionNames];
+
 module.exports = config;

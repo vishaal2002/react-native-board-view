@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
   compactTitle: { fontSize: 13, fontWeight: '600', lineHeight: 17 },
   description: { fontSize: 13, lineHeight: 18 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tag: { paddingHorizontal: 8, height: 22, borderRadius: 11, justifyContent: 'center' },
+  tag: { paddingHorizontal: 8, paddingVertical: 2, minHeight: 22, borderRadius: 11, justifyContent: 'center' },
   tagText: { fontSize: 12, fontWeight: '600' },
   footer: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   saving: { width: 6, height: 6, borderRadius: 3 },

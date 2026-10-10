@@ -39,6 +39,7 @@ export {
   rankBetween,
   readItemSnapshot,
   rebalanceRanks,
+  seedRanks,
   shouldRebalance,
 } from 'board-view-core';
 export type {
