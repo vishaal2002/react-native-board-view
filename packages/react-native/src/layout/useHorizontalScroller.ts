@@ -82,11 +82,17 @@ export function useHorizontalScroller() {
   adapter.useScroller('horizontal', handle);
 
   // Keep the same column in view across rotation, resize and collapsing.
+  // The page store lives on Board and survives a layout remount. On mount the
+  // ref is seeded with the current metrics, so the resize branch never runs
+  // and the tabs can highlight a column this scroller is not showing.
   const previous = useRef({ metrics, boardWidth });
   useLayoutEffect(() => {
     const before = previous.current;
     previous.current = { metrics, boardWidth };
-    if (before.metrics === metrics) return;
+    if (before.metrics === metrics && before.boardWidth === boardWidth) {
+      sync(offset.current);
+      return;
+    }
     const slot =
       before.metrics.mode === 'paged'
         ? pageAt(before.metrics, offset.current)

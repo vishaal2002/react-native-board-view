@@ -87,6 +87,12 @@ export function SwimlaneLayout() {
   const frame = useRef<LanesFrame>({ top: 0, height: 0 });
   const [listBox, setListBox] = useState<LanesFrame>({ top: 0, height: 0 });
   const [limits, setLimits] = useState<ReadonlyMap<string, number>>(() => new Map());
+  // Expansions belong to one cellLimit. A new cap starts from that cap, not a leftover page.
+  const [limitsFor, setLimitsFor] = useState(cellLimit);
+  if (limitsFor !== cellLimit) {
+    setLimitsFor(cellLimit);
+    setLimits(new Map());
+  }
   const limitsRef = useRef(limits);
   limitsRef.current = limits;
   const verticalPadding = metrics.mode === 'paged' ? 8 : metrics.gap;
@@ -130,7 +136,7 @@ export function SwimlaneLayout() {
     if (next) setLimits(next);
   }, [cellLimit, isPending, model]);
 
-  const limitOf = useCallback((cellId: string) => limitsRef.current.get(cellId) ?? cellLimit, [cellLimit]);
+  const limitOf = useCallback((cellId: string) => limits.get(cellId) ?? cellLimit, [cellLimit, limits]);
   const showMore = useCallback(
     (cellId: string) =>
       setLimits((previous) => {
@@ -175,8 +181,10 @@ export function SwimlaneLayout() {
   }, [scrollApi]);
 
   const renderLane = useCallback(
-    ({ item, index }: ListRenderItemInfo<GroupValue>) => <LaneRow lane={item} laneIndex={index} />,
-    [],
+    ({ item, index }: ListRenderItemInfo<GroupValue>) => (
+      <LaneRow lane={item} laneIndex={index} limits={limits} cellLimit={cellLimit} />
+    ),
+    [cellLimit, limits],
   );
   const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     scrollY.current = event.nativeEvent.contentOffset.y;
@@ -268,7 +276,17 @@ function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSl
   );
 }
 
-const LaneRow = memo(function LaneRow({ lane, laneIndex }: { lane: GroupValue; laneIndex: number }) {
+const LaneRow = memo(function LaneRow({
+  lane,
+  laneIndex,
+  limits,
+  cellLimit,
+}: {
+  lane: GroupValue;
+  laneIndex: number;
+  limits: ReadonlyMap<string, number>;
+  cellLimit: number;
+}) {
   const board = useBoard();
   const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth, rtl } = board;
   const collapsed = collapsedLanes.has(lane.id);
@@ -309,7 +327,16 @@ const LaneRow = memo(function LaneRow({ lane, laneIndex }: { lane: GroupValue; l
             const column = columns[visualSlot(visual, columns.length, rtl)];
             const cell = column ? controller.model.cellById.get(makeCellId(lane.id, column.id)) : undefined;
             if (!cell) return null;
-            return <SwimCell key={cell.cellId} cell={cell} slot={slot} laneIndex={laneIndex} rowY={rowY} />;
+            return (
+              <SwimCell
+                key={cell.cellId}
+                cell={cell}
+                slot={slot}
+                laneIndex={laneIndex}
+                rowY={rowY}
+                limit={limits.get(cell.cellId) ?? cellLimit}
+              />
+            );
           })}
         </View>
       )}
@@ -418,18 +445,20 @@ const SwimCell = memo(function SwimCell({
   slot,
   laneIndex,
   rowY,
+  limit,
 }: {
   cell: BoardCell<unknown>;
   slot: ColumnSlot;
   laneIndex: number;
   rowY: number;
+  /** How many cards this cell may show. A number so memo sees Show more. */
+  limit: number;
 }) {
   const board = useBoard();
   const lanes = useLanes();
   const { theme, labels, props, controller, adapter } = board;
   const placement = adapter.usePlacement(cell.cellId);
   const [height, setHeight] = useState(0);
-  const limit = lanes.limitOf(cell.cellId);
   const getItemId = props.getItemId;
   const rows = useMemo(
     () => displayedRows(cell.items, getItemId, placement, limit),
