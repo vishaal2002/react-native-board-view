@@ -1,54 +1,57 @@
+export { Board } from './Board';
+export { CardView, useBoardTheme } from './CardView';
+export type { CardTag, CardViewProps } from './CardView';
+export { compactMetrics, darkTheme, defaultLabels, lightTheme } from './theme';
+export type {
+  BoardHandle,
+  BoardLabels,
+  BoardLayout,
+  BoardProps,
+  BoardTheme,
+  CardAccessibilityContext,
+  CardRenderInfo,
+  ColumnFooterRenderInfo,
+  ColumnHeaderRenderInfo,
+  EmptyCellRenderInfo,
+  LaneHeaderRenderInfo,
+  MoveAnnouncementContext,
+  MoveModes,
+  MoveTarget,
+} from './types';
+
+// The pure core, re-exported so apps and servers share one implementation of
+// grouping, ranks and moves. Also available standalone as `board-view-core`.
 export {
   NO_LANE_ID,
   NO_VALUE_ID,
-  NO_VALUE_LABEL,
-  ToIndexError,
-  applyAxisValue,
+  applyMove,
   cellId,
   compareRanked,
-  createMoveFromDrop,
   createMoveQueue,
-  createOpId,
   fractionalRank,
-  normalizeToIndex,
-  orderAfterMove,
   parseCellId,
+  planMove,
   projectBoard,
   rankBetween,
-  rankForMove,
+  readItemSnapshot,
   rebalanceRanks,
-  resolveDropIndex,
-  runS1Cases,
   shouldRebalance,
-  snapshotFromItem,
-} from 'react-native-board-view-core';
+} from 'board-view-core';
 export type {
   BoardCell,
   BoardModel,
-  CreateMoveInput,
   GroupAxis,
   GroupBy,
   GroupValue,
+  ItemLocation,
   ItemMoveSnapshot,
   MoveOperation,
   MoveQueue,
   MoveQueueEvent,
+  MoveQueueOptions,
   MoveQueueSnapshot,
+  PlanMoveInput,
   ProjectBoardInput,
   RankStrategy,
   RankedRef,
-  S1Check,
-} from 'react-native-board-view-core';
-
-export { BoardDragProvider, DraxCell, DraxCellBoard, draxAdapterCapabilities } from './adapter/DraxCellBoard';
-export { edgeZoneForWidth, stepAutoScroll } from './adapter/autoScroll';
-export type { AutoScrollInput, AutoScrollMode, AutoScrollStep } from './adapter/autoScroll';
-export type {
-  CellScrollMetrics,
-  DragCapabilities,
-  DragReorder,
-  DragTransfer,
-  DraxCellBoardProps,
-  DraxCellProps,
-} from './adapter/types';
-export { useMoveQueueSnapshot } from './useMoveQueue';
+} from 'board-view-core';

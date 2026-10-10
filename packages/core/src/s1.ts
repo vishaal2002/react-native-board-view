@@ -1,9 +1,9 @@
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { cellId } from './ids';
-import { normalizeToIndex, orderAfterMove, rankForMove } from './indexSemantics';
-import { createMoveFromDrop } from './move';
+import { orderAfterMove, rankForMove } from './indexSemantics';
+import { planMove } from './move';
 import { projectBoard } from './project';
-import type { RankedRef } from './types';
+import type { GroupBy, MoveOperation, RankedRef } from './types';
 
 export interface S1Check {
   readonly id: string;
@@ -16,11 +16,7 @@ interface Card {
   id: string;
   rank: string;
   status: string;
-  assignee?: string;
-}
-
-function keys(count: number): string[] {
-  return generateNKeysBetween(null, null, count);
+  assignee: string;
 }
 
 function check(id: string, name: string, pass: boolean, detail: string): S1Check {
@@ -28,12 +24,12 @@ function check(id: string, name: string, pass: boolean, detail: string): S1Check
 }
 
 /**
- * S1 cases. Unit tests and the spike checklist both call this so the
+ * S1 cases. Unit tests and the spike checklist both call this, so the
  * device screen and CI cannot drift.
  */
 export function runS1Cases(): S1Check[] {
   const results: S1Check[] = [];
-  const [a, b, c, d] = keys(4);
+  const [a, b, c, d] = generateNKeysBetween(null, null, 4);
   if (!a || !b || !c || !d) {
     return [check('s1-setup', 'Fixture keys', false, 'fractional-indexing returned too few keys')];
   }
@@ -43,48 +39,37 @@ export function runS1Cases(): S1Check[] {
     { id: 'c', rank: c },
     { id: 'd', rank: d },
   ];
+  const ids = column.map((item) => item.id);
 
-  const down = orderAfterMove(
-    column.map((item) => item.id),
-    'a',
-    1,
-  );
+  const down = orderAfterMove(ids, 'a', 1);
   const downRank = rankForMove(column, 'a', 1);
   results.push(
     check(
       's1-down',
       'Same cell, down one',
-      down.join(',') === 'b,a,c,d' && downRank === generateKeyBetween(b, c) && b < downRank && downRank < c,
+      down.join(',') === 'b,a,c,d' && downRank === generateKeyBetween(b, c),
       `order ${down.join(' ')} rank ${downRank} between ${b} and ${c}`,
     ),
   );
 
-  const toEnd = orderAfterMove(
-    column.map((item) => item.id),
-    'a',
-    3,
-  );
+  const toEnd = orderAfterMove(ids, 'a', 3);
   const endRank = rankForMove(column, 'a', 3);
   results.push(
     check(
       's1-end',
       'Same cell, to end',
-      toEnd.join(',') === 'b,c,d,a' && endRank === generateKeyBetween(d, null) && endRank > d,
+      toEnd.join(',') === 'b,c,d,a' && endRank === generateKeyBetween(d, null),
       `order ${toEnd.join(' ')} rank ${endRank} after ${d}`,
     ),
   );
 
-  const toStart = orderAfterMove(
-    column.map((item) => item.id),
-    'd',
-    0,
-  );
+  const toStart = orderAfterMove(ids, 'd', 0);
   const startRank = rankForMove(column, 'd', 0);
   results.push(
     check(
       's1-start',
       'Same cell, to start',
-      toStart.join(',') === 'd,a,b,c' && startRank === generateKeyBetween(null, a) && startRank < a,
+      toStart.join(',') === 'd,a,b,c' && startRank === generateKeyBetween(null, a),
       `order ${toStart.join(' ')} rank ${startRank} before ${a}`,
     ),
   );
@@ -104,6 +89,7 @@ export function runS1Cases(): S1Check[] {
     ),
   );
 
+  // The app filtered out the item ranked between b and c. It must not be a boundary.
   const hidden = generateKeyBetween(b, c);
   const visible: RankedRef[] = [
     { id: 'b', rank: b },
@@ -114,44 +100,8 @@ export function runS1Cases(): S1Check[] {
     check(
       's1-filtered',
       'Hidden neighbor is not a rank boundary',
-      filteredRank === generateKeyBetween(b, c) &&
-        filteredRank !== generateKeyBetween(b, hidden) &&
-        b < filteredRank &&
-        filteredRank < c,
-      `visible between ${b} and ${c} => ${filteredRank}; hidden ${hidden} was not a neighbor`,
-    ),
-  );
-
-  const empty = rankForMove([], 'a', 0);
-  const clamped = normalizeToIndex({
-    reportedIndex: 2,
-    itemCountAfterRemoval: 3,
-    pointerContent: 400,
-    contentEnd: 300,
-  });
-  const emptyIndex = normalizeToIndex({
-    reportedIndex: 4,
-    itemCountAfterRemoval: 0,
-    pointerContent: 10,
-    contentEnd: 0,
-  });
-  const kept = normalizeToIndex({
-    reportedIndex: 1,
-    itemCountAfterRemoval: 3,
-    pointerContent: 40,
-    contentEnd: 300,
-  });
-  results.push(
-    check(
-      's1-toindex',
-      'toIndex is after removal; empty tail appends; empty cell is 0',
-      orderAfterMove(['a', 'b', 'c'], 'b', 0).join(',') === 'b,a,c' &&
-        orderAfterMove(['a', 'b', 'c'], 'a', 0).join(',') === 'a,b,c' &&
-        empty === generateKeyBetween(null, null) &&
-        clamped === 3 &&
-        emptyIndex === 0 &&
-        kept === 1,
-      `tail ${clamped}, empty ${emptyIndex}, mid ${kept}, empty-cell rank ${empty}`,
+      filteredRank === generateKeyBetween(b, c) && filteredRank !== generateKeyBetween(b, hidden),
+      `visible between ${b} and ${c} → ${filteredRank}; hidden ${hidden} ignored`,
     ),
   );
 
@@ -160,59 +110,64 @@ export function runS1Cases(): S1Check[] {
     { id: 'b', rank: b, status: 'todo', assignee: 'alice' },
     { id: 'c', rank: c, status: 'doing', assignee: 'alice' },
   ];
-  const groupBy = {
+  const groupBy: GroupBy<Card> = {
     columns: {
       key: 'status',
       values: [
         { id: 'todo', label: 'To do' },
         { id: 'doing', label: 'Doing' },
+        { id: 'done', label: 'Done' },
       ],
     },
     lanes: {
       key: 'assignee',
-      values: [{ id: 'alice', label: 'Alice' }],
+      values: [
+        { id: 'alice', label: 'Alice' },
+        { id: 'bob', label: 'Bob' },
+      ],
     },
   };
-  const fromCell = cellId('alice', 'todo');
-  const toCell = cellId('alice', 'doing');
-  const doing = projectBoard({
-    items: cards,
-    getItemId: (item) => item.id,
-    getRank: (item) => item.rank,
-    groupBy,
-  }).cellById.get(toCell);
-  const op = createMoveFromDrop({
-    item: cards[0] as Card,
-    itemId: 'a',
-    groupBy,
-    fromCellId: fromCell,
-    toCellId: toCell,
-    toIndex: 0,
-    targetVisible: (doing?.items ?? []).map((item) => ({ id: item.id, rank: item.rank })),
-    opId: 's1-op',
-  });
-  const projected = projectBoard({
-    items: cards,
-    getItemId: (item) => item.id,
-    getRank: (item) => item.rank,
-    groupBy,
-    overlays: [op],
-  });
-  const todoIds = projected.cellById.get(fromCell)?.items.map((item) => item.id) ?? [];
-  const doingIds = projected.cellById.get(toCell)?.items.map((item) => item.id) ?? [];
+  const project = (overlays: MoveOperation[] = []) =>
+    projectBoard({ items: cards, getItemId: (item) => item.id, getRank: (item) => item.rank, groupBy, overlays });
+  const model = project();
+  const card = cards[0] as Card;
+  const plan = (toCellId: string, toIndex: number) =>
+    planMove({ model, groupBy, item: card, itemId: 'a', toCellId, toIndex, opId: 's1-op' });
+
+  const noop = plan(cellId('alice', 'todo'), 0);
+  const sameCell = plan(cellId('alice', 'todo'), 1);
+  const empty = plan(cellId('bob', 'done'), 0);
+  results.push(
+    check(
+      's1-toindex',
+      'toIndex is after removal; same slot is a no-op; empty cell is 0',
+      orderAfterMove(['a', 'b', 'c'], 'b', 0).join(',') === 'b,a,c' &&
+        noop === null &&
+        sameCell != null &&
+        Object.keys(sameCell.changes).length === 0 &&
+        sameCell.rank > b &&
+        empty?.rank === generateKeyBetween(null, null),
+      `no-op ${noop === null}, reorder rank ${sameCell?.rank}, empty-cell rank ${empty?.rank}`,
+    ),
+  );
+
+  const op = plan(cellId('bob', 'doing'), 0);
+  const projected = op ? project([op]) : model;
+  const todoIds = projected.cellById.get(cellId('alice', 'todo'))?.ranked.map((item) => item.id) ?? [];
+  const doingIds = projected.cellById.get(cellId('bob', 'doing'))?.ranked.map((item) => item.id) ?? [];
   results.push(
     check(
       's1-project',
-      'Overlay projects the move without editing items',
-      todoIds.join(',') === 'b' &&
-        doingIds[0] === 'a' &&
-        cards[0]?.status === 'todo' &&
-        cards[0]?.rank === a &&
+      'Swimlane move changes two fields and projects without editing items',
+      op != null &&
+        todoIds.join(',') === 'b' &&
+        doingIds.join(',') === 'a' &&
+        card.status === 'todo' &&
         op.changes.status === 'doing' &&
-        op.changes.assignee === 'alice' &&
+        op.changes.assignee === 'bob' &&
         op.from.status === 'todo' &&
-        op.rank < c,
-      `todo [${todoIds}] doing [${doingIds}] rank ${op.rank}`,
+        op.from.assignee === 'alice',
+      `alice/todo [${todoIds}] bob/doing [${doingIds}] changes ${JSON.stringify(op?.changes)}`,
     ),
   );
 

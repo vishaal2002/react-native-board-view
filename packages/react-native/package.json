@@ -22,8 +22,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "react-native-board-view-core": "0.0.0",
-    "react-native-drax": "1.1.0"
+    "board-view-core": "0.0.0"
   },
   "peerDependencies": {
     "@shopify/flash-list": ">=2.0.0",

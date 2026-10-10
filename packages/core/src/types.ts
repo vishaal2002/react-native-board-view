@@ -7,6 +7,8 @@
 export interface GroupValue {
   readonly id: string;
   readonly label: string;
+  /** Optional accent for headers and the move sheet. Display only. */
+  readonly color?: string;
 }
 
 export interface GroupAxis<T> {
@@ -59,7 +61,15 @@ export interface BoardCell<T> {
   readonly columnKey: string;
   readonly lane: GroupValue;
   readonly column: GroupValue;
+  /** Items in display order: global rank filtered to this cell, ties by id. */
   readonly items: readonly T[];
+  /** Ids and effective ranks (overlay included), parallel to `items`. */
+  readonly ranked: readonly RankedRef[];
+}
+
+export interface ItemLocation {
+  readonly cellId: string;
+  readonly index: number;
 }
 
 export interface BoardModel<T> {
@@ -67,6 +77,8 @@ export interface BoardModel<T> {
   readonly columns: readonly GroupValue[];
   readonly cells: readonly BoardCell<T>[];
   readonly cellById: ReadonlyMap<string, BoardCell<T>>;
+  /** Where each item is displayed, overlays included. */
+  readonly locations: ReadonlyMap<string, ItemLocation>;
 }
 
 export interface ItemMoveSnapshot {

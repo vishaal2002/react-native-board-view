@@ -1,0 +1,102 @@
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ScrollView } from 'react-native';
+import { useAnimatedScrollHandler } from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
+import { useBoard } from '../context';
+import type { ScrollerHandle } from '../engine/types';
+import { offsetForSlot, pageAt, slotAtX, visibleSlots, visualSlot } from './metrics';
+
+/**
+ * Horizontal board scroller shared by the column and swimlane layouts.
+ * Tracks the offset in JS without re-rendering on every frame: React state
+ * changes only when the rendered column window or the current page changes.
+ */
+export function useHorizontalScroller() {
+  const board = useBoard();
+  const { metrics, boardWidth, scrollX, page, adapter, autoScroll, rtl, controller, props } = board;
+  const columns = controller.model.columns;
+  const scrollRef = useRef<ScrollView>(null);
+  const live = useRef({ metrics, boardWidth, columns, onColumnChange: props.onColumnChange });
+  live.current = { metrics, boardWidth, columns, onColumnChange: props.onColumnChange };
+
+  const [initialOffset] = useState(() => {
+    const at = props.initialColumnId ? columns.findIndex((column) => column.id === props.initialColumnId) : -1;
+    if (at < 0 && !rtl) return 0;
+    const slot = at < 0 ? metrics.slots.length - 1 : visualSlot(at, columns.length, rtl);
+    return offsetForSlot(metrics, slot, boardWidth);
+  });
+  const offset = useRef(initialOffset);
+  const [range, setRange] = useState(() => visibleSlots(metrics, initialOffset, boardWidth));
+
+  const sync = useCallback(
+    (x: number) => {
+      offset.current = x;
+      const current = live.current;
+      const next = visibleSlots(current.metrics, x, current.boardWidth);
+      setRange((previous) => (previous.first === next.first && previous.last === next.last ? previous : next));
+      if (current.metrics.mode !== 'paged') return;
+      const slot = pageAt(current.metrics, x);
+      if (slot === page.get()) return;
+      page.set(slot);
+      const column = current.columns[visualSlot(slot, current.columns.length, rtl)];
+      if (column) current.onColumnChange?.(column.id);
+    },
+    [page, rtl],
+  );
+
+  const onScroll = useAnimatedScrollHandler(
+    {
+      onScroll: (event) => {
+        scrollX.value = event.contentOffset.x;
+        scheduleOnRN(sync, event.contentOffset.x);
+      },
+    },
+    [sync],
+  );
+
+  const scrollTo = useCallback((x: number, animated: boolean) => {
+    offset.current = x;
+    scrollRef.current?.scrollTo({ x, y: 0, animated });
+  }, []);
+
+  const toSlot = useCallback(
+    (slot: number, animated: boolean) => {
+      const current = live.current;
+      scrollTo(offsetForSlot(current.metrics, slot, current.boardWidth), animated);
+    },
+    [scrollTo],
+  );
+
+  const handle = useMemo<ScrollerHandle | null>(() => {
+    if (!metrics.scrollable || !autoScroll) return null;
+    return {
+      axis: 'x',
+      mode: metrics.mode === 'paged' ? 'paged' : 'continuous',
+      getOffset: () => offset.current,
+      getMaxOffset: () => Math.max(0, live.current.metrics.contentWidth - live.current.boardWidth),
+      getViewport: () => ({ start: 0, size: live.current.boardWidth }),
+      getPageSize: () => live.current.metrics.pageSize,
+      scrollTo,
+    };
+  }, [autoScroll, metrics.mode, metrics.scrollable, scrollTo]);
+  adapter.useScroller('horizontal', handle);
+
+  // Keep the same column in view across rotation, resize and collapsing.
+  const previous = useRef({ metrics, boardWidth });
+  useLayoutEffect(() => {
+    const before = previous.current;
+    previous.current = { metrics, boardWidth };
+    if (before.metrics === metrics) return;
+    const slot =
+      before.metrics.mode === 'paged'
+        ? pageAt(before.metrics, offset.current)
+        : Math.max(0, slotAtX(before.metrics, offset.current + before.metrics.paddingStart));
+    const next = offsetForSlot(metrics, Math.min(slot, metrics.slots.length - 1), boardWidth);
+    if (Math.abs(next - offset.current) > 0.5) scrollTo(next, false);
+    sync(next);
+  }, [boardWidth, metrics, scrollTo, sync]);
+
+  const getOffset = useCallback(() => offset.current, []);
+
+  return { scrollRef, onScroll, range, initialOffset, scrollTo, toSlot, getOffset };
+}

@@ -1,5 +1,5 @@
 {
-  "name": "react-native-board-view-core",
+  "name": "board-view-core",
   "version": "0.0.0",
   "description": "Grouping, fractional rank, and optimistic move queue for react-native-board-view. No React Native dependency.",
   "license": "MIT",
