@@ -32,7 +32,7 @@
   ],
   "scripts": {
     "build": "bob build",
-    "prepack": "bob build",
+    "prepack": "cp ../../README.md README.md && bob build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

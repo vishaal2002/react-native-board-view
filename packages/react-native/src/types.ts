@@ -172,7 +172,6 @@ export interface BoardLabels {
   expandColumn: (column: string) => string;
   collapseColumn: (column: string) => string;
   emptyCell: string;
-  cardMenu: (item: string) => string;
   card: (context: CardAccessibilityContext) => string;
   moveToColumnAction: (column: string) => string;
   moveToLaneAction: (lane: string) => string;
