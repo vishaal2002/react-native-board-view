@@ -1,87 +1,96 @@
 import { NO_LANE_ID, NO_VALUE_ID, createOpId, parseCellId } from './ids';
 import { readAxisValue } from './group';
 import { rankForMove } from './indexSemantics';
-import type { GroupBy, MoveOperation, RankStrategy, RankedRef } from './types';
 import { fractionalRank } from './rank';
+import type { BoardModel, GroupAxis, GroupBy, MoveOperation, RankStrategy } from './types';
 
-export interface CreateMoveInput<T> {
+export interface PlanMoveInput<T> {
+  /** The board as displayed, pending overlays included. */
+  model: BoardModel<T>;
+  groupBy: GroupBy<T>;
+  /** The app's record of the item. */
   item: T;
   itemId: string;
-  groupBy: GroupBy<T>;
-  fromCellId: string;
   toCellId: string;
+  /** Insertion index in the target cell after the moved item is removed. */
   toIndex: number;
-  /**
-   * Display order of the target cell, including the dragged item when the
-   * move stays in that cell. Rank is taken between these visible neighbors.
-   */
-  targetVisible: readonly RankedRef[];
-  /**
-   * Fields and rank the move starts from. Pass the current overlay when a
-   * move is already pending, otherwise omit and the item is read directly.
-   */
-  current?: {
-    fields: Readonly<Record<string, string | null>>;
-    rank: string;
-  };
-  opId?: string;
+  /** Net pending state of the item, so a follow-up move starts from where the card is shown. */
+  overlay?: MoveOperation | null;
   strategy?: RankStrategy;
+  opId?: string;
 }
 
-function fieldValue(bucket: string): string | null {
+function bucketValue(bucket: string): string | null {
   return bucket === NO_VALUE_ID ? null : bucket;
 }
 
-function axisFields<T>(
-  groupBy: GroupBy<T>,
-  item: T,
-  laneKey: string,
-  columnKey: string,
-  current: CreateMoveInput<T>['current'],
-  which: 'from' | 'to',
-): Record<string, string | null> {
-  const fields: Record<string, string | null> = {};
-  const columnRaw =
-    which === 'from'
-      ? (current?.fields[groupBy.columns.key] ?? readAxisValue(groupBy.columns, item))
-      : fieldValue(columnKey);
-  fields[groupBy.columns.key] = columnRaw === NO_VALUE_ID ? null : columnRaw;
-
-  if (groupBy.lanes && laneKey !== NO_LANE_ID) {
-    const laneRaw =
-      which === 'from'
-        ? (current?.fields[groupBy.lanes.key] ?? readAxisValue(groupBy.lanes, item))
-        : fieldValue(laneKey);
-    fields[groupBy.lanes.key] = laneRaw === NO_VALUE_ID ? null : laneRaw;
-  } else if (groupBy.lanes && which === 'to' && laneKey === NO_LANE_ID) {
-    // A board with lanes should not address the synthetic lane.
-  }
-  return fields;
+function shownValue<T>(axis: GroupAxis<T>, item: T, overlay: MoveOperation | null | undefined): string | null {
+  if (overlay && Object.hasOwn(overlay.changes, axis.key)) return overlay.changes[axis.key] ?? null;
+  return readAxisValue(axis, item);
 }
 
-export function createMoveFromDrop<T>(input: CreateMoveInput<T>): MoveOperation {
-  const fromCell = parseCellId(input.fromCellId);
-  const toCell = parseCellId(input.toCellId);
-  const strategy = input.strategy ?? fractionalRank;
-  const from = axisFields(input.groupBy, input.item, fromCell.laneKey, fromCell.columnKey, input.current, 'from');
-  const changes = axisFields(input.groupBy, input.item, toCell.laneKey, toCell.columnKey, input.current, 'to');
+/**
+ * Turns "put this item at index N of that cell" into a move operation.
+ *
+ * `changes` holds only the grouped fields whose bucket changes, `from` holds
+ * their values before the move (the pending values when a move is already
+ * queued). A reorder inside one cell changes only `rank`. Returns null when
+ * the item would land where it already is.
+ */
+export function planMove<T>(input: PlanMoveInput<T>): MoveOperation | null {
+  const { model, groupBy, item, itemId, toCellId, toIndex, overlay } = input;
+  const location = model.locations.get(itemId);
+  const target = model.cellById.get(toCellId);
+  if (!location) throw new Error(`Item "${itemId}" is not on the board.`);
+  if (!target) throw new Error(`Unknown cell "${toCellId}".`);
+  if (location.cellId === toCellId && location.index === toIndex) return null;
 
-  if (input.groupBy.lanes && toCell.laneKey === NO_LANE_ID) {
-    throw new Error('Boards with lanes cannot target the synthetic "_" lane.');
+  const fromCell = parseCellId(location.cellId);
+  const toCell = parseCellId(toCellId);
+  if (groupBy.lanes && toCell.laneKey === NO_LANE_ID) {
+    throw new Error(`Boards with lanes cannot target the "${NO_LANE_ID}" lane.`);
   }
-  if (input.groupBy.lanes == null && (fromCell.laneKey !== NO_LANE_ID || toCell.laneKey !== NO_LANE_ID)) {
-    throw new Error(`Boards without lanes must use cell ids starting with "${NO_LANE_ID}::".`);
+  if (!groupBy.lanes && toCell.laneKey !== NO_LANE_ID) {
+    throw new Error(`Boards without lanes use cell ids that start with "${NO_LANE_ID}::".`);
   }
 
-  // `from` for a follow-up move is the pending destination, not the server record.
-  const fromFields = input.current ? { ...input.current.fields } : from;
-  const rank = rankForMove(input.targetVisible, input.itemId, input.toIndex, strategy);
+  const changes: Record<string, string | null> = {};
+  const from: Record<string, string | null> = {};
+  const axes: Array<[GroupAxis<T>, string, string]> = [[groupBy.columns, fromCell.columnKey, toCell.columnKey]];
+  if (groupBy.lanes) axes.push([groupBy.lanes, fromCell.laneKey, toCell.laneKey]);
+  for (const [axis, fromBucket, toBucket] of axes) {
+    if (fromBucket === toBucket) continue;
+    changes[axis.key] = bucketValue(toBucket);
+    from[axis.key] = shownValue(axis, item, overlay);
+  }
 
   return {
     opId: input.opId ?? createOpId(),
-    id: input.itemId,
+    id: itemId,
     changes,
-    from: fromFields,
-    rank,
+    from,
+    rank: rankForMove(target.ranked, itemId, toIndex, input.strategy ?? fractionalRank),
   };
+}
+
+/** Applies a move to an app record with the board's own `applyKey` / default field writer. */
+export function applyMove<T>(
+  item: T,
+  op: Pick<MoveOperation, 'changes' | 'rank'>,
+  groupBy: GroupBy<T>,
+  applyRank: (item: T, rank: string) => T,
+): T {
+  let next = applyRank(item, op.rank);
+  for (const axis of [groupBy.columns, groupBy.lanes]) {
+    if (!axis || !Object.hasOwn(op.changes, axis.key)) continue;
+    const value = op.changes[axis.key] ?? null;
+    if (axis.applyKey) {
+      next = axis.applyKey(next, value);
+    } else if (typeof next === 'object' && next != null) {
+      next = { ...next, [axis.key]: value };
+    } else {
+      throw new Error(`Cannot write "${axis.key}" onto a non-object item without applyKey.`);
+    }
+  }
+  return next;
 }

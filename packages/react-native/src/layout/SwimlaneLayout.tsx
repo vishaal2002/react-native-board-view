@@ -1,0 +1,521 @@
+import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list';
+import { createContext, memo, use, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import { cellId as makeCellId, type BoardCell, type GroupValue } from 'board-view-core';
+import { useBoard, type BoardContextValue } from '../context';
+import { rawInsertionIndex, slotIndexAt, type Rect, type Slot, type SlotSource } from '../engine/geometry';
+import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle } from '../engine/types';
+import { BoardCard } from './BoardCard';
+import {
+  Chevron,
+  CountPill,
+  DefaultColumnHeader,
+  DefaultEmptyCell,
+  DefaultLaneHeader,
+  ShowMoreButton,
+} from './defaults';
+import { PLACEHOLDER_ROW, cardIndexFromRaw, displayedRows, isPlaceholder, type DisplayedRow } from './displayed';
+import type { ColumnSlot } from './metrics';
+import { visualSlot } from './metrics';
+import { COMPACT_HEADER_WIDTH } from './ColumnsLayout';
+import { useHorizontalScroller } from './useHorizontalScroller';
+
+const DEFAULT_CELL_LIMIT = 50;
+const LANE_SPACING = 14;
+const ROW_SPACING = 8;
+
+interface LanesFrame {
+  top: number;
+  height: number;
+}
+
+interface LanesContextValue {
+  listRef: RefObject<FlashListRef<GroupValue> | null>;
+  scrollY: RefObject<number>;
+  frame: RefObject<LanesFrame>;
+  getScrollX: () => number;
+  scroller: ScrollerHandle;
+  limitOf: (cellId: string) => number;
+  showMore: (cellId: string) => void;
+}
+
+const LanesContext = createContext<LanesContextValue | null>(null);
+
+function useLanes(): LanesContextValue {
+  const value = use(LanesContext);
+  if (!value) throw new Error('Swimlane cells must render inside SwimlaneLayout.');
+  return value;
+}
+
+/**
+ * Swimlanes: lanes are the virtualized unit (one vertical FlashList of
+ * lanes inside the sideways board scroller). Cells are plain views capped
+ * at `cellLimit` cards with "Show more". Column headers sit above the lane
+ * list inside the sideways scroller, so they stay aligned; lane headers stay
+ * pinned to the left edge while the board scrolls.
+ */
+export function SwimlaneLayout() {
+  const board = useBoard();
+  const {
+    metrics,
+    controller,
+    boardHeight,
+    boardWidth,
+    rtl,
+    adapter,
+    scrollApi,
+    horizontalScrollGesture,
+    collapsedLanes,
+    props,
+    autoScroll,
+  } = board;
+  const scroller = useHorizontalScroller();
+  const columns = controller.model.columns;
+  const lanes = controller.model.lanes;
+  const cellLimit = Math.max(1, props.cellLimit ?? DEFAULT_CELL_LIMIT);
+  const listRef = useRef<FlashListRef<GroupValue>>(null);
+  const scrollY = useRef(0);
+  const contentHeight = useRef(0);
+  const frame = useRef<LanesFrame>({ top: 0, height: 0 });
+  const [listBox, setListBox] = useState<LanesFrame>({ top: 0, height: 0 });
+  const [limits, setLimits] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const limitsRef = useRef(limits);
+  limitsRef.current = limits;
+  const verticalPadding = metrics.mode === 'paged' ? 8 : metrics.gap;
+
+  const onListLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { y, height } = event.nativeEvent.layout;
+      const next = { top: verticalPadding + y, height };
+      frame.current = next;
+      setListBox((previous) => (previous.top === next.top && previous.height === next.height ? previous : next));
+    },
+    [verticalPadding],
+  );
+
+  const laneScroller = useMemo<ScrollerHandle>(
+    () => ({
+      axis: 'y',
+      getOffset: () => scrollY.current,
+      getMaxOffset: () => Math.max(0, contentHeight.current - frame.current.height),
+      getViewport: () => ({ start: frame.current.top, size: frame.current.height }),
+      scrollTo(offset) {
+        scrollY.current = offset;
+        listRef.current?.scrollToOffset({ offset, animated: false });
+      },
+    }),
+    [],
+  );
+  adapter.useScroller('vertical', autoScroll ? laneScroller : null);
+
+  const limitOf = useCallback((cellId: string) => limitsRef.current.get(cellId) ?? cellLimit, [cellLimit]);
+  const showMore = useCallback(
+    (cellId: string) =>
+      setLimits((previous) => {
+        const next = new Map(previous);
+        next.set(cellId, (previous.get(cellId) ?? cellLimit) + cellLimit);
+        return next;
+      }),
+    [cellLimit],
+  );
+
+  const lanesContext = useMemo<LanesContextValue>(
+    () => ({ listRef, scrollY, frame, getScrollX: scroller.getOffset, scroller: laneScroller, limitOf, showMore }),
+    [laneScroller, limitOf, scroller.getOffset, showMore],
+  );
+
+  const live = useRef({ controller, lanes, columns, rtl, toSlot: scroller.toSlot, cellLimit });
+  live.current = { controller, lanes, columns, rtl, toSlot: scroller.toSlot, cellLimit };
+  useEffect(() => {
+    const toColumn = (columnId: string, animated: boolean) => {
+      const { columns: current, rtl: mirrored, toSlot } = live.current;
+      const at = current.findIndex((column) => column.id === columnId);
+      if (at >= 0) toSlot(visualSlot(at, current.length, mirrored), animated);
+    };
+    scrollApi.current = {
+      toColumn,
+      toItem(itemId, animated) {
+        const current = live.current;
+        const location = current.controller.model.locations.get(itemId);
+        const cell = location ? current.controller.model.cellById.get(location.cellId) : undefined;
+        if (!location || !cell) return;
+        toColumn(cell.columnKey, animated);
+        if (location.index >= (limitsRef.current.get(cell.cellId) ?? current.cellLimit)) {
+          setLimits((previous) => new Map(previous).set(cell.cellId, location.index + 1));
+        }
+        const laneIndex = current.lanes.findIndex((lane) => lane.id === cell.laneKey);
+        if (laneIndex >= 0) listRef.current?.scrollToIndex({ index: laneIndex, animated, viewPosition: 0 });
+      },
+    };
+    return () => {
+      scrollApi.current = null;
+    };
+  }, [scrollApi]);
+
+  const renderLane = useCallback(
+    ({ item, index }: ListRenderItemInfo<GroupValue>) => <LaneRow lane={item} laneIndex={index} />,
+    [],
+  );
+  const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollY.current = event.nativeEvent.contentOffset.y;
+  }, []);
+  const onContentSizeChange = useCallback((_width: number, height: number) => {
+    contentHeight.current = height;
+  }, []);
+
+  return (
+    <LanesContext value={lanesContext}>
+      <GestureDetector gesture={horizontalScrollGesture}>
+        <Animated.ScrollView
+          ref={scroller.scrollRef as never}
+          horizontal
+          style={styles.ltr}
+          contentContainerStyle={{ width: Math.max(metrics.contentWidth, boardWidth), height: boardHeight }}
+          scrollEnabled={metrics.scrollable}
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={metrics.mode === 'paged' ? metrics.pageSize : undefined}
+          decelerationRate={metrics.mode === 'paged' ? 'fast' : 'normal'}
+          disableIntervalMomentum={metrics.mode === 'paged'}
+          contentOffset={{ x: scroller.initialOffset, y: 0 }}
+          onScroll={scroller.onScroll}
+          scrollEventThrottle={16}
+        >
+          <View style={[styles.fill, { paddingTop: verticalPadding, direction: rtl ? 'rtl' : 'ltr' }]}>
+            <View style={[styles.headerRow, { paddingLeft: metrics.paddingStart, gap: metrics.gap, direction: 'ltr' }]}>
+              {metrics.slots.map((slot, visual) => {
+                const column = columns[visualSlot(visual, columns.length, rtl)];
+                return column ? <ColumnHeaderCell key={column.id} column={column} slot={slot} /> : null;
+              })}
+            </View>
+            <View style={styles.fill} onLayout={onListLayout}>
+              {listBox.height > 0 ? (
+                <FlashList
+                  ref={listRef}
+                  data={lanes as GroupValue[]}
+                  keyExtractor={laneKey}
+                  renderItem={renderLane}
+                  extraData={[controller.model, collapsedLanes, limits, metrics]}
+                  onScroll={onScroll}
+                  scrollEventThrottle={16}
+                  onContentSizeChange={onContentSizeChange}
+                  contentContainerStyle={styles.lanesContent}
+                  showsVerticalScrollIndicator={false}
+                />
+              ) : null}
+            </View>
+          </View>
+        </Animated.ScrollView>
+      </GestureDetector>
+    </LanesContext>
+  );
+}
+
+const laneKey = (lane: GroupValue) => lane.id;
+
+function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSlot }) {
+  const { controller, props, theme, labels, canCollapseColumns, toggleColumn } = useBoard();
+  const count = useMemo(
+    () =>
+      controller.model.cells.reduce((sum, cell) => (cell.columnKey === column.id ? sum + cell.items.length : sum), 0),
+    [column.id, controller.model],
+  );
+  const toggle = useCallback(() => toggleColumn(column.id), [column.id, toggleColumn]);
+  if (slot.collapsed) {
+    return (
+      <View style={[styles.collapsedHeader, { width: slot.width }]}>
+        <Chevron direction="right" color={theme.mutedText} size={7} />
+        <CountPill count={count} theme={theme} />
+      </View>
+    );
+  }
+  const info = {
+    column,
+    count,
+    collapsed: false,
+    compact: slot.width < COMPACT_HEADER_WIDTH,
+    toggleCollapsed: canCollapseColumns ? toggle : undefined,
+  };
+  return (
+    <View style={{ width: slot.width }}>
+      {props.renderColumnHeader ? (
+        props.renderColumnHeader(info)
+      ) : (
+        <DefaultColumnHeader info={info} theme={theme} labels={labels} />
+      )}
+    </View>
+  );
+}
+
+const LaneRow = memo(function LaneRow({ lane, laneIndex }: { lane: GroupValue; laneIndex: number }) {
+  const board = useBoard();
+  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth, rtl } = board;
+  const collapsed = collapsedLanes.has(lane.id);
+  const columns = controller.model.columns;
+  const [rowY, setRowY] = useState(0);
+  const count = useMemo(
+    () => controller.model.cells.reduce((sum, cell) => (cell.laneKey === lane.id ? sum + cell.items.length : sum), 0),
+    [controller.model, lane.id],
+  );
+  const toggle = useCallback(() => toggleLane(lane.id), [lane.id, toggleLane]);
+  const maxShift = Math.max(0, metrics.contentWidth - boardWidth);
+  const pinned = useAnimatedStyle(() => ({
+    transform: [{ translateX: Math.min(Math.max(scrollX.value, 0), maxShift) }],
+  }));
+  const onRowLayout = useCallback((event: LayoutChangeEvent) => setRowY(event.nativeEvent.layout.y), []);
+  const info = { lane, count, collapsed, toggleCollapsed: toggle };
+
+  return (
+    <View style={styles.lane}>
+      <Animated.View
+        style={[
+          { width: boardWidth - metrics.paddingStart - metrics.paddingEnd, marginLeft: metrics.paddingStart },
+          pinned,
+        ]}
+      >
+        {props.renderLaneHeader ? (
+          props.renderLaneHeader(info)
+        ) : (
+          <DefaultLaneHeader info={info} theme={theme} labels={labels} />
+        )}
+      </Animated.View>
+      {collapsed ? null : (
+        <View
+          style={[styles.cellRow, { paddingLeft: metrics.paddingStart, gap: metrics.gap, direction: 'ltr' }]}
+          onLayout={onRowLayout}
+        >
+          {metrics.slots.map((slot, visual) => {
+            const column = columns[visualSlot(visual, columns.length, rtl)];
+            const cell = column ? controller.model.cellById.get(makeCellId(lane.id, column.id)) : undefined;
+            if (!cell) return null;
+            return <SwimCell key={cell.cellId} cell={cell} slot={slot} laneIndex={laneIndex} rowY={rowY} />;
+          })}
+        </View>
+      )}
+    </View>
+  );
+});
+
+interface SwimLive {
+  board: BoardContextValue;
+  lanes: LanesContextValue;
+  cell: BoardCell<unknown>;
+  rows: readonly DisplayedRow<unknown>[];
+  placeholderAt: number;
+  slot: ColumnSlot;
+  laneIndex: number;
+  rowY: number;
+  height: number;
+}
+
+function rowKey(row: DisplayedRow<unknown>, getId: (item: unknown) => string): string {
+  return isPlaceholder(row) ? PLACEHOLDER_ID : getId(row);
+}
+
+/** Cell geometry for a swimlane cell: rows are plain views that report their own layout. */
+function swimGeometry(live: RefObject<SwimLive>, slotsByKey: RefObject<Map<string, Slot>>): CellGeometry {
+  const keyAt = (index: number): string | undefined => {
+    const row = live.current.rows[index];
+    return row === undefined ? undefined : rowKey(row, live.current.board.props.getItemId);
+  };
+  const slots: SlotSource = {
+    get count() {
+      return live.current.rows.length;
+    },
+    slot(index) {
+      const key = keyAt(index);
+      return key === undefined ? undefined : slotsByKey.current.get(key);
+    },
+  };
+  const rect = (): Rect | null => {
+    const { lanes, laneIndex, rowY, slot, height } = live.current;
+    const layout = lanes.listRef.current?.getLayout(laneIndex);
+    if (!layout || height <= 0) return null;
+    const firstOffset = lanes.listRef.current?.getFirstItemOffset() ?? 0;
+    return {
+      x: slot.x - lanes.getScrollX(),
+      y: lanes.frame.current.top + firstOffset + layout.y - lanes.scrollY.current + rowY,
+      width: slot.width,
+      height,
+    };
+  };
+  const rowRect = (index: number, outer: Rect): Rect | null => {
+    const slot = slots.slot(index);
+    if (!slot) return null;
+    const { cellPadding, cardGap } = live.current.board.theme;
+    return {
+      x: outer.x + cellPadding,
+      y: outer.y + slot.top,
+      width: outer.width - cellPadding * 2,
+      height: Math.max(0, slot.height - cardGap),
+    };
+  };
+
+  return {
+    get scroller() {
+      return live.current.lanes.scroller;
+    },
+    accepts: () => true,
+    getRect: rect,
+    resolve(y) {
+      const outer = rect();
+      if (!outer) return 0;
+      return cardIndexFromRaw(rawInsertionIndex(slots, y - outer.y), live.current.placeholderAt);
+    },
+    itemAt(y) {
+      const outer = rect();
+      if (!outer) return null;
+      const local = y - outer.y;
+      const index = slotIndexAt(slots, local);
+      const slot = index >= 0 ? slots.slot(index) : undefined;
+      const row = index >= 0 ? live.current.rows[index] : undefined;
+      if (!slot || row === undefined || isPlaceholder(row)) return null;
+      if (local > slot.top + slot.height - live.current.board.theme.cardGap) return null;
+      const found = rowRect(index, outer);
+      const itemId = live.current.board.props.getItemId(row);
+      const location = live.current.board.controller.model.locations.get(itemId);
+      return found && location ? { itemId, index: location.index, rect: found } : null;
+    },
+    itemRect(itemId) {
+      const current = live.current;
+      const outer = rect();
+      if (!outer) return null;
+      const index =
+        itemId === PLACEHOLDER_ID
+          ? current.placeholderAt
+          : current.rows.findIndex((row) => !isPlaceholder(row) && current.board.props.getItemId(row) === itemId);
+      const found = index >= 0 ? rowRect(index, outer) : null;
+      const frame = current.lanes.frame.current;
+      if (!found || found.y + found.height < frame.top || found.y > frame.top + frame.height) return null;
+      return found;
+    },
+  };
+}
+
+const SwimCell = memo(function SwimCell({
+  cell,
+  slot,
+  laneIndex,
+  rowY,
+}: {
+  cell: BoardCell<unknown>;
+  slot: ColumnSlot;
+  laneIndex: number;
+  rowY: number;
+}) {
+  const board = useBoard();
+  const lanes = useLanes();
+  const { theme, labels, props, controller, adapter } = board;
+  const placement = adapter.usePlacement(cell.cellId);
+  const [height, setHeight] = useState(0);
+  const limit = lanes.limitOf(cell.cellId);
+  const getItemId = props.getItemId;
+  const rows = useMemo(
+    () => displayedRows(cell.items, getItemId, placement, limit),
+    [cell.items, getItemId, limit, placement],
+  );
+  const placeholderAt = placement.placeholderIndex === null ? -1 : rows.indexOf(PLACEHOLDER_ROW);
+  const visibleCards = rows.length - (placeholderAt >= 0 ? 1 : 0);
+  const hiddenCount = cell.items.length - (placement.hiddenItemId !== null ? 1 : 0) - visibleCards;
+  const slotsByKey = useRef(new Map<string, Slot>());
+  const live = useRef<SwimLive>({ board, lanes, cell, rows, placeholderAt, slot, laneIndex, rowY, height });
+  live.current = { board, lanes, cell, rows, placeholderAt, slot, laneIndex, rowY, height };
+  const geometry = useMemo(() => swimGeometry(live, slotsByKey), []);
+
+  const onLayout = useCallback((event: LayoutChangeEvent) => setHeight(event.nativeEvent.layout.height), []);
+  const onSlotLayout = useCallback((key: string, top: number, slotHeight: number) => {
+    slotsByKey.current.set(key, { top, height: slotHeight });
+  }, []);
+  const onPlaceholderLayout = useCallback(
+    (event: LayoutChangeEvent) =>
+      onSlotLayout(PLACEHOLDER_ID, event.nativeEvent.layout.y, event.nativeEvent.layout.height),
+    [onSlotLayout],
+  );
+  const more = useCallback(() => lanes.showMore(cell.cellId), [cell.cellId, lanes]);
+
+  const frameStyle = [
+    styles.cell,
+    {
+      width: slot.width,
+      minHeight: theme.cellMinHeight + theme.cellPadding * 2,
+      padding: theme.cellPadding,
+      paddingBottom: Math.max(0, theme.cellPadding - theme.cardGap),
+      backgroundColor: theme.columnBackground,
+      borderColor: theme.columnBorder,
+      borderRadius: theme.radius,
+      direction: board.rtl ? ('rtl' as const) : ('ltr' as const),
+    },
+  ];
+
+  if (slot.collapsed) {
+    return (
+      <View style={[frameStyle, styles.collapsedCell]}>
+        <CountPill count={cell.items.length} theme={theme} />
+      </View>
+    );
+  }
+
+  return (
+    <adapter.Cell cellId={cell.cellId} geometry={geometry} style={frameStyle} onLayout={onLayout}>
+      {rows.length === 0 ? (
+        <View style={{ paddingBottom: theme.cardGap }}>
+          {props.renderEmptyCell ? (
+            props.renderEmptyCell({ column: cell.column, lane: cell.lane })
+          ) : (
+            <DefaultEmptyCell theme={theme} labels={labels} />
+          )}
+        </View>
+      ) : (
+        rows.map((row) => {
+          if (isPlaceholder(row)) {
+            return (
+              <View key={PLACEHOLDER_ID} style={{ paddingBottom: theme.cardGap }} onLayout={onPlaceholderLayout}>
+                <adapter.Placeholder
+                  height={placement.placeholderHeight}
+                  radius={theme.cardRadius}
+                  color={theme.accent}
+                  render={props.renderDropIndicator}
+                />
+              </View>
+            );
+          }
+          const id = getItemId(row);
+          return (
+            <BoardCard
+              key={id}
+              itemId={id}
+              cellId={cell.cellId}
+              index={controller.model.locations.get(id)?.index ?? 0}
+              count={cell.items.length}
+              pending={controller.isPending(id)}
+              onSlotLayout={onSlotLayout}
+            />
+          );
+        })
+      )}
+      {hiddenCount > 0 ? <ShowMoreButton label={labels.showMore(hiddenCount)} theme={theme} onPress={more} /> : null}
+      {props.renderColumnFooter
+        ? props.renderColumnFooter({ column: cell.column, lane: cell.lane, count: cell.items.length })
+        : null}
+    </adapter.Cell>
+  );
+});
+
+const styles = StyleSheet.create({
+  ltr: { direction: 'ltr' },
+  fill: { flex: 1 },
+  headerRow: { flexDirection: 'row', paddingBottom: 6 },
+  collapsedHeader: { alignItems: 'center', gap: 6, paddingVertical: 10 },
+  lanesContent: { paddingBottom: 32 },
+  lane: { paddingBottom: LANE_SPACING },
+  cellRow: { flexDirection: 'row', alignItems: 'stretch', paddingTop: ROW_SPACING },
+  cell: { borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  collapsedCell: { alignItems: 'center' },
+});

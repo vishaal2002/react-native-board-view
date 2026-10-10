@@ -1,125 +1,82 @@
-import { useMemo, useState } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { BoardDragProvider, DraxCell, DraxCellBoard, cellId, type AutoScrollMode } from 'react-native-board-view';
-import { generateNKeysBetween } from 'fractional-indexing';
-import { type SpikeCard } from '../fixtures';
-import { idsIn, useLocalBoard } from '../localBoard';
-import { theme } from '../theme';
-import { Button, CardFace, Screen, Stat } from '../ui';
+import { useCallback, useState } from 'react';
+import {
+  Board,
+  fractionalRank,
+  type BoardLayout,
+  type CardRenderInfo,
+  type GroupBy,
+  type GroupValue,
+} from 'react-native-board-view';
+import type { Task } from '../data';
+import { taskId, taskLabel } from '../ids';
+import { EventLog, Screen, Segmented, Stat, TaskCard, usePalette } from '../ui';
+import { useTaskStore } from '../useTaskStore';
 
-const COLUMN_COUNT = 12;
-const DEEP_INDEX = 24;
+const COLUMNS: GroupValue[] = Array.from({ length: 12 }, (_, index) => ({
+  id: `c${index + 1}`,
+  label: `Column ${index + 1}`,
+}));
+const groupBy: GroupBy<Task> = { columns: { key: 'status', values: COLUMNS } };
+const DEEP = 60;
+
+function seed(): Task[] {
+  const total = DEEP + (COLUMNS.length - 1) * 2;
+  const ranks = fractionalRank.nBetween(null, null, total);
+  return ranks.map((rank, index) => {
+    const column = index < DEEP ? 0 : 1 + Math.floor((index - DEEP) / 2);
+    return {
+      id: `s${index}`,
+      title: index < DEEP ? `Deep card ${index + 1}` : `Card in column ${column + 1}`,
+      rank,
+      status: COLUMNS[column]?.id ?? null,
+      assignee: null,
+      tags: [],
+      priority: 'medium',
+      height: 88,
+    };
+  });
+}
 
 export function AutoScrollScreen({ onBack }: { onBack: () => void }) {
-  const { width, height } = useWindowDimensions();
-  const [mode, setMode] = useState<AutoScrollMode>('continuous');
-  const [reachedColumn, setReachedColumn] = useState(false);
-  const [reachedCard, setReachedCard] = useState(false);
-  const [overshotColumn, setOvershotColumn] = useState(false);
-  const [overshotCard, setOvershotCard] = useState(false);
-  const columnWidth = mode === 'paged' ? width : Math.min(280, width * 0.72);
-  const columnHeight = Math.max(240, height - 280);
-  const columns = useMemo(
-    () => Array.from({ length: COLUMN_COUNT }, (_, index) => ({ id: `c${index + 1}`, label: `Column ${index + 1}` })),
-    [],
-  );
-  const initial = useMemo(() => build(columns.map((column) => column.id)), [columns]);
-  const groupBy = useMemo(
-    () => ({ columns: { key: 'status', values: columns } }),
-    [columns],
-  );
-  const board = useLocalBoard(initial, groupBy);
-  const targetX = (COLUMN_COUNT - 1) * columnWidth;
-  const deepCards = board.projected.cellById.get(cellId('_', 'c1'))?.items ?? [];
-  const targetY = deepCards.slice(0, DEEP_INDEX).reduce((sum, card) => sum + card.height + 8, 0);
-
+  const palette = usePalette();
+  const [layout, setLayout] = useState<BoardLayout>('auto');
+  const [column, setColumn] = useState('c1');
+  const store = useTaskStore(seed, groupBy);
+  const renderCard = useCallback((info: CardRenderInfo<Task>) => <TaskCard info={info} variant="minimal" />, []);
   return (
     <Screen
-      title="S4 auto-scroll"
-      subtitle="Drag a card from column 1. Hold the right edge until column 12, then the bottom edge until a deep card. Lift when you arrive."
+      title="S4 · Auto-scroll"
+      subtitle="Hold a card at the right edge to travel to column 12 (paged: dwell to flip a page). Hold at the bottom of column 1 to reach the deep cards. Release anywhere: no overshoot."
       onBack={onBack}
-      footer={
-        <View style={styles.footer}>
-          <Stat label="Far column" value={reachedColumn ? 'reached' : 'not yet'} />
-          <Stat label="Deep card" value={reachedCard ? 'reached' : 'not yet'} />
-          <Stat label="Overshoot" value={overshotColumn || overshotCard ? 'yes' : 'no'} warn={overshotColumn || overshotCard} />
-          <Button label={mode === 'paged' ? 'Paged' : 'Continuous'} onPress={() => setMode((value) => (value === 'paged' ? 'continuous' : 'paged'))} />
-        </View>
+      toolbar={
+        <>
+          <Segmented
+            label="Layout"
+            options={[
+              { label: 'Auto', value: 'auto' },
+              { label: 'Paged', value: 'paged' },
+              { label: 'Multi', value: 'multi' },
+            ]}
+            value={layout}
+            onChange={setLayout}
+          />
+          <Stat label="Page" value={column.toUpperCase()} />
+        </>
       }
+      footer={<EventLog entries={store.log} height={80} />}
     >
-      <BoardDragProvider>
-        <DraxCellBoard
-          horizontal
-          mode={mode}
-          pageSize={columnWidth}
-          onHorizontalOffset={(offset) => {
-            if (offset >= targetX - 24) setReachedColumn(true);
-            if (offset > targetX + columnWidth * 0.45) setOvershotColumn(true);
-          }}
-          onTransfer={(event) => board.commit(event.itemId, event.fromCellId, event.toCellId, event.toIndex, event.rawToIndex)}
-          onReorder={(event) => board.commit(event.itemId, event.cellId, event.cellId, event.toIndex)}
-        >
-          {columns.map((column) => {
-            const id = cellId('_', column.id);
-            const ids = idsIn(board.projected, id);
-            return (
-              <View key={id} style={[styles.column, { width: columnWidth, height: columnHeight }]}>
-                <Text style={styles.header}>{column.label}</Text>
-                <DraxCell
-                  cellId={id}
-                  itemIds={ids}
-                  onVerticalOffset={
-                    column.id === 'c1'
-                      ? (offset) => {
-                          if (offset >= Math.max(0, targetY - 20)) setReachedCard(true);
-                          if (targetY > 0 && offset > targetY + 220) setOvershotCard(true);
-                        }
-                      : undefined
-                  }
-                  renderCard={(itemId) => {
-                    const card = deepCards.find((item) => item.id === itemId) ?? findAny(board.projected.cells, itemId);
-                    return <CardFace title={card?.title ?? itemId} height={card?.height ?? 72} />;
-                  }}
-                />
-              </View>
-            );
-          })}
-        </DraxCellBoard>
-      </BoardDragProvider>
+      <Board
+        items={store.items}
+        getItemId={taskId}
+        getItemLabel={taskLabel}
+        groupBy={groupBy}
+        onMove={store.onMove}
+        renderCard={renderCard}
+        layout={layout}
+        pagerIndicator="dots"
+        onColumnChange={setColumn}
+        appearance={palette.dark ? 'dark' : 'light'}
+      />
     </Screen>
   );
 }
-
-function build(statuses: string[]): SpikeCard[] {
-  const ranks = generateNKeysBetween(null, null, 40 + statuses.length);
-  const cards: SpikeCard[] = [];
-  statuses.forEach((status, columnIndex) => {
-    const count = columnIndex === 0 ? 36 : 1;
-    for (let index = 0; index < count; index += 1) {
-      const rankIndex = cards.length;
-      cards.push({
-        id: `${status}-${index + 1}`,
-        title: columnIndex === 0 ? `Deep ${index + 1}` : `Card ${columnIndex + 1}`,
-        rank: ranks[rankIndex] ?? `a${rankIndex}`,
-        status,
-        assignee: 'alice',
-        height: 88,
-      });
-    }
-  });
-  return cards;
-}
-
-function findAny(cells: readonly { items: readonly SpikeCard[] }[], itemId: string): SpikeCard | undefined {
-  for (const cell of cells) {
-    const found = cell.items.find((item) => item.id === itemId);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-const styles = StyleSheet.create({
-  column: { backgroundColor: theme.panel, marginRight: 8, borderRadius: 12, overflow: 'hidden' },
-  header: { color: theme.text, fontWeight: '700', padding: 10 },
-  footer: { flexDirection: 'row', gap: 8, padding: 12, flexWrap: 'wrap', alignItems: 'center' },
-});

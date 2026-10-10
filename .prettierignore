@@ -1,0 +1,6 @@
+node_modules
+lib
+dist
+apps/*/android
+apps/*/ios
+package-lock.json

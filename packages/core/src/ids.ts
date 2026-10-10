@@ -10,8 +10,12 @@ const CELL_SEPARATOR = '::';
 
 export function cellId(laneKey: string, columnKey: string): string {
   if (laneKey.includes(CELL_SEPARATOR) || columnKey.includes(CELL_SEPARATOR)) {
+    throw new Error(`Group ids cannot contain "${CELL_SEPARATOR}" (got lane "${laneKey}", column "${columnKey}").`);
+  }
+  // "a:" + "b" and "a" + ":b" would both read as "a:::b", which cannot be split back.
+  if (laneKey.length === 0 || columnKey.length === 0 || laneKey.endsWith(':') || columnKey.startsWith(':')) {
     throw new Error(
-      `Group ids cannot contain "${CELL_SEPARATOR}" (got lane "${laneKey}", column "${columnKey}").`,
+      `Group ids must be non-empty, lane ids cannot end with ":" and column ids cannot start with ":" (got lane "${laneKey}", column "${columnKey}").`,
     );
   }
   return `${laneKey}${CELL_SEPARATOR}${columnKey}`;

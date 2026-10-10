@@ -1,73 +1,100 @@
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { runS1Cases } from 'react-native-board-view';
-import { theme } from '../theme';
-import type { ScreenId } from '../types';
+import { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { runS1Cases } from 'board-view-core';
+import type { Route } from '../routes';
+import { Screen, usePalette } from '../ui';
 
-const manual: { id: ScreenId; code: string; title: string; detail: string }[] = [
-  { id: 'empty', code: 'S2', title: 'Empty-cell drops', detail: '3×3 grid. 20 drops on empty cells and 20 on occupied cells. Mismatches stay at 0.' },
-  { id: 'scale', code: 'S3', title: 'Scale', detail: '4 columns × 500 cards, heights 60–220. Release build, median UI and JS FPS ≥ 55, toIndex in range.' },
-  { id: 'scroll', code: 'S4', title: 'Auto-scroll', detail: 'Hold a drag in the edge until column 12 and a deep card. No overshoot.' },
-  { id: 'gestures', code: 'S5', title: 'Gesture coexistence', detail: 'Paged layout. Page swipe, long-press drag, and the … action. 0 misfires in 50 attempts.' },
-  { id: 'rollback', code: 'S6', title: 'Rollback', detail: 'Reject a move after 800ms. Then fire two rapid moves. The card returns and the second call does not race.' },
-  { id: 'move', code: 'S7', title: 'Screen reader', detail: 'Complete a move with TalkBack or VoiceOver using Move to…. Do not drag.' },
+const GATES: { code: string; title: string; detail: string; route: Route }[] = [
+  {
+    code: 'S2',
+    title: 'Empty-cell drops',
+    detail: '20 drops into empty cells and 20 into occupied cells, 0 mismatches.',
+    route: 'empty',
+  },
+  {
+    code: 'S3',
+    title: 'Scale',
+    detail: '4 × 500 cards, heights 60–220. Release build: median UI and JS FPS ≥ 55, cards land where dropped.',
+    route: 'scale',
+  },
+  {
+    code: 'S4',
+    title: 'Auto-scroll',
+    detail: 'Reach column 12 and a deep card with no overshoot.',
+    route: 'autoscroll',
+  },
+  {
+    code: 'S5',
+    title: 'Gesture coexistence',
+    detail: 'Paged layout: page swipe, long-press drag and the … button. 0 misfires in 50 tries.',
+    route: 'kanban-paged',
+  },
+  {
+    code: 'S6',
+    title: 'Rollback',
+    detail: 'Reject after 800 ms returns the card. Two rapid moves of one card never overlap.',
+    route: 'rollback',
+  },
+  {
+    code: 'S7',
+    title: 'Screen reader',
+    detail: 'Complete a move with TalkBack or VoiceOver without dragging.',
+    route: 'a11y',
+  },
 ];
 
-export function ChecklistScreen({
-  host,
-  rtl,
-  onRtl,
-  onOpen,
-}: {
-  host: string;
-  rtl: boolean;
-  onRtl: (value: boolean) => void;
-  onOpen: (screen: ScreenId) => void;
-}) {
-  const cases = runS1Cases();
-  const failed = cases.filter((item) => !item.pass).length;
+export function ChecklistScreen({ onBack, onOpen }: { onBack: () => void; onOpen: (route: Route) => void }) {
+  const palette = usePalette();
+  const s1 = useMemo(() => runS1Cases(), []);
+  const passed = s1.every((check) => check.pass);
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.kicker}>react-native-board-view</Text>
-      <Text style={styles.title}>Spike checklist</Text>
-      <Text style={styles.copy}>
-        This {host} build is the M0 harness. The board is a projection: items stay in your store, and a move is an operation you apply or reject.
-      </Text>
-      <View style={styles.row}>
-        <Text style={styles.copy}>Layout direction preview</Text>
-        <Switch accessibilityLabel="Preview right to left layout" value={rtl} onValueChange={onRtl} />
-      </View>
-      <View style={styles.block}>
-        <Text style={styles.blockTitle}>S1 rank and index · {failed === 0 ? 'pass' : `${failed} failed`}</Text>
-        <Text style={styles.copy}>Automated here and in unit tests. Same-cell, cross-cell, filtered neighbors, toIndex.</Text>
-        {cases.map((item) => (
-          <Text key={item.id} style={[styles.case, !item.pass && { color: theme.bad }]}>
-            {item.pass ? 'Pass' : 'Fail'} · {item.name}
+    <Screen
+      title="Spike gates"
+      subtitle="S1 runs here and in CI. S2–S7 are device checks; score S3 and S4 on release builds."
+      onBack={onBack}
+    >
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <Text style={[styles.cardTitle, { color: palette.text }]}>
+            S1 · rank and index{' '}
+            <Text style={{ color: passed ? palette.good : palette.bad }}>{passed ? 'pass' : 'fail'}</Text>
           </Text>
+          {s1.map((check) => (
+            <Text key={check.id} style={[styles.line, { color: check.pass ? palette.good : palette.bad }]}>
+              {check.pass ? '✓' : '✕'} {check.name}
+            </Text>
+          ))}
+        </View>
+        {GATES.map((gate) => (
+          <Pressable
+            key={gate.code}
+            onPress={() => onOpen(gate.route)}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.card,
+              styles.gate,
+              { backgroundColor: palette.surface, borderColor: palette.border, opacity: pressed ? 0.8 : 1 },
+            ]}
+          >
+            <Text style={[styles.code, { color: palette.accent }]}>{gate.code}</Text>
+            <View style={styles.gateText}>
+              <Text style={[styles.cardTitle, { color: palette.text }]}>{gate.title}</Text>
+              <Text style={[styles.detail, { color: palette.muted }]}>{gate.detail}</Text>
+            </View>
+          </Pressable>
         ))}
-      </View>
-      {manual.map((item) => (
-        <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`${item.code} ${item.title}`} onPress={() => onOpen(item.id)} style={styles.link}>
-          <Text style={styles.linkCode}>{item.code}</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.linkTitle}>{item.title}</Text>
-            <Text style={styles.copy}>{item.detail}</Text>
-          </View>
-        </Pressable>
-      ))}
-    </ScrollView>
+      </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
-  kicker: { color: theme.accent, fontSize: 13, fontWeight: '700' },
-  title: { color: theme.text, fontSize: 28, fontWeight: '700' },
-  copy: { color: theme.muted, fontSize: 14, lineHeight: 20 },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  block: { backgroundColor: theme.panel, borderRadius: 12, padding: 12, gap: 4 },
-  blockTitle: { color: theme.text, fontSize: 16, fontWeight: '700' },
-  case: { color: theme.good, fontSize: 13 },
-  link: { flexDirection: 'row', gap: 12, backgroundColor: theme.panel, borderRadius: 12, padding: 12 },
-  linkCode: { color: theme.accent, fontWeight: '700', width: 32 },
-  linkTitle: { color: theme.text, fontSize: 16, fontWeight: '700' },
+  content: { padding: 16, gap: 10, paddingBottom: 40 },
+  card: { borderRadius: 14, padding: 14, borderWidth: StyleSheet.hairlineWidth, gap: 4 },
+  cardTitle: { fontSize: 16, fontWeight: '700' },
+  line: { fontSize: 13, fontWeight: '500' },
+  gate: { flexDirection: 'row', gap: 12 },
+  code: { fontSize: 15, fontWeight: '800', width: 28 },
+  gateText: { flex: 1, gap: 2 },
+  detail: { fontSize: 13, lineHeight: 18 },
 });
