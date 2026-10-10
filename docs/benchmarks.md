@@ -59,3 +59,15 @@ The engine itself was instrumented with timers for this run; the timers were rem
 | Low-end Android (Galaxy A14 / Pixel 4a class) | Release | The six scenarios above |
 | iPhone 12 class | Release | The six scenarios above |
 | Any | Release | Swimlanes, 20 lanes × 6 columns |
+
+## Gesture Handler 3 check, 2026-10-10
+
+The same release build was rebuilt against `react-native-gesture-handler` **3.3.0** (npm `latest`) and run on the Pixel 9 Pro AVD. Every flow below worked:
+
+- long-press drag with a committed reorder;
+- page swipes in the paged layout;
+- swipe-to-move in the multi layout;
+- long-press-and-release opening the Move sheet;
+- a move from the sheet.
+
+The engine uses only the builder API (`Gesture.Pan`, `Gesture.Native`, `GestureDetector`, `blocksExternalGesture`). GH3 still exports it, and `onFinalize` still receives `success`. The peer range is `>=2.28 <4`. The demo apps stay on 2.32, which Expo SDK 57 pins.

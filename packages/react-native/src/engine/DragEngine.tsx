@@ -273,6 +273,8 @@ interface ActiveDrag {
   dwellX: number;
   dwellY: number;
   scrolled: boolean;
+  /** Auto-scroll runs once the finger has moved away from where it picked the card up. */
+  armed: boolean;
   /** When auto-scroll last moved content, in rAF time. */
   lastScrollAt: number;
   /** Last cell under the pointer: past its end (over a footer, a tab bar) it keeps scrolling. */
@@ -436,6 +438,13 @@ function DragBoard(props: DragBoardProps) {
     (dt: number) => {
       const active = drag.current;
       if (!active) return;
+      // A card picked up inside an edge zone must not scroll until the finger moves:
+      // a press-and-release there opens the menu.
+      if (!active.armed) {
+        const travelled = Math.hypot(active.pointer.x - active.start.x, active.pointer.y - active.start.y);
+        if (travelled < MENU_SLOP) return;
+        active.armed = true;
+      }
       const { reducedMotion = false, compact = true } = propsRef.current;
       const run = (scroller: ScrollerHandle, pointer: number, dwell: number): number => {
         const viewport = scroller.getViewport();
@@ -504,6 +513,7 @@ function DragBoard(props: DragBoardProps) {
         dwellX: 0,
         dwellY: 0,
         scrolled: false,
+        armed: false,
         lastScrollAt: -Infinity,
         lastCellId: hit[0],
         candidate: null,
