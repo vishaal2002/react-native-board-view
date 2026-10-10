@@ -31,7 +31,7 @@ long-press drag / Move to… / screen-reader action ──► move operation ─
 > **Status: 0.1 (pre-release).**
 >
 > - Verified on the Android emulator, in debug and release builds, with Gesture Handler 2.32 and 3.3.
-> - iOS and low-end Android hardware have not been benchmarked yet; see [docs/benchmarks.md](docs/benchmarks.md).
+> - iOS and low-end Android hardware have not been benchmarked yet; see [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
 > - The API may still change before 1.0.
 
 ## Contents
@@ -48,8 +48,8 @@ long-press drag / Move to… / screen-reader action ──► move operation ─
 - [Accessibility](#accessibility)
 - [Performance](#performance)
 - [What it does not do](#what-it-does-not-do)
-- [Recipes](docs/recipes.md)
-- [Contributing](CONTRIBUTING.md)
+- [Recipes](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md)
+- [Contributing](https://github.com/vishaal2002/react-native-board-view/blob/main/CONTRIBUTING.md)
 
 ## Requirements
 
@@ -162,7 +162,7 @@ export function TaskBoard({ initial }: { initial: Task[] }) {
 
 `Board` renders its own `GestureHandlerRootView`. Wrapping the app root in one, as above, is still the recommended Gesture Handler setup.
 
-Items need a sortable string `rank`, or pass `getRank`. For data that has no ranks yet, see [Seeding ranks](docs/recipes.md#seeding-ranks).
+Items need a sortable string `rank`, or pass `getRank`. For data that has no ranks yet, see [Seeding ranks](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#seeding-ranks).
 
 ## How moves work
 
@@ -196,7 +196,7 @@ The lifecycle of a move:
 
 Your data stays in charge. If items change during a drag so that the dragged card disappears or moves to another cell, the drag is cancelled. If a drop can no longer be planned against the current data, it is refused and the card returns.
 
-See [docs/recipes.md](docs/recipes.md) for more:
+See [docs/recipes.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md) for more:
 
 - TanStack Query, React 19 `useOptimistic`, local-first stores;
 - rules such as WIP limits;
@@ -351,7 +351,7 @@ board.current?.closeMoveSheet();
 
 - **What we measured:** in a release build on the Android emulator, with 4 × 500 cards, the engine spends about **0.15 ms** per frame while dragging. Holding a card runs at 60 fps on both threads.
 - **Auto-scroll:** frame rate during auto-scroll follows FlashList's cell rendering, just as it does for a finger scroll.
-- **Details:** method and numbers are in [docs/benchmarks.md](docs/benchmarks.md).
+- **Details:** method and numbers are in [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
 
 To keep it fast:
 
