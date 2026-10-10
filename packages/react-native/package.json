@@ -3,6 +3,15 @@
   "version": "0.1.0",
   "description": "Kanban and swimlane boards for React Native and Expo. Virtualized columns, long-press drag, a Move to… sheet, and optimistic moves with rollback. Your items stay the source of truth.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vishaal2002/react-native-board-view.git",
+    "directory": "packages/react-native"
+  },
+  "homepage": "https://github.com/vishaal2002/react-native-board-view#readme",
+  "bugs": {
+    "url": "https://github.com/vishaal2002/react-native-board-view/issues"
+  },
   "sideEffects": false,
   "main": "./lib/commonjs/index.js",
   "module": "./lib/module/index.js",

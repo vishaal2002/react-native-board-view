@@ -21,8 +21,8 @@ Run these in the demo app (`apps/bare` or `apps/example`). Score S3 and S4 on a 
 | S2   | Empty cells   | 20 drops into empty cells and 20 into occupied ones, with 0 mismatches                     | Emulator, release ✓ 20/20/0 (2026-10-10)                                                         |
 | S3   | Scale         | 4 × 500 cards; the drop lands at the index shown; frame rates recorded in `benchmarks.md`  | Emulator, release ✓ (2026-10-10)                                                                 |
 | S4   | Auto-scroll   | Reaches the far column and a deep card with no overshoot                                   | Partly: page flips and deep vertical auto-scroll on the S3 screen, emulator release (2026-10-10) |
-| S5   | Paged layout  | 0 misfires in 50 tries (page swipe vs long-press drag vs "…")                              | Not yet scored                                                                                   |
+| S5   | Paged layout  | 0 misfires in 50 tries (page swipe vs long-press drag vs "…")                              | iPhone 17 simulator, debug ✓ 50/50, 0 misfires (2026-10-10). Not a release build or a physical iPhone. |
 | S6   | Rollback      | A reject after 800 ms returns the card; two rapid moves never call `onMove` in parallel    | Emulator, release ✓ reject after 800 ms returns the card (2026-10-10)                            |
-| S7   | Accessibility | TalkBack and VoiceOver complete a move without dragging, and focus lands on the moved card | Not yet scored                                                                                   |
+| S7   | Accessibility | TalkBack and VoiceOver complete a move without dragging, and focus lands on the moved card | Not yet scored. On the iPhone 17 simulator the card accessibility actions are "Move to…" and "Move to ‹column›" (2026-10-10). VoiceOver focus and TalkBack were not driven. |
 
 Do not tag 1.0 until S2–S7 pass on a mid-tier Android phone and an iPhone.
