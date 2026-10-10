@@ -55,16 +55,16 @@ Rebuild the native app after adding those peers. React Native 0.83 and later in 
 
 Checked against npm and Expo’s SDK 57 bundle on 9 Oct 2026.
 
-| Package | What this repo uses | Notes |
-| --- | --- | --- |
-| Expo | SDK **57.0.27** | Current stable. SDK 55 is the floor in the brief, not the current SDK. SDK 56 has a Hermes v1 memory regression with Reanimated; SDK 57.0.9+ fixes it. |
-| React Native | **0.86.3** | SDK 57 and the CLI app both use this. |
-| Reanimated | **4.5.1** | Reanimated 4 is required. npm `latest` is 4.7.x and wants Worklets 0.13. Do not mix that into an SDK 57 app. |
-| Worklets | **0.10.1** | Separate package. The brief does not name it. Reanimated 4 will not start without the matching major. |
-| Gesture Handler | **2.32.0** | See below. |
-| FlashList | **2.3.3** | v2 is correct. There is no v2-incompatible v4 on npm. v2 is New Architecture only and does not use `estimatedItemSize`. Expo’s bundled floor is 2.0.2. |
-| Drax | **1.1.0** | Rewrite from March 2026. The 0.10 `DraxList` API is gone. |
-| fractional-indexing | **4.0.0** | Default keys are unchanged. The v4 break only affects a custom digit alphabet, which we do not pass. |
+| Package             | What this repo uses | Notes                                                                                                                                                  |
+| ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Expo                | SDK **57.0.27**     | Current stable. SDK 55 is the floor in the brief, not the current SDK. SDK 56 has a Hermes v1 memory regression with Reanimated; SDK 57.0.9+ fixes it. |
+| React Native        | **0.86.3**          | SDK 57 and the CLI app both use this.                                                                                                                  |
+| Reanimated          | **4.5.1**           | Reanimated 4 is required. npm `latest` is 4.7.x and wants Worklets 0.13. Do not mix that into an SDK 57 app.                                           |
+| Worklets            | **0.10.1**          | Separate package. The brief does not name it. Reanimated 4 will not start without the matching major.                                                  |
+| Gesture Handler     | **2.32.0**          | See below.                                                                                                                                             |
+| FlashList           | **2.3.3**           | v2 is correct. There is no v2-incompatible v4 on npm. v2 is New Architecture only and does not use `estimatedItemSize`. Expo’s bundled floor is 2.0.2. |
+| Drax                | **1.1.0**           | Rewrite from March 2026. The 0.10 `DraxList` API is gone.                                                                                              |
+| fractional-indexing | **4.0.0**           | Default keys are unchanged. The v4 break only affects a custom digit alphabet, which we do not pass.                                                   |
 
 ### Gesture Handler is v2
 
@@ -81,7 +81,9 @@ Cross-container drag is marked experimental. The adapter turns off Drax’s step
 One global fractional rank per item. A cell’s order is that rank filtered to the cell. Ties break by item id. `rankBetween` and `rebalanceRanks` use `fractional-indexing`. Rank is computed between the visible neighbors in the target cell, so filtered items are not boundaries.
 
 ```ts
-{ opId, id, changes, from, rank }
+{
+  (opId, id, changes, from, rank);
+}
 ```
 
 `onMove` may return a promise. The overlay updates inside `enqueue`, before `onMove` runs. Moves on one item are serialized. A rejection removes the overlay and cancels later queued moves for that item. The overlay stays after resolve until `reconcile` sees the item’s rank and grouped fields match. That does not depend on `setState` timing.

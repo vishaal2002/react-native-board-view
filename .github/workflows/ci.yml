@@ -15,6 +15,45 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:hosts
+      - run: npm run format:check
       - run: npm run lint
       - run: npm test
       - run: npm run typecheck
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          (cd packages/core && npm pack --pack-destination "$RUNNER_TEMP/pack")
+          (cd packages/react-native && npm pack --pack-destination "$RUNNER_TEMP/pack")
+          tar -tzf "$RUNNER_TEMP/pack/react-native-board-view-"*.tgz | grep -q 'package/lib/typescript/module/index.d.ts'
+          ! tar -tzf "$RUNNER_TEMP/pack/react-native-board-view-"*.tgz | grep -E '\.test\.(ts|tsx)$'
+      - name: Core loads in plain Node (CJS and ESM)
+        run: |
+          mkdir -p "$RUNNER_TEMP/node-smoke" && cd "$RUNNER_TEMP/node-smoke"
+          npm init -y > /dev/null
+          npm install "$RUNNER_TEMP"/pack/board-view-core-*.tgz
+          node -e "const c = require('board-view-core'); if (typeof c.planMove !== 'function') process.exit(1)"
+          node --input-type=module -e "import { planMove } from 'board-view-core'; if (typeof planMove !== 'function') process.exit(1)"
+
+  gesture-handler-3:
+    # Apps pin Gesture Handler 2.x (Expo SDK 57); the library supports 2.28+ and 3.x.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save react-native-gesture-handler@^3
+      - run: npm run typecheck -w react-native-board-view

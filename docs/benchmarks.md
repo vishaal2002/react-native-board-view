@@ -25,14 +25,14 @@ Setup:
 - Layout: `auto`, which is paged on a phone.
 - Drags were injected through the emulator console as a continuous touch stream.
 
-| Scenario | JS fps (median / low) | UI fps (median / low) |
-|---|---|---|
-| Idle board | 60 / 60 | 60 / 60 |
-| Lift a card and hold it still for 7 s | 60 / 47 | 60 / 43 |
-| Plain finger scrolling of a column, no drag | 29 / 25 | 48 / 27 |
-| Drag with vertical auto-scroll, 7 s | 30 / 25 | 30 / 27 |
-| Drag with page flips and then vertical auto-scroll | 31 / 23 | 32 / 27 |
-| Slow cards (2 ms each), drag with vertical auto-scroll | 25 / 13 | 25 / 17 |
+| Scenario                                               | JS fps (median / low) | UI fps (median / low) |
+| ------------------------------------------------------ | --------------------- | --------------------- |
+| Idle board                                             | 60 / 60               | 60 / 60               |
+| Lift a card and hold it still for 7 s                  | 60 / 47               | 60 / 43               |
+| Plain finger scrolling of a column, no drag            | 29 / 25               | 48 / 27               |
+| Drag with vertical auto-scroll, 7 s                    | 30 / 25               | 30 / 27               |
+| Drag with page flips and then vertical auto-scroll     | 31 / 23               | 32 / 27               |
+| Slow cards (2 ms each), drag with vertical auto-scroll | 25 / 13               | 25 / 17               |
 
 The engine itself was instrumented with timers for this run; the timers were removed afterwards.
 
@@ -54,11 +54,11 @@ The engine itself was instrumented with timers for this run; the timers were rem
 
 ## Still to measure (release gates)
 
-| Device | Build | Workload |
-|---|---|---|
-| Low-end Android (Galaxy A14 / Pixel 4a class) | Release | The six scenarios above |
-| iPhone 12 class | Release | The six scenarios above |
-| Any | Release | Swimlanes, 20 lanes × 6 columns |
+| Device                                        | Build   | Workload                        |
+| --------------------------------------------- | ------- | ------------------------------- |
+| Low-end Android (Galaxy A14 / Pixel 4a class) | Release | The six scenarios above         |
+| iPhone 12 class                               | Release | The six scenarios above         |
+| Any                                           | Release | Swimlanes, 20 lanes × 6 columns |
 
 ## Gesture Handler 3 check, 2026-10-10
 
