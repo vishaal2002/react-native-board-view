@@ -104,8 +104,10 @@ export function Board<T>(props: BoardProps<T>) {
   const [page] = useState(() => createValueStore(0));
   const scrollApi = useRef<ScrollApi | null>(null);
 
-  const sheetMode = props.moveModes?.sheet ?? 'auto';
+  const readOnly = props.readOnly === true;
+  const sheetMode = readOnly ? false : (props.moveModes?.sheet ?? 'auto');
   const [sheetItem, setSheetItem] = useState<string | null>(null);
+  if (readOnly && sheetItem !== null) setSheetItem(null);
   const openMoveSheet = useCallback(
     (itemId: string) => {
       if (sheetMode !== false) setSheetItem(itemId);
@@ -125,7 +127,7 @@ export function Board<T>(props: BoardProps<T>) {
     [closeMoveSheet, openMoveSheet],
   );
 
-  const swipeEnabled = props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
+  const swipeEnabled = !readOnly && props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
   const autoScroll = props.autoScroll ?? true;
   const value = useMemo<BoardContextValue<T>>(
     () => ({
@@ -205,10 +207,11 @@ export function Board<T>(props: BoardProps<T>) {
   }, []);
   const canDragItem = useCallback(
     (itemId: string) => {
+      if (readOnly) return false;
       const item = itemsById.get(itemId);
       return item != null && (canDrag ? canDrag(item) : true);
     },
-    [canDrag, itemsById],
+    [canDrag, itemsById, readOnly],
   );
   const onLongPressMenu = useCallback(({ itemId }: { itemId: string }) => openMoveSheet(itemId), [openMoveSheet]);
   const renderHover = useCallback((itemId: string) => <HoverCard itemId={itemId} />, []);
@@ -244,7 +247,7 @@ export function Board<T>(props: BoardProps<T>) {
                 onLongPressMenu={sheetMode !== false ? onLongPressMenu : undefined}
                 canDrag={canDragItem}
                 canDrop={canDropTo}
-                enabled={props.moveModes?.drag !== false}
+                enabled={!readOnly && props.moveModes?.drag !== false}
                 longPressDelay={props.longPressDelay ?? 200}
                 reducedMotion={reducedMotion}
                 compact={boardWidth < 600}

@@ -236,6 +236,11 @@ export interface BoardProps<T> {
   collapsedLanes?: readonly string[];
   onCollapsedLanesChange?: (laneIds: string[]) => void;
   moveModes?: MoveModes;
+  /**
+   * Display only. Scrolling, paging, collapse and Show more stay on.
+   * Drag, swipe, the Move sheet and screen-reader move actions stay off.
+   */
+  readOnly?: boolean;
   /** Scroll the board while a card is held near an edge. Default true. */
   autoScroll?: boolean;
   /** Long-press time before a drag starts, 150–250 ms. Default 200. */

@@ -29,6 +29,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
   const [collapsible, setCollapsible] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
   const [swipe, setSwipe] = useState(true);
+  const [readOnly, setReadOnly] = useState(false);
   const store = useTaskStore(seed, kanbanGroupBy);
   const renderCard = useCallback(
     (info: CardRenderInfo<Task>) => <TaskCard info={info} variant={cardStyle} />,
@@ -75,6 +76,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
           <Toggle label="Collapsible" value={collapsible} onChange={setCollapsible} />
           <Toggle label="Auto-scroll" value={autoScroll} onChange={setAutoScroll} />
           <Toggle label="Swipe (multi, fit)" value={swipe} onChange={setSwipe} />
+          <Toggle label="Read only" value={readOnly} onChange={setReadOnly} />
         </>
       }
     >
@@ -91,6 +93,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
         collapsibleColumns={collapsible}
         autoScroll={autoScroll}
         moveModes={swipe ? SWIPE_ON : undefined}
+        readOnly={readOnly}
         appearance={palette.dark ? 'dark' : 'light'}
       />
     </Screen>
