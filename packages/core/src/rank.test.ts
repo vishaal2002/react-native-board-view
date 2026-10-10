@@ -8,6 +8,7 @@ import {
   projectBoard,
   rankBetween,
   rebalanceRanks,
+  seedRanks,
   shouldRebalance,
 } from './index';
 import type { GroupBy, MoveOperation, RankStrategy, RankedRef } from './index';
@@ -312,5 +313,19 @@ describe('a custom RankStrategy', () => {
       from: { status: 'todo' },
       rank: '500',
     });
+  });
+});
+
+describe('seedRanks', () => {
+  it('gives ids increasing ranks in the order given', () => {
+    const seeded = seedRanks(['c', 'a', 'b']);
+    expect(seeded.map((entry) => entry.id)).toEqual(['c', 'a', 'b']);
+    const ranks = seeded.map((entry) => entry.rank);
+    expect([...ranks].sort()).toEqual(ranks);
+    expect(new Set(ranks).size).toBe(3);
+  });
+
+  it('returns nothing for no ids', () => {
+    expect(seedRanks([])).toEqual([]);
   });
 });

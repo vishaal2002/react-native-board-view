@@ -116,6 +116,20 @@ export function SwimlaneLayout() {
   );
   adapter.useScroller('vertical', autoScroll ? laneScroller : null);
 
+  // A card just moved past its cell's limit stays in sight: the limit grows to include it.
+  const { model, isPending } = controller;
+  useEffect(() => {
+    let next: Map<string, number> | null = null;
+    for (const [itemId, location] of model.locations) {
+      if (!isPending(itemId)) continue;
+      const limit = (next ?? limitsRef.current).get(location.cellId) ?? cellLimit;
+      if (location.index < limit) continue;
+      next ??= new Map(limitsRef.current);
+      next.set(location.cellId, location.index + 1);
+    }
+    if (next) setLimits(next);
+  }, [cellLimit, isPending, model]);
+
   const limitOf = useCallback((cellId: string) => limitsRef.current.get(cellId) ?? cellLimit, [cellLimit]);
   const showMore = useCallback(
     (cellId: string) =>

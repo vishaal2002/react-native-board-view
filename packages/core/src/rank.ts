@@ -57,6 +57,23 @@ export function rebalanceRanks<T extends RankedRef>(
   });
 }
 
+/**
+ * First ranks for items that have none yet, in the order given (sort them
+ * first, e.g. by creation date). Returns one `{ id, rank }` per id, evenly
+ * spaced so later moves keep keys short. Persist them like any other move.
+ */
+export function seedRanks(
+  ids: readonly string[],
+  strategy: RankStrategy = fractionalRank,
+): { id: string; rank: string }[] {
+  const keys = strategy.nBetween(null, null, ids.length);
+  return ids.map((id, index) => {
+    const rank = keys[index];
+    if (rank == null) throw new Error(`Rank strategy returned ${keys.length} keys for ${ids.length} items.`);
+    return { id, rank };
+  });
+}
+
 /** True when any key is long enough that a rebalance is worth doing. */
 export function shouldRebalance(ranks: readonly string[], maxLength = 48): boolean {
   for (const rank of ranks) {

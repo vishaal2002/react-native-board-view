@@ -5,6 +5,8 @@ import { taskId, taskLabel } from '../ids';
 import { Screen, Segmented, TaskCard, Toggle, usePalette, type CardStyle } from '../ui';
 import { useTaskStore } from '../useTaskStore';
 
+const SWIPE_ON = { swipe: 'auto' } as const;
+
 const LAYOUTS = [
   { label: 'Auto', value: 'auto' },
   { label: 'Paged', value: 'paged' },
@@ -26,6 +28,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
   const [cardStyle, setCardStyle] = useState<CardStyle>('rich');
   const [collapsible, setCollapsible] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [swipe, setSwipe] = useState(true);
   const store = useTaskStore(seed, kanbanGroupBy);
   const renderCard = useCallback(
     (info: CardRenderInfo<Task>) => <TaskCard info={info} variant={cardStyle} />,
@@ -71,6 +74,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
           />
           <Toggle label="Collapsible" value={collapsible} onChange={setCollapsible} />
           <Toggle label="Auto-scroll" value={autoScroll} onChange={setAutoScroll} />
+          <Toggle label="Swipe (multi, fit)" value={swipe} onChange={setSwipe} />
         </>
       }
     >
@@ -86,6 +90,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
         density={density}
         collapsibleColumns={collapsible}
         autoScroll={autoScroll}
+        moveModes={swipe ? SWIPE_ON : undefined}
         appearance={palette.dark ? 'dark' : 'light'}
       />
     </Screen>

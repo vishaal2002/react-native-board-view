@@ -1,5 +1,11 @@
-import { memo, useCallback, useMemo } from 'react';
-import { StyleSheet, View, type AccessibilityActionEvent, type LayoutChangeEvent } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import {
+  AccessibilityInfo,
+  StyleSheet,
+  View,
+  type AccessibilityActionEvent,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { cellId as makeCellId, parseCellId, NO_LANE_ID } from 'board-view-core';
 import { useBoard, type BoardContextValue } from '../context';
 import { MenuButton } from './defaults';
@@ -54,6 +60,23 @@ export const BoardCard = memo(function BoardCard({
   const hasLanes = props.groupBy.lanes != null;
 
   const openSheet = useCallback(() => openMoveSheet(itemId), [openMoveSheet, itemId]);
+
+  // After a move from the sheet or a screen-reader action, focus follows the card to its new place.
+  const accessibleRef = useRef<View>(null);
+  const { focusRequest } = controller;
+  const focused = useSyncExternalStore(
+    focusRequest.subscribe,
+    () => focusRequest.get() === itemId,
+    () => false,
+  );
+  useEffect(() => {
+    if (!focused) return;
+    const frame = requestAnimationFrame(() => {
+      if (accessibleRef.current) AccessibilityInfo.sendAccessibilityEvent(accessibleRef.current, 'focus');
+      focusRequest.set(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, focused]);
 
   const actions = useMemo(() => {
     const list: { name: string; label: string }[] = [];
@@ -126,6 +149,7 @@ export const BoardCard = memo(function BoardCard({
 
   const content = (
     <View
+      ref={accessibleRef}
       accessible
       accessibilityLabel={labels.card({
         item: controller.itemLabel(itemId),

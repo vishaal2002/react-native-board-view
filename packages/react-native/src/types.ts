@@ -26,7 +26,8 @@ export interface MoveModes {
   /**
    * Swipe a card sideways to move it to the neighbouring column. Only in the
    * `multi` and `fit` layouts: on paged phone layouts a sideways swipe turns
-   * the page. Default 'auto'.
+   * the page. Off by default (experimental): it competes with sideways
+   * scrolling, and a mis-swipe moves a card.
    */
   swipe?: 'auto' | false;
 }

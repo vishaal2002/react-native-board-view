@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { runS1Cases } from 'board-view-core';
+import { runS1Cases } from '../s1';
 import type { Route } from '../routes';
 import { Screen, usePalette } from '../ui';
 

@@ -140,7 +140,8 @@ export function MenuButton({ color, onPress }: { color: string; onPress: () => v
   return (
     <Pressable
       onPress={onPress}
-      hitSlop={6}
+      // 36×32 plus the slop is a 48×44 touch target.
+      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
       // The card itself carries the "Move to…" accessibility action.
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
@@ -203,7 +204,7 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4 },
   pill: {
     minWidth: 22,
-    height: 20,
+    minHeight: 20,
     paddingHorizontal: 6,
     borderRadius: 10,
     alignItems: 'center',
@@ -224,9 +225,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
-    width: 32,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 32,
+    borderRadius: 16,
     flexDirection: 'row',
     gap: 3,
     alignItems: 'center',

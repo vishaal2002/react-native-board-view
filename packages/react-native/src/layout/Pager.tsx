@@ -114,7 +114,15 @@ export function PagerDots() {
 const styles = StyleSheet.create({
   tabs: { flexGrow: 0 },
   tabsContent: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 2, gap: 8 },
-  tab: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 14, borderRadius: 17 },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 34,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 17,
+  },
   dot: { width: 8, height: 8, borderRadius: 4 },
   tabText: { fontSize: 14, fontWeight: '700', maxWidth: 160 },
   tabCount: { fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] },

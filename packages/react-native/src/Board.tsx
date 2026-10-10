@@ -17,8 +17,6 @@ import { moveTargetOf, useBoardController } from './useBoardController';
 import { useReducedMotion } from './useReducedMotion';
 import type { BoardLabels, BoardProps, BoardTheme } from './types';
 
-const TABS_HEIGHT = 46;
-const DOTS_HEIGHT = 26;
 const NO_IDS: readonly string[] = [];
 
 function toggleIn(list: readonly string[], id: string): string[] {
@@ -71,9 +69,13 @@ export function Board<T>(props: BoardProps<T>) {
 
   const mode = resolveLayout(props.layout ?? 'auto', root.width);
   const pagerIndicator = mode === 'paged' ? (props.pagerIndicator ?? 'tabs') : 'none';
-  const chrome = pagerIndicator === 'tabs' ? TABS_HEIGHT : pagerIndicator === 'dots' ? DOTS_HEIGHT : 0;
+  // Measured, not assumed: pager chrome grows with the user's text size.
+  const [bodyHeight, setBodyHeight] = useState(0);
+  const onBodyLayout = useCallback((event: LayoutChangeEvent) => {
+    setBodyHeight(event.nativeEvent.layout.height);
+  }, []);
   const boardWidth = root.width;
-  const boardHeight = Math.max(0, root.height - chrome);
+  const boardHeight = bodyHeight;
 
   const [collapsedLanes, toggleLane] = useCollapsedList(props.collapsedLanes, props.onCollapsedLanesChange);
   const [collapsedColumns, toggleColumn] = useCollapsedList(props.collapsedColumns, props.onCollapsedColumnsChange);
@@ -123,7 +125,7 @@ export function Board<T>(props: BoardProps<T>) {
     [closeMoveSheet, openMoveSheet],
   );
 
-  const swipeEnabled = props.moveModes?.swipe !== false && (mode === 'multi' || mode === 'fit');
+  const swipeEnabled = props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
   const autoScroll = props.autoScroll ?? true;
   const value = useMemo<BoardContextValue<T>>(
     () => ({
@@ -229,7 +231,7 @@ export function Board<T>(props: BoardProps<T>) {
               <PagerTabs />
             </View>
           ) : null}
-          <View style={styles.fill}>
+          <View style={styles.fill} onLayout={onBodyLayout}>
             {ready ? (
               <DragBoard
                 onTransfer={onTransfer}
@@ -269,6 +271,6 @@ export function Board<T>(props: BoardProps<T>) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   fill: { flex: 1 },
-  tabs: { height: TABS_HEIGHT },
-  dots: { height: DOTS_HEIGHT, justifyContent: 'center' },
+  tabs: { paddingBottom: 4 },
+  dots: { justifyContent: 'center' },
 });

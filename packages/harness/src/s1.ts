@@ -1,9 +1,14 @@
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
-import { cellId } from './ids';
-import { orderAfterMove, rankForMove } from './indexSemantics';
-import { planMove } from './move';
-import { projectBoard } from './project';
-import type { GroupBy, MoveOperation, RankedRef } from './types';
+import {
+  cellId,
+  orderAfterMove,
+  planMove,
+  projectBoard,
+  rankForMove,
+  type GroupBy,
+  type MoveOperation,
+  type RankedRef,
+} from 'board-view-core';
 
 export interface S1Check {
   readonly id: string;

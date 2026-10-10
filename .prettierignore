@@ -4,3 +4,4 @@ dist
 apps/*/android
 apps/*/ios
 package-lock.json
+lib

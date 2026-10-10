@@ -13,7 +13,10 @@
     "check:hosts": "node scripts/check-hosts.mjs",
     "example": "npm run start -w board-view-example -- --port 43123",
     "example:web": "npm run web -w board-view-example",
-    "bare": "npm run start -w board-view-bare -- --port 43124"
+    "bare": "npm run start -w board-view-bare -- --port 43124",
+    "build": "npm run build -w board-view-core && npm run build -w react-native-board-view",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

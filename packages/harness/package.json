@@ -8,8 +8,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "board-view-core": "0.0.0",
-    "react-native-board-view": "0.0.0"
+    "board-view-core": "0.1.0",
+    "react-native-board-view": "0.1.0",
+    "fractional-indexing": "^4.0.0"
   },
   "peerDependencies": {
     "@shopify/flash-list": ">=2.0.2 <3",
