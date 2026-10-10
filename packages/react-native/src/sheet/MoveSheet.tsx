@@ -50,7 +50,7 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
     if (!cell) return;
     const sameCell = location?.cellId === target;
     const index = position === 'top' ? 0 : cell.items.length - (sameCell ? 1 : 0);
-    const moved = controller.moveItem(itemId, target, index);
+    const moved = controller.moveItem(itemId, target, index, 'sheet');
     onClose();
     if (moved) requestAnimationFrame(() => scrollApi.current?.toItem(itemId, !reducedMotion));
   };

@@ -13,7 +13,7 @@ import { StackedLayout } from './layout/StackedLayout';
 import { SwimlaneLayout } from './layout/SwimlaneLayout';
 import { MoveSheet } from './sheet/MoveSheet';
 import { compactMetrics, darkTheme, defaultLabels, lightTheme } from './theme';
-import { useBoardController } from './useBoardController';
+import { moveTargetOf, useBoardController } from './useBoardController';
 import { useReducedMotion } from './useReducedMotion';
 import type { BoardLabels, BoardProps, BoardTheme } from './types';
 
@@ -176,16 +176,31 @@ export function Board<T>(props: BoardProps<T>) {
     ],
   );
 
-  const { moveItem, canDropTo, itemsById } = controller;
+  const { moveItem, canDropTo, itemsById, model } = controller;
   const canDrag = props.canDrag;
   const onTransfer = useCallback(
-    (event: TransferIntent) => moveItem(event.itemId, event.toCellId, event.toIndex),
+    (event: TransferIntent) => moveItem(event.itemId, event.toCellId, event.toIndex, 'drag'),
     [moveItem],
   );
   const onReorder = useCallback(
-    (event: ReorderIntent) => moveItem(event.itemId, event.cellId, event.toIndex),
+    (event: ReorderIntent) => moveItem(event.itemId, event.cellId, event.toIndex, 'drag'),
     [moveItem],
   );
+  const isDragValid = useCallback(
+    (itemId: string, sourceCellId: string) => model.locations.get(itemId)?.cellId === sourceCellId,
+    [model],
+  );
+  const events = useRef(props);
+  events.current = props;
+  const onDragStart = useCallback(({ itemId, cellId }: { itemId: string; cellId: string }) => {
+    events.current.onDragStart?.({ itemId, from: moveTargetOf(cellId) });
+  }, []);
+  const onDragOver = useCallback(({ itemId, cellId, index }: { itemId: string; cellId: string; index: number }) => {
+    events.current.onDragOver?.({ itemId, target: moveTargetOf(cellId), index });
+  }, []);
+  const onDragEnd = useCallback((event: { itemId: string; cancelled: boolean }) => {
+    events.current.onDragEnd?.(event);
+  }, []);
   const canDragItem = useCallback(
     (itemId: string) => {
       const item = itemsById.get(itemId);
@@ -219,6 +234,11 @@ export function Board<T>(props: BoardProps<T>) {
               <DragBoard
                 onTransfer={onTransfer}
                 onReorder={onReorder}
+                onDragStart={onDragStart}
+                onDragOver={onDragOver}
+                onDragEnd={onDragEnd}
+                isDragValid={isDragValid}
+                revision={model}
                 onLongPressMenu={sheetMode !== false ? onLongPressMenu : undefined}
                 canDrag={canDragItem}
                 canDrop={canDropTo}

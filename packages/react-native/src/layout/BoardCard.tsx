@@ -77,8 +77,10 @@ export const BoardCard = memo(function BoardCard({
     (event: AccessibilityActionEvent) => {
       const name = event.nativeEvent.actionName;
       if (name === MOVE_TO) openSheet();
-      else if (name.startsWith(COLUMN_PREFIX)) controller.moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0);
-      else if (name.startsWith(LANE_PREFIX)) controller.moveItem(itemId, makeCellId(name.slice(2), columnKey), 0);
+      else if (name.startsWith(COLUMN_PREFIX))
+        controller.moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0, 'accessibility');
+      else if (name.startsWith(LANE_PREFIX))
+        controller.moveItem(itemId, makeCellId(name.slice(2), columnKey), 0, 'accessibility');
     },
     [columnKey, controller, itemId, laneKey, openSheet],
   );
@@ -91,7 +93,7 @@ export const BoardCard = memo(function BoardCard({
       const column = columns[at + step];
       const target = column ? makeCellId(laneKey, column.id) : null;
       if (!column || !target || !controller.canDropTo(itemId, target)) return undefined;
-      return { label: column.label, run: () => controller.moveItem(itemId, target, 0) };
+      return { label: column.label, run: () => controller.moveItem(itemId, target, 0, 'swipe') };
     };
     // Visual right is the next column, or the previous one right-to-left.
     return { toRight: neighbour(rtl ? -1 : 1), toLeft: neighbour(rtl ? 1 : -1) };

@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
-import type { GroupBy, GroupValue, MoveOperation, RankStrategy } from 'board-view-core';
+import type { GroupBy, GroupValue, MoveContext, MoveOperation, RankStrategy } from 'board-view-core';
 
 /**
  * - `paged`: one column per page with snapping and a peek of the next one. Phones.
@@ -36,6 +36,25 @@ export interface MoveTarget {
   readonly columnId: string;
   /** Null on boards without lanes. */
   readonly laneId: string | null;
+}
+
+export interface DragStartEvent {
+  readonly itemId: string;
+  readonly from: MoveTarget;
+}
+
+/** The drop target changed while dragging: a good moment for a selection haptic. */
+export interface DragOverEvent {
+  readonly itemId: string;
+  readonly target: MoveTarget;
+  /** Insertion index in the target cell, after removing the dragged card. */
+  readonly index: number;
+}
+
+export interface DragEndEvent {
+  readonly itemId: string;
+  /** True when the card went back: released outside a target, refused, or interrupted. */
+  readonly cancelled: boolean;
 }
 
 export interface CardRenderInfo<T> {
@@ -182,9 +201,15 @@ export interface BoardProps<T> {
    * Called once per move, in order per item. Resolve when the move is
    * accepted; reject to roll the card back. The overlay stays until `items`
    * shows the move (or `settleTimeoutMs` passes), so `setState` timing never
-   * matters.
+   * matters. Pass `context.signal` to your request: it aborts when the move
+   * times out (`inflightTimeoutMs`) or the board unmounts.
    */
-  onMove: (op: MoveOperation) => Promise<void> | void;
+  onMove: (op: MoveOperation, context: MoveContext) => Promise<void> | void;
+  /** A move was rejected (or timed out) and rolled back. The board already announces it to screen readers. */
+  onMoveError?: (op: MoveOperation, error: unknown) => void;
+  onDragStart?: (event: DragStartEvent) => void;
+  onDragOver?: (event: DragOverEvent) => void;
+  onDragEnd?: (event: DragEndEvent) => void;
   canDrag?: (item: T) => boolean;
   canDrop?: (item: T, target: MoveTarget) => boolean;
 
@@ -227,6 +252,12 @@ export interface BoardProps<T> {
   rankStrategy?: RankStrategy;
   /** How long a resolved move may wait for `items` to show it. Default 5000. */
   settleTimeoutMs?: number;
+  /**
+   * How long `onMove` may stay pending before the move rolls back with a
+   * `MoveTimeoutError`. Default 30000. Set 0 when `onMove` waits for the user,
+   * e.g. a form that asks for required fields.
+   */
+  inflightTimeoutMs?: number;
   ref?: Ref<BoardHandle>;
   style?: StyleProp<ViewStyle>;
   testID?: string;

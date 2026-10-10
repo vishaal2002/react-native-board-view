@@ -42,6 +42,9 @@ export interface RankStrategy {
   compare(a: string, b: string): number;
 }
 
+/** What started a move. */
+export type MoveSource = 'drag' | 'sheet' | 'swipe' | 'accessibility' | 'api';
+
 /**
  * A single move. `opId` is unique so the app can dedupe retries.
  * `changes` / `from` carry every grouped field the board writes
@@ -53,6 +56,15 @@ export interface MoveOperation {
   readonly changes: Readonly<Record<string, string | null>>;
   readonly from: Readonly<Record<string, string | null>>;
   readonly rank: string;
+  /**
+   * The visible cards the moved card lands between in the target cell, in
+   * display order; null at either end. A server that keeps its own order
+   * (integer positions, LexoRank) can place the card from these instead of
+   * `rank`.
+   */
+  readonly previousId: string | null;
+  readonly nextId: string | null;
+  readonly source: MoveSource;
 }
 
 export interface BoardCell<T> {

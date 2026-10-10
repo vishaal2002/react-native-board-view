@@ -73,7 +73,16 @@ describe('planMove', () => {
   describe('within one cell', () => {
     it('changes only the rank', () => {
       const op = plan({ itemId: 'a', toCellId: aliceTodo, toIndex: 1 });
-      expect(op).toEqual({ opId: 'op', id: 'a', changes: {}, from: {}, rank: rankBetween('a1', 'a4') });
+      expect(op).toEqual({
+        opId: 'op',
+        id: 'a',
+        changes: {},
+        from: {},
+        rank: rankBetween('a1', 'a4'),
+        previousId: 'b',
+        nextId: 'e',
+        source: 'api',
+      });
     });
 
     it('treats toIndex as the index after removal when moving down', () => {
@@ -104,7 +113,16 @@ describe('planMove', () => {
   describe('across cells', () => {
     it('changes only the column when the lane stays the same', () => {
       const op = plan({ itemId: 'a', toCellId: cellId('alice', 'doing'), toIndex: 0 });
-      expect(op).toEqual({ opId: 'op', id: 'a', changes: { status: 'doing' }, from: { status: 'todo' }, rank: 'a0' });
+      expect(op).toEqual({
+        opId: 'op',
+        id: 'a',
+        changes: { status: 'doing' },
+        from: { status: 'todo' },
+        rank: 'a0',
+        previousId: null,
+        nextId: null,
+        source: 'api',
+      });
     });
 
     it('changes only the lane when the column stays the same', () => {
@@ -121,6 +139,9 @@ describe('planMove', () => {
         changes: { status: 'doing', assignee: 'bob' },
         from: { status: 'todo', assignee: 'alice' },
         rank: rankBetween('a2', null),
+        previousId: 'c',
+        nextId: null,
+        source: 'api',
       });
       expect(idsIn(project(laned, op ? [op] : []), 'bob', 'doing')).toEqual(['c', 'a']);
     });
@@ -396,5 +417,41 @@ describe('applyMove', () => {
       cards.map((each) => (each.id === op.id ? applyMove(each, op, laned, setRank) : each)),
     );
     expect(applied.locations).toEqual(optimistic.locations);
+  });
+});
+
+describe('planMove neighbors and source', () => {
+  it('reports the visible neighbors the card lands between', () => {
+    const op = plan({ itemId: 'c', toCellId: aliceTodo, toIndex: 1 });
+    expect(op?.previousId).toBe('a');
+    expect(op?.nextId).toBe('b');
+  });
+
+  it('reports null at the top and bottom of a cell', () => {
+    expect(plan({ itemId: 'e', toCellId: aliceTodo, toIndex: 0 })?.previousId).toBeNull();
+    expect(plan({ itemId: 'a', toCellId: aliceTodo, toIndex: 2 })?.nextId).toBeNull();
+  });
+
+  it('reports where the card really lands next to tied ranks', () => {
+    const tied: Card[] = [
+      { id: 'x', rank: 'a1', status: 'todo', assignee: 'alice' },
+      { id: 'y', rank: 'a1', status: 'todo', assignee: 'alice' },
+      { id: 'z', rank: 'a2', status: 'todo', assignee: 'alice' },
+      { id: 'm', rank: 'a5', status: 'doing', assignee: 'alice' },
+    ];
+    const model = project(laned, [], tied);
+    const item = tied[3];
+    if (!item) throw new Error('fixture');
+    // Index 1 sits between the tied x and y; the card lands after the tie, before z.
+    const op = planMove({ model, groupBy: laned, item, itemId: 'm', toCellId: aliceTodo, toIndex: 1 });
+    expect(op?.previousId).toBe('y');
+    expect(op?.nextId).toBe('z');
+    const after = project(laned, op ? [op] : [], tied);
+    expect(idsIn(after, 'alice', 'todo')).toEqual(['x', 'y', 'm', 'z']);
+  });
+
+  it('carries the source, defaulting to api', () => {
+    expect(plan({ itemId: 'a', toCellId: aliceTodo, toIndex: 1 })?.source).toBe('api');
+    expect(plan({ itemId: 'a', toCellId: aliceTodo, toIndex: 1, source: 'sheet' })?.source).toBe('sheet');
   });
 });

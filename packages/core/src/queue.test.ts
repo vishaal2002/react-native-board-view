@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { applyMove, cellId, createMoveQueue, planMove, projectBoard, readItemSnapshot } from './index';
+import {
+  MoveTimeoutError,
+  applyMove,
+  cellId,
+  createMoveQueue,
+  planMove,
+  projectBoard,
+  readItemSnapshot,
+} from './index';
 import type { GroupBy, ItemMoveSnapshot, MoveOperation, MoveQueueEvent, MoveQueueOptions } from './index';
 
 interface Deferred {
@@ -35,7 +43,9 @@ function describeEvent(event: MoveQueueEvent): string {
   }
 }
 
-function createHarness(options: Partial<Pick<MoveQueueOptions, 'onMove' | 'settleTimeoutMs'>> = {}) {
+function createHarness(
+  options: Partial<Pick<MoveQueueOptions, 'onMove' | 'settleTimeoutMs' | 'inflightTimeoutMs'>> = {},
+) {
   const data = new Map<string, ItemMoveSnapshot>([
     ['card', { rank: 'a0', fields: { status: 'todo' } }],
     ['other', { rank: 'a0', fields: { status: 'todo' } }],
@@ -55,6 +65,7 @@ function createHarness(options: Partial<Pick<MoveQueueOptions, 'onMove' | 'settl
     readItem: (itemId) => data.get(itemId) ?? null,
     onEvent: (event) => events.push(event),
     settleTimeoutMs: options.settleTimeoutMs,
+    inflightTimeoutMs: options.inflightTimeoutMs,
   });
 
   function deferred(opId: string): Deferred {
@@ -560,7 +571,7 @@ describe('createMoveQueue', () => {
       const harness = createHarness({ onMove });
       harness.queue.enqueue(toDoing('1', 'a5'));
       await flush();
-      expect(onMove).toHaveBeenCalledWith(toDoing('1', 'a5'));
+      expect(onMove).toHaveBeenCalledWith(toDoing('1', 'a5'), { signal: expect.any(AbortSignal) });
       expect(harness.log()).toEqual(['overlay:1', 'inflight:1', 'resolved:1']);
       expect(harness.queue.isPending('card')).toBe(false);
       expect(harness.queue.getOverlay('card')?.opId).toBe('1');
@@ -668,6 +679,86 @@ describe('createMoveQueue', () => {
     });
   });
 
+  describe('in-flight timeout', () => {
+    it('passes an abort signal to onMove', async () => {
+      const harness = createHarness();
+      const signals: AbortSignal[] = [];
+      const queue = createMoveQueue({
+        onMove: (_op, { signal }) => {
+          signals.push(signal);
+        },
+        readItem: (itemId) => harness.data.get(itemId) ?? null,
+      });
+      queue.enqueue(toDoing('1', 'a5'));
+      await flush();
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.aborted).toBe(false);
+    });
+
+    it('rejects with MoveTimeoutError after 30000ms by default and aborts the signal', async () => {
+      let signal: AbortSignal | null = null;
+      const harness = createHarness({
+        onMove: (_op, context) => {
+          signal = context.signal;
+          return new Promise<void>(() => undefined);
+        },
+      });
+      harness.queue.enqueue(toDoing('1', 'a5'));
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(harness.queue.isPending('card')).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(harness.log()).toEqual(['overlay:1', 'inflight:1', 'rejected:1', 'cleared:1:rejected']);
+      const rejected = harness.events.find((event) => event.type === 'rejected');
+      expect(rejected?.type === 'rejected' && rejected.error).toBeInstanceOf(MoveTimeoutError);
+      expect((signal as AbortSignal | null)?.aborted).toBe(true);
+      expect(harness.queue.getOverlay('card')).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('lets the next queued move of the item run after a timeout', async () => {
+      const harness = createHarness({ inflightTimeoutMs: 1000 });
+      harness.queue.enqueue(toDoing('1', 'a5'));
+      await flush();
+      await vi.advanceTimersByTimeAsync(1000);
+      harness.queue.enqueue(toDoing('2', 'a6'));
+      await flush();
+      expect(harness.calls).toEqual(['1', '2']);
+    });
+
+    it('ignores a late resolve after the timeout', async () => {
+      const harness = createHarness({ inflightTimeoutMs: 1000 });
+      harness.queue.enqueue(toDoing('1', 'a5'));
+      await flush();
+      await vi.advanceTimersByTimeAsync(1000);
+      const eventCount = harness.events.length;
+      await harness.resolve('1');
+      expect(harness.events).toHaveLength(eventCount);
+    });
+
+    it('never times out when inflightTimeoutMs is 0', async () => {
+      const harness = createHarness({ inflightTimeoutMs: 0 });
+      harness.queue.enqueue(toDoing('1', 'a5'));
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(harness.queue.isPending('card')).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('aborts in-flight moves on dispose', async () => {
+      let signal: AbortSignal | null = null;
+      const harness = createHarness({
+        onMove: (_op, context) => {
+          signal = context.signal;
+          return new Promise<void>(() => undefined);
+        },
+      });
+      harness.queue.enqueue(toDoing('1', 'a5'));
+      await flush();
+      harness.queue.dispose();
+      expect((signal as AbortSignal | null)?.aborted).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
   describe('dispose', () => {
     it('stops timers, listeners and further work', async () => {
       const harness = createHarness();
@@ -677,7 +768,8 @@ describe('createMoveQueue', () => {
       harness.queue.enqueue(move('2', { rank: 'a7', id: 'other' }));
       await flush();
       await harness.resolve('1');
-      expect(vi.getTimerCount()).toBe(1);
+      // The settle timer of '1' and the in-flight timer of '2'.
+      expect(vi.getTimerCount()).toBe(2);
       const eventCount = harness.events.length;
       const listenerCalls = listener.mock.calls.length;
 
