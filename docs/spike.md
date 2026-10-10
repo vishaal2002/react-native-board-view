@@ -1,17 +1,28 @@
-# M0 spike
+# Release gates
 
-Run S1 with `npm test`. S2–S7 are on the checklist in both apps. Score S3 and S4 on a release build, not Metro dev mode.
+These gates started as the M0 spike (S1–S7). The spike first ran on Drax. Drax failed S2–S4, and the project moved to its own engine: see [decisions/0001-own-drag-engine.md](decisions/0001-own-drag-engine.md). The gates still define "works" for every release.
 
-| Gate | Where                                               | Pass                                                                                  |
-| ---- | --------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| S1   | `runS1Cases()` and `packages/core/src/core.test.ts` | Every case passes                                                                     |
-| S2   | Empty cells                                         | 20 empty and 20 occupied drops, 0 mismatches                                          |
-| S3   | Scale                                               | 4×500 FlashList cards, release median UI and JS FPS ≥ 55, toIndex in range            |
-| S4   | Auto-scroll                                         | Far column and deep card, no overshoot                                                |
-| S5   | Gestures                                            | 0 misfires in 50 attempts on the paged layout                                         |
-| S6   | Rollback                                            | Reject after 800ms returns the card. Two rapid moves do not call `onMove` in parallel |
-| S7   | Move to…                                            | TalkBack or VoiceOver completes a move without dragging                               |
+## Automated (CI, every push)
 
-Decision rules, unchanged: S2+S3+S4 pass before staying on Drax. S2 alone failing means try dedicated drop zones or an upstream fix. S3 failing means non-virtualized capped cells. S3 and S4 failing means propose a board-only engine on Gesture Handler and Reanimated before building it.
+| Gate               | Where                                                       | Pass                                                                                       |
+| ------------------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| S1 index semantics | `packages/harness/src/s1.ts`, `packages/core/src/*.test.ts` | Every case passes                                                                          |
+| Queue convergence  | `packages/core/src/queue.property.test.ts`                  | Any interleaving of moves, accepts and rejects converges to app data with no overlays left |
+| Controller         | `packages/react-native/src/useBoardController.test.tsx`     | Overlay, announcements, rollback, timeouts, unmount, StrictMode                            |
+| Package            | CI `package` job                                            | Builds; tarball has types and no tests; core loads in Node as CJS and ESM                  |
+| Gesture Handler 3  | CI `gesture-handler-3` job                                  | Typecheck against `react-native-gesture-handler@^3`                                        |
 
-Do not continue to M1 until these gates are confirmed on a mid-tier Android phone and an iPhone.
+## On devices (each release)
+
+Run these in the demo app (`apps/bare` or `apps/example`). Score S3 and S4 on a **release** build.
+
+| Gate | Screen        | Pass                                                                                       | Last result                                                                                      |
+| ---- | ------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| S2   | Empty cells   | 20 drops into empty cells and 20 into occupied ones, with 0 mismatches                     | Emulator, release ✓ 20/20/0 (2026-10-10)                                                         |
+| S3   | Scale         | 4 × 500 cards; the drop lands at the index shown; frame rates recorded in `benchmarks.md`  | Emulator, release ✓ (2026-10-10)                                                                 |
+| S4   | Auto-scroll   | Reaches the far column and a deep card with no overshoot                                   | Partly: page flips and deep vertical auto-scroll on the S3 screen, emulator release (2026-10-10) |
+| S5   | Paged layout  | 0 misfires in 50 tries (page swipe vs long-press drag vs "…")                              | Not yet scored                                                                                   |
+| S6   | Rollback      | A reject after 800 ms returns the card; two rapid moves never call `onMove` in parallel    | Emulator, release ✓ reject after 800 ms returns the card (2026-10-10)                            |
+| S7   | Accessibility | TalkBack and VoiceOver complete a move without dragging, and focus lands on the moved card | Not yet scored                                                                                   |
+
+Do not tag 1.0 until S2–S7 pass on a mid-tier Android phone and an iPhone.

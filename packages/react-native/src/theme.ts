@@ -93,7 +93,6 @@ export const defaultLabels: BoardLabels = {
   expandColumn: (column) => `Expand ${column}`,
   collapseColumn: (column) => `Collapse ${column}`,
   emptyCell: 'No cards',
-  cardMenu: (item) => `Move ${item}`,
   card: ({ item, column, lane, position, count, pending }) =>
     `${item}, ${where(column, lane)}, ${position} of ${count}${pending ? ', saving' : ''}`,
   moveToColumnAction: (column) => `Move to ${column}`,

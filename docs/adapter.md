@@ -1,50 +1,68 @@
-# Adapter contract
+# Drag adapter contract (internal)
 
-Internal in v1. The public board component is not part of the M0 spike. Screens talk to this adapter, and core turns adapter intents into move operations.
+The layouts in `packages/react-native/src/layout` talk to the drag engine only through this contract (`src/engine/types.ts`). It is not public API, and it can change in a minor release. It exists so the engine can be replaced without touching the layouts or the core. Why the engine is our own: [decisions/0001-own-drag-engine.md](decisions/0001-own-drag-engine.md).
 
 ```ts
 interface DragAdapter {
-  capabilities: {
-    crossContainer: boolean;
-    autoScrollOuter: boolean;
-    supportsFlashList: boolean;
-  };
+  capabilities: { crossContainer: boolean; autoScrollOuter: boolean; supportsFlashList: boolean };
   Provider: ComponentType<{ children: ReactNode }>;
-  Board: ComponentType<{
-    onTransfer(event: { itemId: string; fromCellId: string; toCellId: string; toIndex: number }): void;
-    onReorder(event: { itemId: string; cellId: string; fromIndex: number; toIndex: number }): void;
-    onDragStart?(event: { itemId: string; cellId: string }): void;
-    onDragEnd?(event: { itemId: string; cancelled: boolean }): void;
-    canDrag?(itemId: string): boolean;
-    canDrop?(itemId: string, toCellId: string): boolean;
-    dragPosition?: SharedValue<{ x: number; y: number }>;
-    longPressDelay?: number;
-    reducedMotion?: boolean;
-    children: ReactNode;
-  }>;
-  Cell: ComponentType<{
-    cellId: string;
-    scrollRef?: RefObject<unknown>;
-    minHeight?: number;
-    renderDropIndicator?: () => ReactNode;
-    children?: ReactNode;
-  }>;
-  Card: ComponentType<{ itemId: string; cellId: string; index: number; children: ReactNode }>;
+  Board: ComponentType<DragBoardProps>; // the gesture, hit-testing loop, auto-scroll and hover overlay
+  Cell: ComponentType<DragCellProps>; // registers a drop target's geometry
+  Card: ComponentType<DragCardProps>; // hides the real card while its lifted copy settles
+  Placeholder: ComponentType<PlaceholderProps>;
+  useScroller(axis: 'horizontal' | 'vertical', handle: ScrollerHandle | null): void;
+  usePlacement(cellId: string): CellPlacement; // what this cell must render right now
+  useDragSource(): { itemId: string; cellId: string } | null;
+  usePlacementState(): DragPlacement | null;
 }
 ```
 
-`cellId` is `` `${laneKey}::${columnKey}` ``. Boards without lanes use `_` as the lane key. Ids must not contain `::`.
+## Ids and indexes
 
-`toIndex` is the insertion index in the target cell after the dragged card is removed. An empty cell is `0`. The adapter normalizes engine quirks before emitting the intent.
+- **Cell ids:** `cellId` is `` `${laneKey}::${columnKey}` ``. Boards without lanes use `_` as the lane key. `cellId()` rejects any id that would make this ambiguous.
+- **Insertion index:** `toIndex` is the insertion index in the target cell _after the dragged card is removed_. An empty cell is `0`.
 
-## Drax 1.1
+## How a cell describes itself
 
-`draxAdapterCapabilities` is `{ crossContainer: true, autoScrollOuter: false, supportsFlashList: true }`.
+A cell registers a `CellGeometry`. The engine never calls `measure()` on cards. It asks the geometry instead:
 
-Cross-container drag in Drax is experimental (`useSortableBoard`). The implementation is `BoardDragProvider`, `DraxCellBoard`, and `DraxCell`.
+| Method         | Returns                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `getRect()`    | The cell's frame in board coordinates, with the live horizontal and vertical scroll applied.                           |
+| `itemAt(y)`    | The card under a pointer: its id, index and rect. Used to start a drag.                                                |
+| `resolve(y)`   | The insertion index for a pointer, from a binary search over row midpoints.                                            |
+| `itemRect(id)` | The rect of a card, or of the placeholder (`PLACEHOLDER_ID`). Used to fly the lifted copy home or to its landing spot. |
+| `scroller`     | The cell's own vertical scroller, if it has one, for auto-scroll.                                                      |
+| `accepts()`    | `false` for collapsed cells.                                                                                           |
 
-Drax reports a slot of `itemCount - 1` when the pointer is past the last card. `resolveDropIndex` turns a pointer in the empty tail into an append. Empty lists already report `0`.
+Column cells read row layouts from FlashList v2 (`getLayout`, `getFirstItemOffset`). Swimlane cells record their row frames from `onLayout`.
 
-Drax list auto-scroll jumps 20% of the viewport every 250ms. The adapter sets the Drax thresholds so that scroller stays idle, then drives both axes from `dragAbsolutePositionSV` on the Drax context. Continuous mode ramps speed. Paged mode dwells, then flips one page. Reduced motion uses a flat speed.
+## Placement: feedback without a drop line
 
-`canDrop` rejection does not emit `onTransfer`. It emits `onDragEnd` with `cancelled: true`. Drax may keep a shift transform until the cell data changes; the spike logs that as a rejected drop.
+While a card is lifted, the engine publishes a `DragPlacement`: the lifted item, its source cell, and the target cell and index.
+
+- **Each list:**
+  - It renders its rows with the lifted card left out.
+  - It inserts a placeholder row the height of the lifted card at the target index (`displayedRows`).
+- **On drop:** the placeholder is swapped for the card in a single React render, so nothing blinks.
+- **Damping:** a new slot must hold for two frames, and the engine waits two frames after each placeholder move before it reads the layouts again. This keeps the placeholder from oscillating.
+
+## Lifecycle
+
+1. **Start:**
+   - A long press (default 200 ms) on the board starts the drag. The pan fails if the finger moves past the touch slop first, so scrolling keeps working.
+   - The engine resolves the card under the finger and mounts the lifted copy in the overlay.
+   - It then swaps the card for a placeholder.
+2. **During the drag:**
+   - A JS `requestAnimationFrame` loop hit-tests the pointer against the registered cells, moves the placeholder, and runs auto-scroll on both axes.
+   - Auto-scroll starts only after the finger has moved. It keeps using the last column's scroller when the finger goes past that column's edge.
+   - The lifted copy follows the finger on the UI thread.
+3. **On release:**
+
+   | Where the finger is released              | What happens                                                                                           |
+   | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+   | Over a cell that accepts the card         | `onTransfer` or `onReorder` runs. If it returns `false`, the move was refused and the card flies home. |
+   | Anywhere else                             | The drag is cancelled.                                                                                 |
+   | Without having moved (a long-press "tap") | `onLongPressMenu` runs, which opens the Move sheet.                                                    |
+
+4. **Data changes:** the `revision` and `isDragValid` props abort the drag when app data removes the card or moves it somewhere else.
