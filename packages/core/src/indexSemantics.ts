@@ -1,4 +1,4 @@
-import { fractionalRank, rankBetween } from './rank';
+import { compareRanked, fractionalRank, rankBetween } from './rank';
 import type { RankStrategy, RankedRef } from './types';
 
 export class ToIndexError extends RangeError {
@@ -49,4 +49,32 @@ export function rankForMove(
     after = without.slice(toIndex).find((item) => strategy.compare(item.rank, boundary) > 0)?.rank ?? null;
   }
   return rankBetween(before, after, strategy);
+}
+
+export interface Placement {
+  readonly rank: string;
+  readonly previousId: string | null;
+  readonly nextId: string | null;
+}
+
+/**
+ * `rankForMove` plus the neighbors the card really lands between. They match
+ * `toIndex` except next to tied ranks, where the card lands after the tie.
+ */
+export function placeForMove(
+  visible: readonly RankedRef[],
+  draggedId: string,
+  toIndex: number,
+  strategy: RankStrategy = fractionalRank,
+): Placement {
+  const rank = rankForMove(visible, draggedId, toIndex, strategy);
+  const without = visibleAfterRemoval(visible, draggedId);
+  const moved: RankedRef = { id: draggedId, rank };
+  const at = without.findIndex((item) => compareRanked(moved, item, strategy) < 0);
+  const position = at < 0 ? without.length : at;
+  return {
+    rank,
+    previousId: without[position - 1]?.id ?? null,
+    nextId: without[position]?.id ?? null,
+  };
 }

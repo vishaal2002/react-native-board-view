@@ -273,7 +273,16 @@ describe('a custom RankStrategy', () => {
       strategy: numericRank,
       opId: 'op',
     });
-    expect(op).toEqual({ opId: 'op', id: 'hundred', changes: {}, from: {}, rank: '6' });
+    expect(op).toEqual({
+      opId: 'op',
+      id: 'hundred',
+      changes: {},
+      from: {},
+      rank: '6',
+      previousId: 'two',
+      nextId: 'ten',
+      source: 'api',
+    });
     const next = project(numericRank, op ? [op] : []);
     expect(next.cellById.get(todo)?.ranked).toEqual([
       { id: 'two', rank: '2' },
@@ -296,6 +305,12 @@ describe('a custom RankStrategy', () => {
       strategy: numericRank,
       opId: 'op',
     });
-    expect(op).toEqual({ opId: 'op', id: 'two', changes: { status: 'done' }, from: { status: 'todo' }, rank: '500' });
+    expect(op).toMatchObject({
+      opId: 'op',
+      id: 'two',
+      changes: { status: 'done' },
+      from: { status: 'todo' },
+      rank: '500',
+    });
   });
 });

@@ -10,12 +10,27 @@ export type MoveQueueEvent =
   | { type: 'cancelled'; op: MoveOperation; reason: 'previous-rejected' }
   | { type: 'cleared'; itemId: string; opId: string; reason: OverlayClearReason };
 
+/** `onMove` took longer than `inflightTimeoutMs`. The move is rolled back and its signal aborted. */
+export class MoveTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`onMove did not settle within ${timeoutMs} ms.`);
+    this.name = 'MoveTimeoutError';
+  }
+}
+
+export interface MoveContext {
+  /** Aborted when the move times out or the board goes away. Pass it to `fetch`. */
+  readonly signal: AbortSignal;
+}
+
 interface Entry {
   op: MoveOperation;
   state: 'queued' | 'inflight' | 'resolved';
   /** The app's record when the move was queued. Null when the item was unknown. */
   baseline: ItemMoveSnapshot | null;
   settleTimer: ReturnType<typeof setTimeout> | null;
+  inflightTimer: ReturnType<typeof setTimeout> | null;
+  abort: AbortController | null;
 }
 
 export interface MoveQueueSnapshot {
@@ -39,12 +54,12 @@ export interface MoveQueue {
   isPending(itemId: string): boolean;
   getSnapshot(): MoveQueueSnapshot;
   subscribe(listener: () => void): () => void;
-  /** Clears timers and listeners. The queue must not be used afterwards. */
+  /** Clears timers and listeners and aborts in-flight moves. The queue must not be used afterwards. */
   dispose(): void;
 }
 
 export interface MoveQueueOptions {
-  onMove: (op: MoveOperation) => void | Promise<void>;
+  onMove: (op: MoveOperation, context: MoveContext) => void | Promise<void>;
   /**
    * Reads the app's current record of an item. The queue never trusts
    * `setState` timing: an overlay is removed only when this reader shows the
@@ -57,11 +72,20 @@ export interface MoveQueueOptions {
    * before the overlay is dropped anyway. App data is the source of truth, so
    * a server that stores its own rank, or an app that resolves without
    * updating, cannot leave a stale overlay behind. Default 5000. 0 disables.
+   * Read each time it is needed, so a getter may return the latest value.
    */
   settleTimeoutMs?: number;
+  /**
+   * How long `onMove` may stay pending before the move is rejected with a
+   * `MoveTimeoutError` and its signal aborted. Default 30000. 0 disables;
+   * use that when `onMove` waits for the user (a form, a confirmation).
+   * Read each time it is needed.
+   */
+  inflightTimeoutMs?: number;
 }
 
 const DEFAULT_SETTLE_TIMEOUT_MS = 5000;
+const DEFAULT_INFLIGHT_TIMEOUT_MS = 30000;
 
 /** Net effect of `entries[0..through]`. */
 function compose(entries: readonly Entry[], through: number): MoveOperation | null {
@@ -75,7 +99,7 @@ function compose(entries: readonly Entry[], through: number): MoveOperation | nu
       changes[key] = value;
     }
   }
-  return { opId: last.op.opId, id: last.op.id, changes, from, rank: last.op.rank };
+  return { ...last.op, changes, from };
 }
 
 /**
@@ -118,7 +142,6 @@ function record(history: RankHistory, entry: Entry): void {
  *   Earlier resolved moves keep their overlay until app data shows them.
  */
 export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
-  const settleTimeoutMs = options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
   const entriesByItem = new Map<string, Entry[]>();
   // Kept until the item has no pending moves at all, so a retired move's rank
   // is never mistaken for a rank the server chose.
@@ -151,6 +174,10 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
     if (entry.settleTimer != null) {
       clearTimeout(entry.settleTimer);
       entry.settleTimer = null;
+    }
+    if (entry.inflightTimer != null) {
+      clearTimeout(entry.inflightTimer);
+      entry.inflightTimer = null;
     }
   }
 
@@ -191,6 +218,7 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
   }
 
   function startSettleTimer(entry: Entry): void {
+    const settleTimeoutMs = options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
     if (settleTimeoutMs <= 0) return;
     entry.settleTimer = setTimeout(() => {
       entry.settleTimer = null;
@@ -220,12 +248,40 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
     }
   }
 
+  /** Calls `onMove`, rejecting with `MoveTimeoutError` when it outlives the in-flight timeout. */
+  async function call(entry: Entry): Promise<void> {
+    const abort = new AbortController();
+    entry.abort = abort;
+    const timeoutMs = options.inflightTimeoutMs ?? DEFAULT_INFLIGHT_TIMEOUT_MS;
+    // An async wrapper turns a synchronous throw into a rejection, and still calls `onMove` right away.
+    const pending = (async () => options.onMove(entry.op, { signal: abort.signal }))();
+    try {
+      if (timeoutMs <= 0) {
+        await pending;
+        return;
+      }
+      const timeout = new Promise<never>((_, fail) => {
+        entry.inflightTimer = setTimeout(() => {
+          entry.inflightTimer = null;
+          const error = new MoveTimeoutError(timeoutMs);
+          abort.abort();
+          fail(error);
+        }, timeoutMs);
+      });
+      await Promise.race([pending, timeout]);
+    } finally {
+      if (entry.inflightTimer != null) clearTimeout(entry.inflightTimer);
+      entry.inflightTimer = null;
+      entry.abort = null;
+    }
+  }
+
   async function run(entry: Entry): Promise<void> {
     if (disposed || !entriesByItem.get(entry.op.id)?.includes(entry)) return;
     entry.state = 'inflight';
     emit({ type: 'inflight', op: entry.op });
     try {
-      await options.onMove(entry.op);
+      await call(entry);
     } catch (error) {
       if (disposed || !entriesByItem.get(entry.op.id)?.includes(entry)) return;
       reject(entry, error);
@@ -249,7 +305,14 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
       if (disposed) return;
       const entries = entriesByItem.get(op.id) ?? [];
       if (entries.some((entry) => entry.op.opId === op.opId)) return;
-      const entry: Entry = { op, state: 'queued', baseline: options.readItem(op.id), settleTimer: null };
+      const entry: Entry = {
+        op,
+        state: 'queued',
+        baseline: options.readItem(op.id),
+        settleTimer: null,
+        inflightTimer: null,
+        abort: null,
+      };
       entries.push(entry);
       entriesByItem.set(op.id, entries);
       const seen = history.get(op.id) ?? { ranks: new Set<string>(), hasBaseline: false };
@@ -292,7 +355,12 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
     },
     dispose() {
       disposed = true;
-      for (const entries of entriesByItem.values()) for (const entry of entries) stopTimer(entry);
+      for (const entries of entriesByItem.values()) {
+        for (const entry of entries) {
+          stopTimer(entry);
+          entry.abort?.abort();
+        }
+      }
       entriesByItem.clear();
       history.clear();
       tails.clear();

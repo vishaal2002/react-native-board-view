@@ -274,14 +274,14 @@ const WINDOW_MS = 500;
 const WINDOWS = 12;
 
 /**
- * Median JS-thread and UI-thread frame rates over the last few seconds.
+ * Median and lowest JS-thread and UI-thread frame rates over the last six seconds.
  * UI frames are counted on the UI thread and read twice a second, so the
  * meter does not load the JS thread it measures. Meaningful in release builds.
  */
 export function FpsMeter() {
   const palette = usePalette();
   const uiFrames = useSharedValue(0);
-  const [readout, setReadout] = useState({ js: 0, ui: 0 });
+  const [readout, setReadout] = useState({ js: 0, ui: 0, jsLow: 0, uiLow: 0 });
 
   useFrameCallback(() => {
     'worklet';
@@ -311,7 +311,12 @@ export function FpsMeter() {
       lastUi = uiNow;
       if (js.length > WINDOWS) js.shift();
       if (ui.length > WINDOWS) ui.shift();
-      setReadout({ js: Math.round(median(js)), ui: Math.round(median(ui)) });
+      setReadout({
+        js: Math.round(median(js)),
+        ui: Math.round(median(ui)),
+        jsLow: Math.round(Math.min(...js)),
+        uiLow: Math.round(Math.min(...ui)),
+      });
     }, WINDOW_MS);
     return () => {
       cancelAnimationFrame(frame);
@@ -324,7 +329,9 @@ export function FpsMeter() {
       <Text style={[styles.fpsText, { color: palette.text }]}>
         JS {readout.js} · UI {readout.ui}
       </Text>
-      <Text style={[styles.fpsNote, { color: palette.muted }]}>{__DEV__ ? 'debug build' : 'release build'}</Text>
+      <Text style={[styles.fpsNote, { color: palette.muted }]}>
+        low {readout.jsLow} · {readout.uiLow} · {__DEV__ ? 'debug' : 'release'}
+      </Text>
     </View>
   );
 }

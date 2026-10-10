@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AccessibilityInfo } from 'react-native';
 import {
+  NO_LANE_ID,
   NO_VALUE_ID,
   createMoveQueue,
   parseCellId,
@@ -11,7 +12,10 @@ import {
   type BoardModel,
   type GroupAxis,
   type GroupBy,
+  type MoveOperation,
+  type MoveQueue,
   type MoveQueueEvent,
+  type MoveSource,
 } from 'board-view-core';
 import type { BoardLabels, BoardProps, MoveTarget } from './types';
 
@@ -19,22 +23,35 @@ export interface BoardController<T> {
   readonly model: BoardModel<T>;
   readonly itemsById: ReadonlyMap<string, T>;
   isPending(itemId: string): boolean;
-  /** Plans and queues a move. Returns false when nothing changes or the target refuses the card. */
-  moveItem(itemId: string, toCellId: string, toIndex: number): boolean;
+  /**
+   * Plans and queues a move. Returns false when nothing changes, the target
+   * refuses the card, or the move cannot be planned against the current data.
+   */
+  moveItem(itemId: string, toCellId: string, toIndex: number, source: MoveSource): boolean;
   canDropTo(itemId: string, cellId: string): boolean;
   itemLabel(itemId: string): string;
 }
 
+const warned = new Set<string>();
+
+/** Warns once per message in development. */
+function warnOnce(message: string): void {
+  if (!__DEV__ || warned.has(message)) return;
+  warned.add(message);
+  console.warn(`react-native-board-view: ${message}`);
+}
+
+/** Reads `item.rank`. A missing rank sorts first instead of crashing the render. */
 const defaultGetRank = (item: unknown): string => {
   const rank = (item as { rank?: unknown } | null)?.rank;
-  if (typeof rank !== 'string')
-    throw new Error('react-native-board-view: pass getRank, or give items a string `rank`.');
-  return rank;
+  if (typeof rank === 'string') return rank;
+  warnOnce('an item has no string `rank`. Pass `getRank`, or give every item a rank (see seedRanks).');
+  return '';
 };
 
 export function moveTargetOf(cellId: string): MoveTarget {
   const { laneKey, columnKey } = parseCellId(cellId);
-  return { cellId, columnId: columnKey, laneId: laneKey === '_' ? null : laneKey };
+  return { cellId, columnId: columnKey, laneId: laneKey === NO_LANE_ID ? null : laneKey };
 }
 
 function bucketLabel<T>(axis: GroupAxis<T> | undefined, value: string | null, noValue: string): string | null {
@@ -47,17 +64,29 @@ function announce(message: string): void {
   AccessibilityInfo.announceForAccessibility(message);
 }
 
+/** Items with duplicate ids keep the first; the rest would collide as React keys. */
+function uniqueById<T>(items: readonly T[], getItemId: (item: T) => string) {
+  const byId = new Map<string, T>();
+  let duplicates = false;
+  for (const item of items) {
+    const id = getItemId(item);
+    if (byId.has(id)) {
+      duplicates = true;
+      warnOnce(`duplicate item id "${id}". Only the first item with an id is shown.`);
+      continue;
+    }
+    byId.set(id, item);
+  }
+  return { byId, unique: duplicates ? [...byId.values()] : items };
+}
+
 export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels): BoardController<T> {
   const { items, getItemId, groupBy, rankStrategy } = props;
   const getRank = (props.getRank ?? defaultGetRank) as (item: T) => string;
   const latest = useRef({ props, labels, getRank });
   latest.current = { props, labels, getRank };
 
-  const itemsById = useMemo(() => {
-    const map = new Map<string, T>();
-    for (const item of items) map.set(getItemId(item), item);
-    return map;
-  }, [items, getItemId]);
+  const { byId: itemsById, unique } = useMemo(() => uniqueById(items, getItemId), [items, getItemId]);
   const itemsRef = useRef(itemsById);
   itemsRef.current = itemsById;
 
@@ -67,13 +96,28 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
     return item != null && getLabel ? getLabel(item) : itemId;
   }, []);
 
+  // "Moved" is announced once the app accepts the move, so it never reports a move that rolls back.
+  const announcements = useRef(new Map<string, string>());
+
   const onEvent = useCallback(
     (event: MoveQueueEvent) => {
+      if (event.type === 'resolved') {
+        const message = announcements.current.get(event.op.opId);
+        announcements.current.delete(event.op.opId);
+        if (message) announce(message);
+        return;
+      }
+      if (event.type === 'cancelled') {
+        announcements.current.delete(event.op.opId);
+        return;
+      }
       if (event.type !== 'rejected') return;
-      const item = itemsRef.current.get(event.op.id);
+      announcements.current.delete(event.op.opId);
       const { props: current, labels: text } = latest.current;
-      const axes: GroupBy<T> = current.groupBy;
+      current.onMoveError?.(event.op, event.error);
+      const item = itemsRef.current.get(event.op.id);
       if (item == null) return;
+      const axes: GroupBy<T> = current.groupBy;
       announce(
         text.moveFailed({
           item: itemLabel(event.op.id),
@@ -85,20 +129,41 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
     [itemLabel],
   );
 
-  // One queue for the board's lifetime. It reads `items` and `onMove`
-  // through refs, so it always sees the latest props.
-  const [queue] = useState(() =>
-    createMoveQueue({
-      onMove: (op) => latest.current.props.onMove(op),
-      readItem: (itemId) => {
-        const item = itemsRef.current.get(itemId);
-        const current = latest.current;
-        return item == null ? null : readItemSnapshot(item, current.props.groupBy, current.getRank);
-      },
-      onEvent: (event) => onEvent(event),
-      settleTimeoutMs: props.settleTimeoutMs,
-    }),
+  // The queue reads props through refs, so it always sees the latest ones,
+  // timeouts included.
+  const createQueue = useCallback(
+    (): MoveQueue =>
+      createMoveQueue({
+        onMove: (op, context) => latest.current.props.onMove(op, context),
+        readItem: (itemId) => {
+          const item = itemsRef.current.get(itemId);
+          const current = latest.current;
+          return item == null ? null : readItemSnapshot(item, current.props.groupBy, current.getRank);
+        },
+        onEvent,
+        get settleTimeoutMs() {
+          return latest.current.props.settleTimeoutMs;
+        },
+        get inflightTimeoutMs() {
+          return latest.current.props.inflightTimeoutMs;
+        },
+      }),
+    [onEvent],
   );
+  const [queue, setQueue] = useState(createQueue);
+  const retired = useRef(new WeakSet<MoveQueue>());
+  useEffect(() => {
+    // StrictMode unmounts and remounts once: replace the queue it disposed.
+    if (retired.current.has(queue)) {
+      setQueue(createQueue());
+      return;
+    }
+    return () => {
+      retired.current.add(queue);
+      queue.dispose();
+    };
+  }, [createQueue, queue]);
+
   const snapshot = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
 
   useEffect(() => {
@@ -108,7 +173,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   const model = useMemo(
     () =>
       projectBoard({
-        items,
+        items: unique,
         getItemId,
         getRank,
         groupBy,
@@ -116,7 +181,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
         strategy: rankStrategy,
         noValueLabel: labels.noValue,
       }),
-    [items, getItemId, getRank, groupBy, snapshot.overlays, rankStrategy, labels.noValue],
+    [unique, getItemId, getRank, groupBy, snapshot.overlays, rankStrategy, labels.noValue],
   );
   const modelRef = useRef(model);
   modelRef.current = model;
@@ -131,26 +196,34 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   }, []);
 
   const moveItem = useCallback(
-    (itemId: string, toCellId: string, toIndex: number) => {
+    (itemId: string, toCellId: string, toIndex: number, source: MoveSource) => {
       const item = itemsRef.current.get(itemId);
       const current = modelRef.current;
       const target = current.cellById.get(toCellId);
       if (item == null || !target || !canDropTo(itemId, toCellId)) return false;
       const { props: currentProps, labels: text } = latest.current;
-      const op = planMove({
-        model: current,
-        groupBy: currentProps.groupBy,
-        item,
-        itemId,
-        toCellId,
-        toIndex,
-        overlay: queue.getOverlay(itemId),
-        strategy: currentProps.rankStrategy,
-      });
+      let op: MoveOperation | null;
+      try {
+        op = planMove({
+          model: current,
+          groupBy: currentProps.groupBy,
+          item,
+          itemId,
+          toCellId,
+          toIndex,
+          overlay: queue.getOverlay(itemId),
+          strategy: currentProps.rankStrategy,
+          source,
+        });
+      } catch (error) {
+        // Data changed under the gesture, or a neighbor has an invalid rank: refuse the move.
+        warnOnce(`move of "${itemId}" was refused: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
       if (!op) return false;
-      queue.enqueue(op);
       const sameCell = current.locations.get(itemId)?.cellId === toCellId;
-      announce(
+      announcements.current.set(
+        op.opId,
         text.moved({
           item: itemLabel(itemId),
           column: target.column.label,
@@ -159,6 +232,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
           count: target.items.length + (sameCell ? 0 : 1),
         }),
       );
+      queue.enqueue(op);
       return true;
     },
     [canDropTo, itemLabel, queue],

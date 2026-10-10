@@ -59,14 +59,23 @@ export interface CellPlacement {
 }
 
 export interface DragBoardProps {
-  onTransfer(event: TransferIntent): void;
-  onReorder(event: ReorderIntent): void;
+  /** Returns false when the move is refused; the card then goes home. */
+  onTransfer(event: TransferIntent): boolean;
+  onReorder(event: ReorderIntent): boolean;
   onDragStart?(event: { itemId: string; cellId: string }): void;
+  /** The placeholder moved to a new slot. */
+  onDragOver?(event: { itemId: string; cellId: string; index: number }): void;
   onDragEnd?(event: { itemId: string; cancelled: boolean }): void;
   /** Long-press released without moving: the phone "long-press menu". */
   onLongPressMenu?(event: { itemId: string; cellId: string }): void;
   canDrag?(itemId: string): boolean;
   canDrop?(itemId: string, toCellId: string): boolean;
+  /**
+   * Checked whenever `revision` changes during a drag. False (the card is gone,
+   * or app data moved it to another cell) aborts the drag.
+   */
+  isDragValid?(itemId: string, sourceCellId: string): boolean;
+  revision?: unknown;
   /** Mirrors the pointer in board coordinates while dragging. */
   dragPosition?: SharedValue<{ x: number; y: number }>;
   longPressDelay?: number;

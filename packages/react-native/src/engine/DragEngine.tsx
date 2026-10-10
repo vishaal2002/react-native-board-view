@@ -41,6 +41,7 @@ import {
 /** Long-press released within this distance (px) opens the menu instead of dropping. */
 const MENU_SLOP = 10;
 const SETTLE_MS = 200;
+const AUTO_SCROLL_QUIET_MS = 150;
 const LIFT_SCALE = 1.03;
 /** A new drop slot must hold for this many frames before the placeholder moves. */
 const STABLE_FRAMES = 2;
@@ -272,6 +273,10 @@ interface ActiveDrag {
   dwellX: number;
   dwellY: number;
   scrolled: boolean;
+  /** When auto-scroll last moved content, in rAF time. */
+  lastScrollAt: number;
+  /** Last cell under the pointer: past its end (over a footer, a tab bar) it keeps scrolling. */
+  lastCellId: string | null;
   /** Slot seen last frame, waiting to be confirmed. */
   candidate: { cellId: string; index: number } | null;
   candidateFrames: number;
@@ -402,12 +407,30 @@ function DragBoard(props: DragBoardProps) {
     active.candidate = null;
     active.candidateFrames = 0;
     active.framesSinceMove = 0;
+    // While auto-scroll moves the content the slot changes come from scrolling, and a layout
+    // animation would also animate every recycled row: move the placeholder without one.
+    const scrolling = active.lastTime - active.lastScrollAt < AUTO_SCROLL_QUIET_MS;
     setPlacement(
       store,
       { ...placement, cellId: desired.cellId, index: desired.index },
-      !propsRef.current.reducedMotion,
+      !propsRef.current.reducedMotion && !scrolling,
     );
+    propsRef.current.onDragOver?.({ itemId: active.itemId, cellId: desired.cellId, index: desired.index });
   }, [outline, store]);
+
+  /** The last cell's scroller while the pointer is beyond that cell's top or bottom, within its width. */
+  const outerScroller = useCallback(
+    (active: ActiveDrag): ScrollerHandle | null => {
+      const geometry = active.lastCellId != null ? store.cells.get(active.lastCellId) : undefined;
+      const rect = geometry?.getRect();
+      if (!geometry?.scroller || !rect) return null;
+      const { x, y } = active.pointer;
+      const within = x >= rect.x && x <= rect.x + rect.width;
+      const beyond = y < rect.y || y > rect.y + rect.height;
+      return within && beyond ? geometry.scroller : null;
+    },
+    [store],
+  );
 
   const autoScroll = useCallback(
     (dt: number) => {
@@ -434,16 +457,18 @@ function DragBoard(props: DragBoardProps) {
         if (Math.abs(step.offset - offset) >= 0.5) {
           scroller.scrollTo(step.offset, step.flipped && !reducedMotion);
           active.scrolled = true;
+          active.lastScrollAt = active.lastTime;
         }
         return step.dwellMs;
       };
       const horizontal = store.scrollers.horizontal;
       active.dwellX = horizontal ? run(horizontal, active.pointer.x, active.dwellX) : 0;
       const hit = findCell(store.cells, active.pointer.x, active.pointer.y);
-      const vertical = hit?.[1].scroller ?? store.scrollers.vertical;
+      if (hit) active.lastCellId = hit[0];
+      const vertical = hit?.[1].scroller ?? outerScroller(active) ?? store.scrollers.vertical;
       active.dwellY = vertical ? run(vertical, active.pointer.y, active.dwellY) : 0;
     },
-    [store],
+    [outerScroller, store],
   );
 
   const loop = useCallback(
@@ -479,6 +504,8 @@ function DragBoard(props: DragBoardProps) {
         dwellX: 0,
         dwellY: 0,
         scrolled: false,
+        lastScrollAt: -Infinity,
+        lastCellId: hit[0],
         candidate: null,
         candidateFrames: 0,
         framesSinceMove: 0,
@@ -547,24 +574,27 @@ function DragBoard(props: DragBoardProps) {
       // Released outside every cell that takes the card: the move is cancelled.
       const onTarget = released != null && allowedIn(released[1], released[0], active.itemId);
 
-      if (!cancelled && !menu && !atHome && onTarget) {
-        const landing = placeholderRect();
-        // One React render: the placeholder goes away and the card appears in its place.
-        if (placement.cellId === active.sourceCellId) {
-          current.onReorder({
-            itemId: active.itemId,
-            cellId: placement.cellId,
-            fromIndex: active.sourceIndex,
-            toIndex: placement.index,
-          });
-        } else {
-          current.onTransfer({
-            itemId: active.itemId,
-            fromCellId: active.sourceCellId,
-            toCellId: placement.cellId,
-            toIndex: placement.index,
-          });
-        }
+      const landing = placeholderRect();
+      // One React render: the placeholder goes away and the card appears in its place.
+      const committed =
+        !cancelled &&
+        !menu &&
+        !atHome &&
+        onTarget &&
+        (placement.cellId === active.sourceCellId
+          ? current.onReorder({
+              itemId: active.itemId,
+              cellId: placement.cellId,
+              fromIndex: active.sourceIndex,
+              toIndex: placement.index,
+            })
+          : current.onTransfer({
+              itemId: active.itemId,
+              fromCellId: active.sourceCellId,
+              toCellId: placement.cellId,
+              toIndex: placement.index,
+            }));
+      if (committed) {
         setPlacement(store, null, false);
         settle(landing);
         current.onDragEnd?.({ itemId: active.itemId, cancelled: false });
@@ -584,6 +614,18 @@ function DragBoard(props: DragBoardProps) {
     },
     [allowedIn, phase, placeholderRect, settle, store],
   );
+
+  // App data changed mid-drag: if the lifted card is gone or now lives elsewhere, drop the drag.
+  const { revision, isDragValid } = props;
+  useEffect(() => {
+    const active = drag.current;
+    if (!active || !isDragValid || phase.value !== PHASE_DRAGGING) return;
+    if (isDragValid(active.itemId, active.sourceCellId)) return;
+    cancelAnimationFrame(frameRef.current);
+    setPlacement(store, null, false);
+    settle(null);
+    propsRef.current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
+  }, [isDragValid, phase, revision, settle, store]);
 
   useEffect(
     () => () => {
