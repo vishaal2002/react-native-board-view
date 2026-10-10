@@ -10,11 +10,7 @@
     "verbatimModuleSyntax": false,
     "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
-    "lib": [
-      "ES2022"
-    ],
-    "customConditions": [
-      "source"
-    ]
+    "lib": ["ES2022"],
+    "customConditions": ["source"]
   }
 }

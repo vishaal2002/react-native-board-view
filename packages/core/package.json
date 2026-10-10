@@ -25,6 +25,7 @@
     "lib",
     "src",
     "!**/*.test.ts",
+    "!**/*.test.tsx",
     "!**/*.tsbuildinfo",
     "README.md",
     "LICENSE"
@@ -74,6 +75,6 @@
         }
       ]
     ],
-    "exclude": "**/*.test.ts"
+    "exclude": "**/*.test.{ts,tsx}"
   }
 }
