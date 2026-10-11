@@ -41,7 +41,7 @@
   ],
   "scripts": {
     "build": "bob build",
-    "prepack": "cp ../../README.md README.md && bob build",
+    "prepack": "sed '/<!-- github-only -->/,/<!-- \\/github-only -->/d' ../../README.md > README.md && bob build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

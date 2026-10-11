@@ -8,6 +8,9 @@ Your items stay the source of truth. The board groups them, and your app accepts
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![React Native 0.83+](https://img.shields.io/badge/react--native-0.83%2B-61dafb)
 ![New Architecture](https://img.shields.io/badge/architecture-new%20only-informational)
+<!-- github-only -->
+[![npm](https://img.shields.io/npm/v/react-native-board-view)](https://www.npmjs.com/package/react-native-board-view)
+<!-- /github-only -->
 
 <table>
   <tr>
