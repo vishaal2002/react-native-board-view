@@ -223,10 +223,24 @@ export interface BoardProps<T> {
   layout?: BoardLayout;
   /** Paged layout only: column chips above the board, page dots, or nothing. Default 'tabs'. */
   pagerIndicator?: 'tabs' | 'dots' | 'none';
-  /** Column to show first in the paged and multi layouts. */
+  /** Column to show first in the paged and multi layouts. Ignored once `columnId` is set. */
   initialColumnId?: string;
+  /**
+   * Column to keep on screen. Changing it scrolls there. Update it from
+   * `onColumnChange` so a swipe stays where the finger left it.
+   */
+  columnId?: string;
   /** Paged layout: the column now on screen. */
   onColumnChange?: (columnId: string) => void;
+  /**
+   * The user reached the end of a column. The board does not fetch: append
+   * items and pass them back in. It fires again only after that append moves
+   * the end off screen and the user scrolls to it. Paged, multi and fit fire
+   * this for the column that was scrolled. Swimlanes share one vertical list,
+   * so the bottom of that list fires it once per column. Stacked fires it for
+   * the last column.
+   */
+  onEndReached?: (columnId: string) => void;
   /** Collapse toggles on column headers. Default: on in `stacked`, off elsewhere. Never in `paged`. */
   collapsibleColumns?: boolean;
   /** Controlled. Omit both to let the board keep this state itself. */

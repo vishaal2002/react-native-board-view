@@ -1,4 +1,4 @@
-import { createContext, use } from 'react';
+import { createContext, use, useSyncExternalStore } from 'react';
 import type { GestureType } from 'react-native-gesture-handler';
 import type { SharedValue } from 'react-native-reanimated';
 import type { DragAdapter } from './engine/types';
@@ -68,6 +68,10 @@ export interface BoardContextValue<T = unknown> {
 }
 
 export const BoardContext = createContext<BoardContextValue | null>(null);
+
+export function useStoreValue<V>(store: ValueStore<V>): V {
+  return useSyncExternalStore(store.subscribe, store.get, store.get);
+}
 
 export function useBoard<T = unknown>(): BoardContextValue<T> {
   const value = use(BoardContext);

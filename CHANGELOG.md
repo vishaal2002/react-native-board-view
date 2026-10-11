@@ -2,6 +2,14 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
+## 0.3.0
+
+`react-native-board-view` only. `board-view-core` stays 0.1.0.
+
+- **Show more on a peeked column.** In the paged layout, Show more and the column footer draw only on the column that is on screen. The next column still peeks in.
+- **`columnId`.** Set the column on screen, and update it from `onColumnChange` when the user swipes.
+- **`onEndReached`.** A column list reaching its end reports that column. The board does not fetch.
+
 ## 0.2.0
 
 `react-native-board-view` only. `board-view-core` stays 0.1.0.
@@ -12,7 +20,7 @@ This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a m
 
 ## 0.1.0
 
-First public pre-release of `react-native-board-view` and `board-view-core`.
+First public release of `react-native-board-view` and `board-view-core`.
 
 ### Board
 

@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { columnMetrics, offsetForSlot, pageAt, resolveLayout, slotAtX, visibleSlots, visualSlot } from './metrics';
+import {
+  columnMetrics,
+  offsetForSlot,
+  pageAt,
+  resolveLayout,
+  showsCellFooter,
+  slotAtX,
+  visibleSlots,
+  visualSlot,
+} from './metrics';
 
 const theme = { columnWidth: 300, columnGap: 12, collapsedColumnWidth: 48, minColumnWidth: 136 };
 const open = (count: number) => new Array<boolean>(count).fill(false);
@@ -35,6 +44,12 @@ describe('paged metrics', () => {
   it('ignores collapsing', () => {
     const collapsed = columnMetrics('paged', 390, [true, false, true, false], theme);
     expect(collapsed.slots.some((slot) => slot.collapsed)).toBe(false);
+  });
+
+  it('draws Show more only on the column that is on screen', () => {
+    expect(showsCellFooter('paged', 0, 0)).toBe(true);
+    expect(showsCellFooter('paged', 1, 0)).toBe(false);
+    expect(showsCellFooter('multi', 1, 0)).toBe(true);
   });
 
   it('maps offsets to pages', () => {

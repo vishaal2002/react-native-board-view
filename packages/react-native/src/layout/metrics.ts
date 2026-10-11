@@ -30,6 +30,14 @@ export interface ColumnMetrics {
   readonly scrollable: boolean;
 }
 
+/**
+ * A paged board peeks the next column. Show more and the column footer on that
+ * sliver are clipped, so only the column on screen draws them.
+ */
+export function showsCellFooter(mode: ResolvedLayout, visualIndex: number, page: number): boolean {
+  return mode !== 'paged' || visualIndex === page;
+}
+
 export function resolveLayout(layout: BoardLayout, boardWidth: number): ResolvedLayout {
   if (layout !== 'auto') return layout;
   return boardWidth < COMPACT_WIDTH ? 'paged' : 'multi';

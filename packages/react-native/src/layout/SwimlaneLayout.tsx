@@ -10,7 +10,7 @@ import {
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { cellId as makeCellId, type BoardCell, type GroupValue } from 'board-view-core';
-import { useBoard, type BoardContextValue } from '../context';
+import { useBoard, useStoreValue, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type Slot, type SlotSource } from '../engine/geometry';
 import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle } from '../engine/types';
 import { BoardCard } from './BoardCard';
@@ -23,8 +23,7 @@ import {
   ShowMoreButton,
 } from './defaults';
 import { PLACEHOLDER_ROW, cardIndexFromRaw, displayedRows, isPlaceholder, type DisplayedRow } from './displayed';
-import type { ColumnSlot } from './metrics';
-import { visualSlot } from './metrics';
+import { showsCellFooter, visualSlot, type ColumnSlot } from './metrics';
 import { COMPACT_HEADER_WIDTH } from './ColumnsLayout';
 import { useHorizontalScroller } from './useHorizontalScroller';
 
@@ -192,6 +191,16 @@ export function SwimlaneLayout() {
   const onContentSizeChange = useCallback((_width: number, height: number) => {
     contentHeight.current = height;
   }, []);
+  const columnIds = columns.map((column) => column.id).join('\0');
+  const onEndReached = props.onEndReached;
+  const endAt = useRef(0);
+  const notifyEnd = useCallback(() => {
+    if (!onEndReached) return;
+    const now = Date.now();
+    if (now - endAt.current < 400) return;
+    endAt.current = now;
+    for (const id of columnIds.split('\0')) if (id) onEndReached(id);
+  }, [columnIds, onEndReached]);
 
   return (
     <LanesContext value={lanesContext}>
@@ -228,6 +237,8 @@ export function SwimlaneLayout() {
                   onScroll={onScroll}
                   scrollEventThrottle={16}
                   onContentSizeChange={onContentSizeChange}
+                  onEndReached={onEndReached ? notifyEnd : undefined}
+                  onEndReachedThreshold={0}
                   contentContainerStyle={styles.lanesContent}
                   showsVerticalScrollIndicator={false}
                 />
@@ -288,7 +299,8 @@ const LaneRow = memo(function LaneRow({
   cellLimit: number;
 }) {
   const board = useBoard();
-  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth, rtl } = board;
+  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth, rtl, page } = board;
+  const currentPage = useStoreValue(page);
   const collapsed = collapsedLanes.has(lane.id);
   const columns = controller.model.columns;
   const [rowY, setRowY] = useState(0);
@@ -335,6 +347,7 @@ const LaneRow = memo(function LaneRow({
                 laneIndex={laneIndex}
                 rowY={rowY}
                 limit={limits.get(cell.cellId) ?? cellLimit}
+                showFooter={showsCellFooter(metrics.mode, visual, currentPage)}
               />
             );
           })}
@@ -446,6 +459,7 @@ const SwimCell = memo(function SwimCell({
   laneIndex,
   rowY,
   limit,
+  showFooter,
 }: {
   cell: BoardCell<unknown>;
   slot: ColumnSlot;
@@ -453,6 +467,8 @@ const SwimCell = memo(function SwimCell({
   rowY: number;
   /** How many cards this cell may show. A number so memo sees Show more. */
   limit: number;
+  /** False on a peeked paged column, where Show more would be clipped. */
+  showFooter: boolean;
 }) {
   const board = useBoard();
   const lanes = useLanes();
@@ -543,8 +559,10 @@ const SwimCell = memo(function SwimCell({
           );
         })
       )}
-      {hiddenCount > 0 ? <ShowMoreButton label={labels.showMore(hiddenCount)} theme={theme} onPress={more} /> : null}
-      {props.renderColumnFooter
+      {showFooter && hiddenCount > 0 ? (
+        <ShowMoreButton label={labels.showMore(hiddenCount)} theme={theme} onPress={more} />
+      ) : null}
+      {showFooter && props.renderColumnFooter
         ? props.renderColumnFooter({ column: cell.column, lane: cell.lane, count: cell.items.length })
         : null}
     </adapter.Cell>

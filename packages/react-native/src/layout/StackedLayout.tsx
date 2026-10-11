@@ -309,6 +309,16 @@ export function StackedLayout() {
   const onContentSizeChange = useCallback((_width: number, height: number) => {
     contentHeight.current = height;
   }, []);
+  const lastColumnId = controller.model.columns.at(-1)?.id;
+  const onEndReached = board.props.onEndReached;
+  const endAt = useRef(0);
+  const notifyEnd = useCallback(() => {
+    if (!lastColumnId) return;
+    const now = Date.now();
+    if (now - endAt.current < 400) return;
+    endAt.current = now;
+    onEndReached?.(lastColumnId);
+  }, [lastColumnId, onEndReached]);
   const renderRow = useCallback(({ item }: ListRenderItemInfo<Row>) => <StackedRow row={item} />, []);
 
   return (
@@ -329,6 +339,8 @@ export function StackedLayout() {
           onScroll={onScroll}
           scrollEventThrottle={16}
           onContentSizeChange={onContentSizeChange}
+          onEndReached={onEndReached ? notifyEnd : undefined}
+          onEndReachedThreshold={0}
           contentContainerStyle={{ paddingTop: board.theme.columnGap, paddingBottom: 48 }}
           maintainVisibleContentPosition={NO_ANCHORING}
           showsVerticalScrollIndicator={false}

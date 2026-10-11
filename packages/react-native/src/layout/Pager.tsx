@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { useBoard } from '../context';
+import { useBoard, useStoreValue } from '../context';
 import { visualSlot } from './metrics';
 
 function useCurrentPage(): number {
   const { page } = useBoard();
-  return useSyncExternalStore(page.subscribe, page.get, page.get);
+  return useStoreValue(page);
 }
 
 function useColumnCounts(): Map<string, number> {

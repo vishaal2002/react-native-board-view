@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Board, type BoardLayout, type CardRenderInfo } from 'react-native-board-view';
-import { kanbanGroupBy, makeTasks, type Task } from '../data';
+import { Board, NO_VALUE_ID, fractionalRank, type BoardLayout, type CardRenderInfo } from 'react-native-board-view';
+import { STATUSES, kanbanGroupBy, makeTasks, type Task } from '../data';
 import { taskId, taskLabel } from '../ids';
 import { Screen, Segmented, TaskCard, Toggle, usePalette, type CardStyle } from '../ui';
 import { useTaskStore } from '../useTaskStore';
@@ -30,7 +30,33 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
   const [autoScroll, setAutoScroll] = useState(true);
   const [swipe, setSwipe] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
+  const [columnId, setColumnId] = useState('backlog');
+  const [loaded, setLoaded] = useState<string | null>(null);
   const store = useTaskStore(seed, kanbanGroupBy);
+  const setItems = store.setItems;
+  const onEndReached = useCallback(
+    (id: string) => {
+      setItems((current) => {
+        const status = id === NO_VALUE_ID ? null : id;
+        const last = current.reduce<string | null>((end, task) => {
+          if (task.status !== status) return end;
+          return end === null || task.rank > end ? task.rank : end;
+        }, null);
+        const task: Task = {
+          id: `loaded-${id}-${current.length}`,
+          title: 'Loaded from the end of the column',
+          rank: fractionalRank.between(last, null),
+          status,
+          assignee: null,
+          tags: [],
+          priority: 'low',
+        };
+        return [...current, task];
+      });
+      setLoaded(id);
+    },
+    [setItems],
+  );
   const renderCard = useCallback(
     (info: CardRenderInfo<Task>) => <TaskCard info={info} variant={cardStyle} />,
     [cardStyle],
@@ -39,7 +65,11 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
   return (
     <Screen
       title="Kanban"
-      subtitle="Flat tasks grouped by status. Long-press to drag, tap … to move, or swipe sideways on wide layouts."
+      subtitle={
+        loaded
+          ? `Loaded a card into ${STATUSES.find((status) => status.id === loaded)?.label ?? 'No value'}. Scroll that column to the end to load another.`
+          : 'Flat tasks grouped by status. Long-press to drag, tap … to move, or swipe sideways on wide layouts.'
+      }
       onBack={onBack}
       toolbar={
         <>
@@ -77,6 +107,12 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
           <Toggle label="Auto-scroll" value={autoScroll} onChange={setAutoScroll} />
           <Toggle label="Swipe (multi, fit)" value={swipe} onChange={setSwipe} />
           <Toggle label="Read only" value={readOnly} onChange={setReadOnly} />
+          <Segmented
+            label="Column"
+            options={STATUSES.map((status) => ({ label: status.label, value: status.id }))}
+            value={columnId}
+            onChange={setColumnId}
+          />
         </>
       }
     >
@@ -94,6 +130,9 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
         autoScroll={autoScroll}
         moveModes={swipe ? SWIPE_ON : undefined}
         readOnly={readOnly}
+        columnId={columnId}
+        onColumnChange={setColumnId}
+        onEndReached={onEndReached}
         appearance={palette.dark ? 'dark' : 'light'}
       />
     </Screen>

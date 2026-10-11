@@ -8,13 +8,12 @@ Your items stay the source of truth. The board groups them, and your app accepts
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![React Native 0.83+](https://img.shields.io/badge/react--native-0.83%2B-61dafb)
 ![New Architecture](https://img.shields.io/badge/architecture-new%20only-informational)
-![Status: 0.2.0 pre-release](https://img.shields.io/badge/status-0.2.0%20pre--release-orange)
 
 <table>
   <tr>
-    <td align="center"><img src="docs/media/hero.png" alt="Paged board. The Backlog tab is selected, five cards are in the column, and the next column peeks in from the right." width="220" /></td>
-    <td align="center"><img src="docs/media/drag.gif" alt="A card stays lifted over a dashed gap, then drops further down the Backlog column." width="220" /></td>
-    <td align="center"><img src="docs/media/swimlane-after.png" alt="Swimlane board. Alice's Backlog cell shows all four cards." width="220" /></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/hero.png" alt="Paged board. The Backlog tab is selected, five cards are in the column, and the next column peeks in from the right." width="220" /></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/drag.gif" alt="A card stays lifted over a dashed gap, then drops further down the Backlog column." width="220" /></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/swimlane-after.png" alt="Swimlane board. Alice's Backlog cell shows all four cards." width="220" /></td>
   </tr>
   <tr>
     <td align="center"><sub><b>Paged columns</b><br />one column, the next peeks in</sub></td>
@@ -23,14 +22,11 @@ Your items stay the source of truth. The board groups them, and your app accepts
   </tr>
 </table>
 
-<sub>Real captures of the example app (<code>apps/bare</code>), Pixel 9 Pro emulator, debug build, cropped to the board. The chips above the board in the example app are not part of <code>Board</code>.</sub>
+<sub>From the example app. Chips above the board are demo controls, not part of <code>Board</code>.</sub>
 
 [Install](#install) · [Quick start](#quick-start) · [How a move works](#how-a-move-works) · [Layouts](#layouts) · [Props](#props) · [Accessibility](#accessibility) · [Performance](#performance)
 
 </div>
-
-> **0.2.0, pre-release.** Install with `react-native-board-view@next`. The API can still change before 1.0.
-> Release numbers: [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
 
 ## What you get
 
@@ -66,7 +62,7 @@ flowchart LR
 
 | Backlog selected, the next column peeks in                                                                                                                              | Swipe to In progress                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| <img src="docs/media/hero.png" alt="Paged board. The Backlog tab is selected, five cards are in the column, and the next column peeks in from the right." width="240" /> | <img src="docs/media/paging.gif" alt="A swipe moves the board from the Backlog column to In progress. The tab highlight follows the page." width="240" /> |
+| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/hero.png" alt="Paged board. The Backlog tab is selected, five cards are in the column, and the next column peeks in from the right." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/paging.gif" alt="A swipe moves the board from the Backlog column to In progress. The tab highlight follows the page." width="240" /> |
 
 ### Drag
 
@@ -74,7 +70,7 @@ Long-press a card and move it. The card lifts, a dashed gap marks where it will 
 
 | Lifted, with a dashed gap                                                                                                                       | Dropped lower in the column                                                                                    |
 | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| <img src="docs/media/drag-lifted.png" alt="Review billing page lifted out of the Backlog column. A dashed rectangle marks the gap it left." width="240" /> | <img src="docs/media/drag.gif" alt="The same card stays lifted over the dashed gap, then drops further down the Backlog column." width="240" /> |
+| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/drag-lifted.png" alt="Review billing page lifted out of the Backlog column. A dashed rectangle marks the gap it left." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/drag.gif" alt="The same card stays lifted over the dashed gap, then drops further down the Backlog column." width="240" /> |
 
 ### Show more
 
@@ -82,7 +78,7 @@ Swimlanes only. `cellLimit` is how many cards a cell paints before Show more. Th
 
 | Before                                                                                                                         | After                                                                                                                |
 | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| <img src="docs/media/swimlane-before.png" alt="Alice's Backlog cell shows two cards and a Show 2 more button." width="240" /> | <img src="docs/media/swimlane-after.png" alt="The same cell shows all four cards, and Show more is gone." width="240" /> |
+| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/swimlane-before.png" alt="Alice's Backlog cell shows two cards and a Show 2 more button." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/swimlane-after.png" alt="The same cell shows all four cards, and Show more is gone." width="240" /> |
 
 ### Read only
 
@@ -90,7 +86,7 @@ Swimlanes only. `cellLimit` is how many cards a cell paints before Show more. Th
 
 | Editable, a "…" move menu on each card | `readOnly`, no menu |
 | --- | --- |
-| <img src="docs/media/hero.png" alt="Paged board with a move menu on each card." width="240" /> | <img src="docs/media/readonly.png" alt="The same paged board with read only on. Cards have no move menu." width="240" /> |
+| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/hero.png" alt="Paged board with a move menu on each card." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/readonly.png" alt="The same paged board with read only on. Cards have no move menu." width="240" /> |
 
 ## Install
 
@@ -274,6 +270,8 @@ Swimlanes are a second axis, `groupBy.lanes`. Lanes virtualize and collapse. Eac
 | `canDrag`, `canDrop`                                                                                     | allow                        | Locked cards, refused cells.                                                         |
 | `onMoveError`, `onDragStart`, `onDragOver`, `onDragEnd`                                                  |                              | Rollback and drag hooks.                                                             |
 | `layout`                                                                                                 | `auto`                       | `paged`, `multi`, `fit`, `stacked`.                                                  |
+| `columnId`, `onColumnChange`                                                                             |                              | Set the column on screen. Update `columnId` from the callback when the user swipes. |
+| `onEndReached`                                                                                           |                              | A column list hit its end. The board does not fetch.                                 |
 | `pagerIndicator`                                                                                         | `tabs`                       | `dots`, `none`.                                                                      |
 | `cellLimit`                                                                                              | `50`                         | Swimlane cards before Show more.                                                     |
 | `appearance`                                                                                             | `auto`                       | `light`, `dark`.                                                                     |
@@ -299,6 +297,11 @@ Each card is one element: item, column, lane, and position. Actions are Move to�
 
 On a Pixel 9 Pro emulator, release build, 4 × 500 cards, holding a card measured 60 fps median on both threads. Auto-scroll tracks FlashList cell rendering, same as a finger scroll. Method and the rest of the table: [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md). Memoize cards, and filter items before they reach the board.
 
+## 0.3.0
+
+- Paged Show more draws on the column that is on screen. The next column still peeks in.
+- `columnId` sets that column. `onEndReached` reports a column list that hit its end, and the board does not fetch.
+
 ## 0.2.0
 
 - Show more reveals the next page of cards in a swimlane cell.
@@ -323,7 +326,7 @@ No create, edit, delete, fetch, or offline store. No rank rebalancing in the cli
 
 | Package                   | Role                                                                     |
 | ------------------------- | ------------------------------------------------------------------------ |
-| `react-native-board-view` | `Board`, and a re-export of the core. **0.2.0.**                         |
+| `react-native-board-view` | `Board`, and a re-export of the core. **0.3.0.**                         |
 | `board-view-core`         | Grouping, ranks, move planning, and the move queue. No React. **0.1.0.** |
 
 [Recipes](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md) · [Contributing](https://github.com/vishaal2002/react-native-board-view/blob/main/CONTRIBUTING.md)

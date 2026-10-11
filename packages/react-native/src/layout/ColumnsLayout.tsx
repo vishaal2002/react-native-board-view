@@ -382,6 +382,16 @@ function ColumnList({ cell, slot, listTop, listHeight, getScrollX, lists, pendin
   const onContentSizeChange = useCallback((_width: number, height: number) => {
     contentHeight.current = height;
   }, []);
+  const columnId = cell.column.id;
+  const onEndReached = props.onEndReached;
+  const endAt = useRef(0);
+  const notifyEnd = useCallback(() => {
+    // FlashList retries as soon as the list data changes, before the new card is measured.
+    const now = Date.now();
+    if (now - endAt.current < 400) return;
+    endAt.current = now;
+    onEndReached?.(columnId);
+  }, [columnId, onEndReached]);
 
   const empty = (
     <View>
@@ -405,6 +415,8 @@ function ColumnList({ cell, slot, listTop, listHeight, getScrollX, lists, pendin
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={onContentSizeChange}
+        onEndReached={onEndReached ? notifyEnd : undefined}
+        onEndReachedThreshold={0}
         contentContainerStyle={{
           paddingHorizontal: theme.cellPadding,
           paddingTop: theme.cellPadding,
