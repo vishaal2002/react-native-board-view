@@ -101,4 +101,5 @@ export const defaultLabels: BoardLabels = {
     `Moved ${item} to ${where(column, lane)}, ${position} of ${count}`,
   moveFailed: ({ item, column, lane }) => `Could not move ${item}. It is back in ${where(column, lane)}`,
   columnTab: (column, count) => `${column}, ${count} cards`,
+  loadingMore: 'Loading more cards',
 };

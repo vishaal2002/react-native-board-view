@@ -65,6 +65,12 @@ export interface BoardContextValue<T = unknown> {
   readonly toggleColumn: (columnId: string) => void;
   readonly toggleLane: (laneId: string) => void;
   readonly openMoveSheet: (itemId: string) => void;
+  /** Columns in `loadingColumns`. */
+  readonly loadingColumns: ReadonlySet<string>;
+  /** `columnTotals` for a column, else the count passed in. */
+  readonly columnTotal: (columnId: string, count: number) => number;
+  /** The card `scrollToItem` asked to flash. A new object for every request. */
+  readonly highlight: ValueStore<{ readonly itemId: string } | null>;
 }
 
 export const BoardContext = createContext<BoardContextValue | null>(null);

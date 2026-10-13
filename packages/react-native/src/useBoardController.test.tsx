@@ -3,9 +3,18 @@ import { StrictMode, type ReactNode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccessibilityInfo } from 'react-native';
-import { applyMove, cellId, fractionalRank, type GroupBy, type MoveContext, type MoveOperation } from 'board-view-core';
+import {
+  NO_VALUE_ID,
+  applyMove,
+  cellId,
+  fractionalRank,
+  projectBoard,
+  type GroupBy,
+  type MoveContext,
+  type MoveOperation,
+} from 'board-view-core';
 import { defaultLabels } from './theme';
-import { useBoardController } from './useBoardController';
+import { resolveDestination, useBoardController } from './useBoardController';
 import type { BoardProps } from './types';
 
 interface Task {
@@ -284,5 +293,104 @@ describe('useBoardController', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('moves a card from the imperative handle with source api, top by default', async () => {
+    const onMove = vi.fn<(op: MoveOperation, context: MoveContext) => void>();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove }),
+    });
+
+    let moved = false;
+    act(() => {
+      moved = result.current.moveTo('b', { columnId: 'done' });
+    });
+    expect(moved).toBe(true);
+    expect(idsIn(result.current.model, done)).toEqual(['b', 'c']);
+    await act(async () => undefined);
+    expect(onMove.mock.calls[0]?.[0]).toMatchObject({ id: 'b', changes: { status: 'done' }, source: 'api' });
+    // An api move has no finger or screen-reader focus to keep.
+    expect(result.current.focusRequest.get()).toBeNull();
+  });
+
+  it('puts an api move at the end, and refuses unknown cards, unknown columns and refused targets', () => {
+    const onMove = vi.fn();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove, canDrop: (task, target) => !(task.id === 'c' && target.columnId === 'todo') }),
+    });
+
+    act(() => {
+      result.current.moveTo('a', { columnId: 'done', index: 'end' });
+    });
+    expect(idsIn(result.current.model, done)).toEqual(['c', 'a']);
+
+    let moved = true;
+    act(() => {
+      moved = result.current.moveTo('missing', { columnId: 'done' });
+    });
+    expect(moved).toBe(false);
+    act(() => {
+      moved = result.current.moveTo('b', { columnId: 'nowhere' });
+    });
+    expect(moved).toBe(false);
+    act(() => {
+      moved = result.current.moveTo('c', { columnId: 'todo' });
+    });
+    expect(moved).toBe(false);
+  });
+});
+
+describe('resolveDestination', () => {
+  const lanes: GroupBy<Task & { owner: string | null }> = {
+    columns: groupBy.columns as GroupBy<Task & { owner: string | null }>['columns'],
+    lanes: {
+      key: 'owner',
+      values: [
+        { id: 'ann', label: 'Ann' },
+        { id: 'ben', label: 'Ben' },
+      ],
+    },
+  };
+  const laneItems = seed.map((task, index) => ({ ...task, owner: index === 0 ? 'ann' : index === 1 ? 'ben' : null }));
+  const laneModel = projectBoard({
+    items: laneItems,
+    getItemId: (task) => task.id,
+    getRank: (task) => task.rank,
+    groupBy: lanes,
+  });
+  const flatModel = projectBoard({ items: seed, getItemId: (task) => task.id, getRank: (task) => task.rank, groupBy });
+
+  it('clamps the index to the cell, counting without the moved card', () => {
+    expect(resolveDestination(flatModel, 'a', { columnId: 'todo', index: 99 }, false)).toEqual({
+      cellId: todo,
+      index: 1,
+    });
+    expect(resolveDestination(flatModel, 'a', { columnId: 'done', index: -4 }, false)).toEqual({
+      cellId: done,
+      index: 0,
+    });
+    expect(resolveDestination(flatModel, 'a', { columnId: 'done', index: 'end' }, false)).toEqual({
+      cellId: done,
+      index: 1,
+    });
+  });
+
+  it('keeps the card in its lane unless a lane is given, and ignores lanes on boards without them', () => {
+    expect(resolveDestination(laneModel, 'a', { columnId: 'done' }, true)).toEqual({
+      cellId: cellId('ann', 'done'),
+      index: 0,
+    });
+    expect(resolveDestination(laneModel, 'a', { columnId: 'done', laneId: 'ben' }, true)?.cellId).toBe(
+      cellId('ben', 'done'),
+    );
+    expect(resolveDestination(laneModel, 'c', { columnId: 'todo', laneId: NO_VALUE_ID }, true)?.cellId).toBe(
+      cellId(NO_VALUE_ID, 'todo'),
+    );
+    expect(resolveDestination(flatModel, 'a', { columnId: 'done', laneId: 'ben' }, false)?.cellId).toBe(done);
+  });
+
+  it('returns null for an unknown card or cell', () => {
+    expect(resolveDestination(flatModel, 'zzz', { columnId: 'done' }, false)).toBeNull();
+    expect(resolveDestination(flatModel, 'a', { columnId: 'zzz' }, false)).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { I18nManager, StyleSheet, View, useColorScheme, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
@@ -18,6 +18,8 @@ import { useReducedMotion } from './useReducedMotion';
 import type { BoardLabels, BoardProps, BoardTheme } from './types';
 
 const NO_IDS: readonly string[] = [];
+/** How long a `scrollToItem` highlight stays, long enough for the scroll to land and the flash to fade. */
+const HIGHLIGHT_MS = 1800;
 
 function toggleIn(list: readonly string[], id: string): string[] {
   return list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id];
@@ -67,7 +69,7 @@ export function Board<T>(props: BoardProps<T>) {
     setRoot((previous) => (previous.width === width && previous.height === height ? previous : { width, height }));
   }, []);
 
-  const mode = resolveLayout(props.layout ?? 'auto', root.width);
+  const mode = resolveLayout(props.layout ?? 'auto', root.width, props.autoBreakpoint);
   const pagerIndicator = mode === 'paged' ? (props.pagerIndicator ?? 'tabs') : 'none';
   // Measured, not assumed: pager chrome grows with the user's text size.
   const [bodyHeight, setBodyHeight] = useState(0);
@@ -116,15 +118,41 @@ export function Board<T>(props: BoardProps<T>) {
   );
   const closeMoveSheet = useCallback(() => setSheetItem(null), []);
 
+  const [highlight] = useState(() => createValueStore<{ readonly itemId: string } | null>(null));
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    },
+    [],
+  );
+  const { moveTo } = controller;
   useImperativeHandle(
     props.ref,
     () => ({
       scrollToColumn: (columnId, options) => scrollApi.current?.toColumn(columnId, options?.animated ?? true),
-      scrollToItem: (itemId, options) => scrollApi.current?.toItem(itemId, options?.animated ?? true),
+      scrollToItem: (itemId, options) => {
+        scrollApi.current?.toItem(itemId, options?.animated ?? true);
+        if (!options?.highlight) return;
+        const request = { itemId };
+        highlight.set(request);
+        if (highlightTimer.current) clearTimeout(highlightTimer.current);
+        highlightTimer.current = setTimeout(() => {
+          if (highlight.get() === request) highlight.set(null);
+        }, HIGHLIGHT_MS);
+      },
+      moveItem: moveTo,
       openMoveSheet,
       closeMoveSheet,
     }),
-    [closeMoveSheet, openMoveSheet],
+    [closeMoveSheet, highlight, moveTo, openMoveSheet],
+  );
+
+  const loadingColumns = useMemo(() => new Set(props.loadingColumns ?? NO_IDS), [props.loadingColumns]);
+  const columnTotals = props.columnTotals;
+  const columnTotal = useCallback(
+    (columnId: string, count: number) => columnTotals?.[columnId] ?? count,
+    [columnTotals],
   );
 
   const swipeEnabled = !readOnly && props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
@@ -154,6 +182,9 @@ export function Board<T>(props: BoardProps<T>) {
       toggleColumn,
       toggleLane,
       openMoveSheet,
+      loadingColumns,
+      columnTotal,
+      highlight,
     }),
     [
       autoScroll,
@@ -162,9 +193,12 @@ export function Board<T>(props: BoardProps<T>) {
       canCollapseColumns,
       collapsedColumns,
       collapsedLanes,
+      columnTotal,
       controller,
+      highlight,
       horizontalScrollGesture,
       labels,
+      loadingColumns,
       metrics,
       openMoveSheet,
       page,

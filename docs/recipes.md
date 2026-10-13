@@ -31,6 +31,100 @@ const onMove = useCallback(async (op: MoveOperation, { signal }: MoveContext) =>
 - **`op.opId` as an idempotency key.** A retried request then cannot apply the move twice.
 - **Server-assigned ranks.** If your server picks its own rank instead of `op.rank`, that is fine. The board accepts any rank it did not send itself as "the server's choice".
 
+## Columns loaded in pages
+
+The board never fetches. It tells you when a column reaches its end, and it shows what you pass back.
+
+```tsx
+const [tasks, setTasks] = useState<Task[]>([]);
+const [loading, setLoading] = useState<string[]>([]);
+const [totals, setTotals] = useState<Record<string, number>>({});
+const [refreshing, setRefreshing] = useState(false);
+
+const loadMore = useCallback(async (columnId: string) => {
+  setLoading((ids) => (ids.includes(columnId) ? ids : [...ids, columnId]));
+  try {
+    const page = await api.tasks({ status: columnId, after: lastRankIn(columnId) });
+    setTasks((current) => [...current, ...page.items]);
+    setTotals((current) => ({ ...current, [columnId]: page.total }));
+  } finally {
+    setLoading((ids) => ids.filter((id) => id !== columnId));
+  }
+}, []);
+
+const refresh = useCallback(async () => {
+  setRefreshing(true);
+  try {
+    const first = await api.firstPages();
+    setTasks(first.items);
+    setTotals(first.totals);
+  } finally {
+    setRefreshing(false);
+  }
+}, []);
+
+<Board
+  items={tasks}
+  onEndReached={loadMore}
+  loadingColumns={loading}
+  columnTotals={totals}
+  onRefresh={refresh}
+  refreshing={refreshing}
+  // …
+/>;
+```
+
+- **`onEndReached`** fires once per end. It fires again only after your append moves the end off screen and the user scrolls back to it.
+- **`loadingColumns`** puts a spinner at the end of that column, or at the end of the board in swimlanes and stacked.
+- **`columnTotals`** makes headers and tabs say 120, not the 18 you have loaded so far.
+- **Ranks across pages:** a card dropped at the bottom of a partly loaded column gets a rank after the last card you loaded. That can sort it among cards you have not loaded yet. If it matters, place the card on the server from `previousId` and `nextId` instead of `rank`.
+
+## Moving cards from code
+
+`ref.moveItem` moves a card the same way a drop does. Use it for card buttons, your own menus, or shortcuts.
+
+```tsx
+const board = useRef<BoardHandle>(null);
+
+const renderCard = useCallback(
+  ({ item }: CardRenderInfo<Task>) => (
+    <CardView title={item.title} onPress={() => board.current?.moveItem(item.id, { columnId: 'done', index: 'end' })} />
+  ),
+  [],
+);
+
+<Board ref={board} renderCard={renderCard} /* … */ />;
+```
+
+- **Same pipeline.** The card moves at once and stays pending. `onMove` receives `source: 'api'`, and a rejection rolls it back and fires `onMoveError`.
+- **Same rules.** `canDrop` can refuse the move, and `readOnly` refuses every move. `moveItem` then returns `false`.
+- **Destination.** `columnId` is required. `laneId` defaults to the card's lane. `index` defaults to 0, the top, and `'end'` is the bottom.
+- **Show where it went.** Call `scrollToItem(id, { highlight: true })` after the move. The card flashes an outline once it is on screen.
+
+## Undo
+
+The board shows your data, so undo is a data change. Keep what the card looked like before the move, and write it back.
+
+```tsx
+const before = useRef<Task | null>(null);
+
+const onMove = useCallback(async (op: MoveOperation) => {
+  before.current = tasksRef.current.find((task) => task.id === op.id) ?? null;
+  const saved = await api.moveTask(op);
+  setTasks((current) => current.map((task) => (task.id === saved.id ? saved : task)));
+  showUndoToast();
+}, []);
+
+const undo = useCallback(async () => {
+  const previous = before.current;
+  if (!previous) return;
+  const saved = await api.saveTask(previous);
+  setTasks((current) => current.map((task) => (task.id === saved.id ? saved : task)));
+}, []);
+```
+
+The card goes back to its old column and its old rank, so it lands in the same place.
+
 ## TanStack Query
 
 ```tsx

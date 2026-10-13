@@ -3,6 +3,7 @@ import { AccessibilityInfo } from 'react-native';
 import {
   NO_LANE_ID,
   NO_VALUE_ID,
+  cellId as makeCellId,
   createMoveQueue,
   parseCellId,
   planMove,
@@ -18,7 +19,7 @@ import {
   type MoveSource,
 } from 'board-view-core';
 import { createValueStore, type ValueStore } from './context';
-import type { BoardLabels, BoardProps, MoveTarget } from './types';
+import type { BoardLabels, BoardProps, MoveDestination, MoveTarget } from './types';
 
 export interface BoardController<T> {
   readonly model: BoardModel<T>;
@@ -29,6 +30,8 @@ export interface BoardController<T> {
    * refuses the card, or the move cannot be planned against the current data.
    */
   moveItem(itemId: string, toCellId: string, toIndex: number, source: MoveSource): boolean;
+  /** `moveItem` for the imperative handle: a column, lane and index instead of a cell. */
+  moveTo(itemId: string, to: MoveDestination): boolean;
   canDropTo(itemId: string, cellId: string): boolean;
   itemLabel(itemId: string): string;
   /** The card that should take screen-reader focus once it renders in its new place. */
@@ -61,6 +64,28 @@ function bucketLabel<T>(axis: GroupAxis<T> | undefined, value: string | null, no
   if (!axis) return null;
   if (value == null || value === NO_VALUE_ID) return noValue;
   return axis.values.find((entry) => entry.id === value)?.label ?? noValue;
+}
+
+/**
+ * The cell and insertion index for a destination, or null when the card or
+ * the cell does not exist. Lanes default to the card's lane, and the index is
+ * clamped to the cell with the card itself left out.
+ */
+export function resolveDestination<T>(
+  model: BoardModel<T>,
+  itemId: string,
+  to: MoveDestination,
+  hasLanes: boolean,
+): { cellId: string; index: number } | null {
+  const from = model.locations.get(itemId);
+  if (!from) return null;
+  const laneKey = hasLanes ? (to.laneId ?? parseCellId(from.cellId).laneKey) : NO_LANE_ID;
+  const cellId = makeCellId(laneKey, to.columnId);
+  const cell = model.cellById.get(cellId);
+  if (!cell) return null;
+  const size = cell.items.length - (from.cellId === cellId ? 1 : 0);
+  const wanted = to.index === 'end' ? size : Math.trunc(to.index ?? 0);
+  return { cellId, index: Math.min(size, Math.max(0, Number.isFinite(wanted) ? wanted : size)) };
 }
 
 function announce(message: string): void {
@@ -247,7 +272,15 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
     [canDropTo, focusRequest, itemLabel, queue],
   );
 
+  const moveTo = useCallback(
+    (itemId: string, to: MoveDestination) => {
+      const target = resolveDestination(modelRef.current, itemId, to, latest.current.props.groupBy.lanes != null);
+      return target ? moveItem(itemId, target.cellId, target.index, 'api') : false;
+    },
+    [moveItem],
+  );
+
   const isPending = useCallback((itemId: string) => pendingIds.has(itemId), [pendingIds]);
 
-  return { model, itemsById, isPending, moveItem, canDropTo, itemLabel, focusRequest };
+  return { model, itemsById, isPending, moveItem, moveTo, canDropTo, itemLabel, focusRequest };
 }

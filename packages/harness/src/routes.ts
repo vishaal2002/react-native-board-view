@@ -7,6 +7,8 @@ export type Route =
   | 'kanban-stacked'
   | 'swimlanes'
   | 'swimlanes-stacked'
+  | 'live'
+  | 'showcase'
   | 'rollback'
   | 'rules'
   | 'a11y'
@@ -70,10 +72,22 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
     title: 'Behaviour',
     entries: [
       {
+        route: 'showcase',
+        title: 'Showcase',
+        detail: 'A plain board as an app would ship it. Most README captures come from here.',
+        badge: '★',
+      },
+      {
         route: 'kanban',
         title: 'Kanban playground',
         detail: 'Switch layout, density, pager, card style and auto-scroll live.',
         badge: '⚙︎',
+      },
+      {
+        route: 'live',
+        title: 'Live data',
+        detail: 'Paged columns with server totals, a loading spinner, pull to refresh, and moves from code.',
+        badge: '⟳',
       },
       {
         route: 'rollback',

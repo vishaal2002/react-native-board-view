@@ -9,9 +9,11 @@ import { CustomScreen } from './screens/CustomScreen';
 import { EmptyCellsScreen } from './screens/EmptyCellsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { KanbanScreen } from './screens/KanbanScreen';
+import { LiveDataScreen } from './screens/LiveDataScreen';
 import { RollbackScreen } from './screens/RollbackScreen';
 import { RulesScreen } from './screens/RulesScreen';
 import { ScaleScreen } from './screens/ScaleScreen';
+import { ShowcaseScreen } from './screens/ShowcaseScreen';
 import { SwimlaneScreen } from './screens/SwimlaneScreen';
 import { ThemeScreen } from './screens/ThemeScreen';
 import { AppearanceProvider, usePalette } from './ui';
@@ -57,6 +59,12 @@ function Router({ host }: { host: string }) {
       break;
     case 'swimlanes-stacked':
       screen = <SwimlaneScreen onBack={back} initialLayout="stacked" />;
+      break;
+    case 'showcase':
+      screen = <ShowcaseScreen onBack={back} />;
+      break;
+    case 'live':
+      screen = <LiveDataScreen onBack={back} />;
       break;
     case 'rollback':
       screen = <RollbackScreen onBack={back} />;

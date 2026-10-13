@@ -12,7 +12,7 @@ import { useBoard, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type SlotSource } from '../engine/geometry';
 import { PLACEHOLDER_ID, type CellGeometry, type DragPlacement, type ScrollerHandle } from '../engine/types';
 import { BoardCard } from './BoardCard';
-import { DefaultColumnHeader, DefaultEmptyCell, DefaultLaneHeader } from './defaults';
+import { DefaultColumnHeader, DefaultEmptyCell, DefaultLaneHeader, LoadingFooter } from './defaults';
 import { cardIndexFromRaw } from './displayed';
 
 const SECTION_SPACING = 12;
@@ -227,7 +227,7 @@ function stackedGeometry(
  */
 export function StackedLayout() {
   const board = useBoard();
-  const { controller, props, adapter, scrollApi, collapsedLanes, collapsedColumns, autoScroll } = board;
+  const { controller, props, adapter, scrollApi, collapsedLanes, collapsedColumns, autoScroll, loadingColumns } = board;
   const placement = adapter.usePlacementState();
   const listRef = useRef<FlashListRef<Row>>(null);
   const scrollY = useRef(0);
@@ -341,6 +341,11 @@ export function StackedLayout() {
           onContentSizeChange={onContentSizeChange}
           onEndReached={onEndReached ? notifyEnd : undefined}
           onEndReachedThreshold={0}
+          ListFooterComponent={
+            loadingColumns.size > 0 ? <LoadingFooter theme={board.theme} label={board.labels.loadingMore} /> : null
+          }
+          onRefresh={props.onRefresh}
+          refreshing={props.onRefresh ? props.refreshing === true : undefined}
           contentContainerStyle={{ paddingTop: board.theme.columnGap, paddingBottom: 48 }}
           maintainVisibleContentPosition={NO_ANCHORING}
           showsVerticalScrollIndicator={false}
@@ -397,12 +402,15 @@ function closingStyle(theme: BoardContextValue['theme']) {
 }
 
 function SectionHeaderRow({ row }: { row: Extract<Row, { kind: 'section' }> }) {
-  const { theme, labels, props, controller, toggleColumn, canCollapseColumns } = useBoard();
+  const { theme, labels, props, controller, toggleColumn, canCollapseColumns, columnTotal } = useBoard();
   const cell = controller.model.cellById.get(row.cellId);
   if (!cell) return null;
+  const hasLanes = props.groupBy.lanes != null;
   const info = {
     column: cell.column,
     count: cell.items.length,
+    // A lane section holds part of a column, so the column total belongs to boards without lanes.
+    total: hasLanes ? cell.items.length : columnTotal(cell.columnKey, cell.items.length),
     collapsed: row.collapsed,
     compact: false,
     toggleCollapsed: canCollapseColumns ? () => toggleColumn(cell.columnKey) : undefined,
@@ -426,7 +434,7 @@ function SectionHeaderRow({ row }: { row: Extract<Row, { kind: 'section' }> }) {
 }
 
 function BodyRow({ row }: { row: Exclude<Row, { kind: 'lane' } | { kind: 'section' }> }) {
-  const { theme, labels, props, controller, adapter } = useBoard();
+  const { theme, labels, props, controller, adapter, loadingColumns } = useBoard();
   const cell = controller.model.cellById.get(row.cellId);
   if (!cell) return null;
   const closes = row.kind === 'footer' || row.last;
@@ -448,7 +456,14 @@ function BodyRow({ row }: { row: Exclude<Row, { kind: 'lane' } | { kind: 'sectio
   const lane = cell.laneKey === NO_LANE_ID ? null : cell.lane;
   if (row.kind === 'footer') {
     return (
-      <View style={frame}>{props.renderColumnFooter?.({ column: cell.column, lane, count: cell.items.length })}</View>
+      <View style={frame}>
+        {props.renderColumnFooter?.({
+          column: cell.column,
+          lane,
+          count: cell.items.length,
+          loading: loadingColumns.has(cell.columnKey),
+        })}
+      </View>
     );
   }
   return (

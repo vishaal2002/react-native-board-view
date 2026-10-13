@@ -18,8 +18,10 @@ export type {
   EmptyCellRenderInfo,
   LaneHeaderRenderInfo,
   MoveAnnouncementContext,
+  MoveDestination,
   MoveModes,
   MoveTarget,
+  ScrollToItemOptions,
 } from './types';
 
 // The pure core, re-exported so apps and servers share one implementation of

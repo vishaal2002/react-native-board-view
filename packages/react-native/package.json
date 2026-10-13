@@ -1,6 +1,6 @@
 {
   "name": "react-native-board-view",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Kanban and swimlane boards for React Native and Expo. Virtualized columns, long-press drag, a Move to… sheet, and optimistic moves with rollback. Your items stay the source of truth.",
   "license": "MIT",
   "repository": {

@@ -2,6 +2,25 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
+## 0.4.0
+
+`react-native-board-view` only. `board-view-core` stays 0.1.0.
+
+- **`moveItem` on the ref.** Move a card from code: a "Move to top" button, your own menu, a keyboard shortcut. It runs like a drop. The card moves at once, `onMove` gets `source: 'api'`, and a rejection rolls it back. `canDrop` and `readOnly` apply.
+- **`scrollToItem(id, { highlight: true })`.** The card flashes an outline once it is on screen, for search results and deep links. With reduced motion the outline holds still instead of pulsing.
+- **`loadingColumns`.** A spinner shows where `onEndReached` fired while you fetch. Custom footers get `loading`.
+- **`columnTotals`.** Headers, tabs, and screen-reader labels show your server's count for columns you load in pages. Header render info gets `total` next to `count`.
+- **`onRefresh` and `refreshing`.** Pull down on a list to refresh. The board does not fetch.
+- **`autoBreakpoint`.** The width where `layout="auto"` switches from paged to multi. Default 600.
+
+### Fixed
+
+- In the paged layout, `renderColumnFooter` on a board without lanes drew on the peeked column too. It now draws only on the column on screen, like swimlanes since 0.3.0.
+
+### Breaking
+
+- `BoardLabels` has a new `loadingMore` string, and `ColumnHeaderRenderInfo` and `ColumnFooterRenderInfo` have new fields. Code that builds a whole `BoardLabels` or a render-info object by hand must add them. `labels` overrides are partial, so passing `labels` is unaffected.
+
 ## 0.3.0
 
 `react-native-board-view` only. `board-view-core` stays 0.1.0.

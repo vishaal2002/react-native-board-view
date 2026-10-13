@@ -77,7 +77,10 @@ export interface CardRenderInfo<T> {
 
 export interface ColumnHeaderRenderInfo {
   readonly column: GroupValue;
+  /** Cards the board has for this column. */
   readonly count: number;
+  /** `columnTotals` for this column, or `count` when you pass none. */
+  readonly total: number;
   readonly collapsed: boolean;
   /** The column is narrow (under 180pt): stack the header instead of truncating. */
   readonly compact: boolean;
@@ -101,6 +104,28 @@ export interface ColumnFooterRenderInfo {
   readonly column: GroupValue;
   readonly lane: GroupValue | null;
   readonly count: number;
+  /** The column is in `loadingColumns`. */
+  readonly loading: boolean;
+}
+
+/**
+ * Where `moveItem` puts a card. `NO_VALUE_ID` is the No value column or lane.
+ */
+export interface MoveDestination {
+  readonly columnId: string;
+  /** Swimlanes only. Default: the card's current lane. */
+  readonly laneId?: string;
+  /**
+   * Position in the target cell, counted without the moved card. Default 0,
+   * the top. `'end'` is the bottom. Out-of-range numbers are clamped.
+   */
+  readonly index?: number | 'end';
+}
+
+export interface ScrollToItemOptions {
+  animated?: boolean;
+  /** Flash an outline on the card once it is on screen. Default false. */
+  highlight?: boolean;
 }
 
 export interface BoardTheme {
@@ -178,12 +203,21 @@ export interface BoardLabels {
   moved: (context: MoveAnnouncementContext) => string;
   moveFailed: (context: { item: string; column: string; lane: string | null }) => string;
   columnTab: (column: string, count: number) => string;
+  /** Screen-reader label of the spinner at the end of a loading column. */
+  loadingMore: string;
 }
 
 /** Imperative controls, through the `ref` prop. */
 export interface BoardHandle {
   scrollToColumn(columnId: string, options?: { animated?: boolean }): void;
-  scrollToItem(itemId: string, options?: { animated?: boolean }): void;
+  scrollToItem(itemId: string, options?: ScrollToItemOptions): void;
+  /**
+   * Moves a card the way a drop does: on screen at once, then `onMove` with
+   * `source: 'api'`, and a rollback if it rejects. `canDrop` and `readOnly`
+   * apply. Returns false when nothing was queued: an unknown card or
+   * column, a refused target, or a move that changes nothing.
+   */
+  moveItem(itemId: string, to: MoveDestination): boolean;
   openMoveSheet(itemId: string): void;
   closeMoveSheet(): void;
 }
@@ -221,6 +255,8 @@ export interface BoardProps<T> {
   renderDropIndicator?: () => ReactNode;
 
   layout?: BoardLayout;
+  /** Under `layout="auto"`, boards narrower than this many points are paged, wider ones multi. Default 600. */
+  autoBreakpoint?: number;
   /** Paged layout only: column chips above the board, page dots, or nothing. Default 'tabs'. */
   pagerIndicator?: 'tabs' | 'dots' | 'none';
   /** Column to show first in the paged and multi layouts. Ignored once `columnId` is set. */
@@ -241,6 +277,23 @@ export interface BoardProps<T> {
    * the last column.
    */
   onEndReached?: (columnId: string) => void;
+  /**
+   * Columns that are fetching more cards, for example after `onEndReached`.
+   * A spinner shows where that event fired: at the end of the column in the
+   * paged, multi and fit layouts, and at the end of the board in swimlanes
+   * and stacked.
+   */
+  loadingColumns?: readonly string[];
+  /**
+   * Server-side card counts by column id, for columns you load in pages.
+   * Headers, tabs and screen-reader labels show these instead of the number
+   * of cards loaded.
+   */
+  columnTotals?: Readonly<Record<string, number>>;
+  /** Pull down on a list to refresh. The board does not fetch: set `refreshing` while you do. */
+  onRefresh?: () => void;
+  /** Shows the pull-to-refresh spinner. Needs `onRefresh`. */
+  refreshing?: boolean;
   /** Collapse toggles on column headers. Default: on in `stacked`, off elsewhere. Never in `paged`. */
   collapsibleColumns?: boolean;
   /** Controlled. Omit both to let the board keep this state itself. */

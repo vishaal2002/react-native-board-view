@@ -10,14 +10,14 @@ import {
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
 import { NO_LANE_ID, cellId as makeCellId, type BoardCell } from 'board-view-core';
-import { useBoard, type BoardContextValue } from '../context';
+import { useBoard, useStoreValue, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type SlotSource } from '../engine/geometry';
 import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle } from '../engine/types';
 import { BoardCard } from './BoardCard';
-import { CollapsedColumnStrip, DefaultColumnHeader, DefaultEmptyCell } from './defaults';
+import { CollapsedColumnStrip, DefaultColumnHeader, DefaultEmptyCell, LoadingFooter } from './defaults';
 import { PLACEHOLDER_ROW, cardIndexFromRaw, displayedRows, isPlaceholder, type DisplayedRow } from './displayed';
 import type { ColumnSlot } from './metrics';
-import { visualSlot } from './metrics';
+import { showsCellFooter, visualSlot } from './metrics';
 import { useHorizontalScroller } from './useHorizontalScroller';
 
 /** Columns narrower than this get the stacked header. */
@@ -32,8 +32,9 @@ type ListRegistry = RefObject<Map<string, ListApi>>;
 /** Boards without lanes in the paged, multi and fit layouts: a sideways row of FlashList columns. */
 export function ColumnsLayout() {
   const board = useBoard();
-  const { metrics, controller, boardHeight, rtl, adapter, scrollApi, horizontalScrollGesture } = board;
+  const { metrics, controller, boardHeight, rtl, adapter, scrollApi, horizontalScrollGesture, page } = board;
   const scroller = useHorizontalScroller();
+  const currentPage = useStoreValue(page);
   const source = adapter.useDragSource();
   const columns = controller.model.columns;
   const paged = metrics.mode === 'paged';
@@ -96,6 +97,7 @@ export function ColumnsLayout() {
               top={verticalPadding}
               height={columnHeight}
               mounted={inWindow || source?.cellId === cell.cellId}
+              onScreen={showsCellFooter(metrics.mode, visual, currentPage)}
               getScrollX={scroller.getOffset}
               lists={lists}
               pendingReveal={pendingReveal}
@@ -113,6 +115,8 @@ interface BoardColumnProps {
   top: number;
   height: number;
   mounted: boolean;
+  /** False on a peeked paged column: its footer, spinners and refresh indicator would be clipped. */
+  onScreen: boolean;
   getScrollX: () => number;
   lists: ListRegistry;
   pendingReveal: RefObject<Map<string, number>>;
@@ -124,14 +128,17 @@ const BoardColumn = memo(function BoardColumn({
   top,
   height,
   mounted,
+  onScreen,
   getScrollX,
   lists,
   pendingReveal,
 }: BoardColumnProps) {
   const board = useBoard();
-  const { theme, labels, props, canCollapseColumns, toggleColumn } = board;
+  const { theme, labels, props, canCollapseColumns, toggleColumn, columnTotal, loadingColumns } = board;
   const [listFrame, setListFrame] = useState({ y: 0, height: 0 });
   const count = cell.items.length;
+  const total = columnTotal(cell.columnKey, count);
+  const loading = loadingColumns.has(cell.columnKey);
   const toggle = useCallback(() => toggleColumn(cell.columnKey), [cell.columnKey, toggleColumn]);
   const onListLayout = useCallback((event: LayoutChangeEvent) => {
     const { y, height: next } = event.nativeEvent.layout;
@@ -157,7 +164,7 @@ const BoardColumn = memo(function BoardColumn({
       <View style={frame}>
         <CollapsedColumnStrip
           label={cell.column.label}
-          count={count}
+          count={total}
           color={cell.column.color}
           theme={theme}
           expandLabel={labels.expandColumn(cell.column.label)}
@@ -171,6 +178,7 @@ const BoardColumn = memo(function BoardColumn({
   const headerInfo = {
     column: cell.column,
     count,
+    total,
     collapsed: false,
     compact: slot.width < COMPACT_HEADER_WIDTH,
     toggleCollapsed: canCollapseColumns ? toggle : undefined,
@@ -189,13 +197,17 @@ const BoardColumn = memo(function BoardColumn({
             slot={slot}
             listTop={top + listFrame.y}
             listHeight={listFrame.height}
+            onScreen={onScreen}
+            loading={loading}
             getScrollX={getScrollX}
             lists={lists}
             pendingReveal={pendingReveal}
           />
         ) : null}
       </View>
-      {props.renderColumnFooter ? props.renderColumnFooter({ column: cell.column, lane: null, count }) : null}
+      {onScreen && props.renderColumnFooter
+        ? props.renderColumnFooter({ column: cell.column, lane: null, count, loading })
+        : null}
     </View>
   );
 });
@@ -205,6 +217,8 @@ interface ColumnListProps {
   slot: ColumnSlot;
   listTop: number;
   listHeight: number;
+  onScreen: boolean;
+  loading: boolean;
   getScrollX: () => number;
   lists: ListRegistry;
   pendingReveal: RefObject<Map<string, number>>;
@@ -311,7 +325,17 @@ function columnGeometry(
   };
 }
 
-function ColumnList({ cell, slot, listTop, listHeight, getScrollX, lists, pendingReveal }: ColumnListProps) {
+function ColumnList({
+  cell,
+  slot,
+  listTop,
+  listHeight,
+  onScreen,
+  loading,
+  getScrollX,
+  lists,
+  pendingReveal,
+}: ColumnListProps) {
   const board = useBoard();
   const { controller, theme, adapter, props, labels } = board;
   const placement = adapter.usePlacement(cell.cellId);
@@ -423,6 +447,9 @@ function ColumnList({ cell, slot, listTop, listHeight, getScrollX, lists, pendin
           paddingBottom: Math.max(0, theme.cellPadding - theme.cardGap) + 24,
         }}
         ListEmptyComponent={empty}
+        ListFooterComponent={loading && onScreen ? <LoadingFooter theme={theme} label={labels.loadingMore} /> : null}
+        onRefresh={props.onRefresh}
+        refreshing={props.onRefresh ? props.refreshing === true && onScreen : undefined}
         initialScrollIndex={initialIndex}
         maintainVisibleContentPosition={NO_ANCHORING}
         showsVerticalScrollIndicator={false}

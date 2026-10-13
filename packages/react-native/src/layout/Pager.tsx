@@ -8,11 +8,13 @@ function useCurrentPage(): number {
   return useStoreValue(page);
 }
 
+/** Cards per column, or the app's `columnTotals` where it passes them. */
 function useColumnCounts(): Map<string, number> {
-  const { controller } = useBoard();
+  const { controller, columnTotal } = useBoard();
   const counts = new Map<string, number>();
   for (const cell of controller.model.cells)
     counts.set(cell.columnKey, (counts.get(cell.columnKey) ?? 0) + cell.items.length);
+  for (const [columnId, count] of counts) counts.set(columnId, columnTotal(columnId, count));
   return counts;
 }
 

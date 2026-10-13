@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 import type { BoardLabels, BoardTheme, ColumnHeaderRenderInfo, LaneHeaderRenderInfo } from '../types';
 
 type Direction = 'down' | 'right' | 'up' | 'left';
@@ -44,7 +44,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
   theme: BoardTheme;
   labels: BoardLabels;
 }) {
-  const { column, count, collapsed, toggleCollapsed, compact } = info;
+  const { column, total, collapsed, toggleCollapsed, compact } = info;
   const title = (
     <Text
       numberOfLines={compact ? 2 : 1}
@@ -74,7 +74,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
         {title}
         <View style={styles.compactRow}>
           {dot}
-          <CountPill count={count} theme={theme} />
+          <CountPill count={total} theme={theme} />
           <View style={styles.spacer} />
           {toggle}
         </View>
@@ -85,7 +85,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
     <View style={styles.columnHeader}>
       {dot}
       {title}
-      <CountPill count={count} theme={theme} />
+      <CountPill count={total} theme={theme} />
       <View style={styles.spacer} />
       {toggle}
     </View>
@@ -151,6 +151,15 @@ export function MenuButton({ color, onPress }: { color: string; onPress: () => v
       <View style={[styles.menuDot, { backgroundColor: color }]} />
       <View style={[styles.menuDot, { backgroundColor: color }]} />
     </Pressable>
+  );
+}
+
+/** The spinner at the end of a column (or the board) while the app loads more cards. */
+export function LoadingFooter({ theme, label }: { theme: BoardTheme; label: string }) {
+  return (
+    <View style={styles.loading} accessible accessibilityRole="progressbar" accessibilityLabel={label}>
+      <ActivityIndicator color={theme.mutedText} />
+    </View>
   );
 }
 
@@ -236,6 +245,7 @@ const styles = StyleSheet.create({
   menuPressed: { backgroundColor: 'rgba(127, 127, 127, 0.18)' },
   menuDot: { width: 4, height: 4, borderRadius: 2 },
   showMore: { paddingVertical: 10, alignItems: 'center' },
+  loading: { paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
   showMoreText: { fontSize: 13, fontWeight: '600' },
   strip: { flex: 1, alignItems: 'center', paddingTop: 12, gap: 10 },
   stripDot: { marginTop: 2 },

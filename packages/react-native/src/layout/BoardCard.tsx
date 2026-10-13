@@ -6,6 +6,13 @@ import {
   type AccessibilityActionEvent,
   type LayoutChangeEvent,
 } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { cellId as makeCellId, parseCellId, NO_LANE_ID } from 'board-view-core';
 import { useBoard, type BoardContextValue } from '../context';
 import { MenuButton } from './defaults';
@@ -69,6 +76,16 @@ export const BoardCard = memo(function BoardCard({
     () => focusRequest.get() === itemId,
     () => false,
   );
+  const { highlight } = board;
+  const highlighted = useSyncExternalStore(
+    highlight.subscribe,
+    () => {
+      const request = highlight.get();
+      return request?.itemId === itemId ? request : null;
+    },
+    () => null,
+  );
+
   useEffect(() => {
     if (!focused) return;
     const frame = requestAnimationFrame(() => {
@@ -164,6 +181,14 @@ export const BoardCard = memo(function BoardCard({
     >
       {props.renderCard(info)}
       {sheetMode === 'auto' && !compact ? <MenuButton color={theme.mutedText} onPress={openSheet} /> : null}
+      {highlighted ? (
+        <HighlightRing
+          request={highlighted}
+          color={theme.accent}
+          radius={theme.cardRadius}
+          reducedMotion={board.reducedMotion}
+        />
+      ) : null}
     </View>
   );
 
@@ -187,6 +212,43 @@ export const BoardCard = memo(function BoardCard({
     </View>
   );
 });
+
+const RING_OUTSET = 3;
+
+/** The outline `scrollToItem({ highlight: true })` flashes on a card. Opacity only, so it never moves layout. */
+function HighlightRing({
+  request,
+  color,
+  radius,
+  reducedMotion,
+}: {
+  request: object;
+  color: string;
+  radius: number;
+  reducedMotion: boolean;
+}) {
+  const opacity = useSharedValue(reducedMotion ? 1 : 0);
+  useEffect(() => {
+    if (reducedMotion) {
+      opacity.value = 1;
+      return;
+    }
+    opacity.value = 0;
+    opacity.value = withSequence(
+      withTiming(1, { duration: 160 }),
+      withTiming(0.3, { duration: 280 }),
+      withTiming(1, { duration: 280 }),
+      withDelay(560, withTiming(0, { duration: 320 })),
+    );
+  }, [opacity, reducedMotion, request]);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.ring, { borderColor: color, borderRadius: radius + RING_OUTSET }, style]}
+    />
+  );
+}
 
 /** The lifted copy rendered in the drag overlay. Not interactive and hidden from screen readers. */
 export function HoverCard({ itemId }: { itemId: string }) {
@@ -216,4 +278,12 @@ export function HoverCard({ itemId }: { itemId: string }) {
 
 const styles = StyleSheet.create({
   hover: { width: '100%' },
+  ring: {
+    position: 'absolute',
+    top: -RING_OUTSET,
+    left: -RING_OUTSET,
+    right: -RING_OUTSET,
+    bottom: -RING_OUTSET,
+    borderWidth: 3,
+  },
 });

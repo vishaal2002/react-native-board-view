@@ -20,6 +20,7 @@ import {
   DefaultColumnHeader,
   DefaultEmptyCell,
   DefaultLaneHeader,
+  LoadingFooter,
   ShowMoreButton,
 } from './defaults';
 import { PLACEHOLDER_ROW, cardIndexFromRaw, displayedRows, isPlaceholder, type DisplayedRow } from './displayed';
@@ -75,6 +76,7 @@ export function SwimlaneLayout() {
     collapsedLanes,
     props,
     autoScroll,
+    loadingColumns,
   } = board;
   const scroller = useHorizontalScroller();
   const columns = controller.model.columns;
@@ -239,6 +241,9 @@ export function SwimlaneLayout() {
                   onContentSizeChange={onContentSizeChange}
                   onEndReached={onEndReached ? notifyEnd : undefined}
                   onEndReachedThreshold={0}
+                  ListFooterComponent={loadingColumns.size > 0 ? <PinnedLoading /> : null}
+                  onRefresh={props.onRefresh}
+                  refreshing={props.onRefresh ? props.refreshing === true : undefined}
                   contentContainerStyle={styles.lanesContent}
                   showsVerticalScrollIndicator={false}
                 />
@@ -253,13 +258,28 @@ export function SwimlaneLayout() {
 
 const laneKey = (lane: GroupValue) => lane.id;
 
+/** Lanes scroll sideways with the board; the spinner stays in the middle of the screen. */
+function PinnedLoading() {
+  const { scrollX, metrics, boardWidth, theme, labels } = useBoard();
+  const maxShift = Math.max(0, metrics.contentWidth - boardWidth);
+  const pinned = useAnimatedStyle(() => ({
+    transform: [{ translateX: Math.min(Math.max(scrollX.value, 0), maxShift) }],
+  }));
+  return (
+    <Animated.View style={[{ width: boardWidth }, pinned]}>
+      <LoadingFooter theme={theme} label={labels.loadingMore} />
+    </Animated.View>
+  );
+}
+
 function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSlot }) {
-  const { controller, props, theme, labels, canCollapseColumns, toggleColumn } = useBoard();
-  const count = useMemo(
+  const { controller, props, theme, labels, canCollapseColumns, toggleColumn, columnTotal } = useBoard();
+  const loaded = useMemo(
     () =>
       controller.model.cells.reduce((sum, cell) => (cell.columnKey === column.id ? sum + cell.items.length : sum), 0),
     [column.id, controller.model],
   );
+  const count = columnTotal(column.id, loaded);
   const toggle = useCallback(() => toggleColumn(column.id), [column.id, toggleColumn]);
   if (slot.collapsed) {
     return (
@@ -271,7 +291,8 @@ function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSl
   }
   const info = {
     column,
-    count,
+    count: loaded,
+    total: count,
     collapsed: false,
     compact: slot.width < COMPACT_HEADER_WIDTH,
     toggleCollapsed: canCollapseColumns ? toggle : undefined,
@@ -299,7 +320,8 @@ const LaneRow = memo(function LaneRow({
   cellLimit: number;
 }) {
   const board = useBoard();
-  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth, rtl, page } = board;
+  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth, rtl, page } =
+    board;
   const currentPage = useStoreValue(page);
   const collapsed = collapsedLanes.has(lane.id);
   const columns = controller.model.columns;
@@ -563,7 +585,12 @@ const SwimCell = memo(function SwimCell({
         <ShowMoreButton label={labels.showMore(hiddenCount)} theme={theme} onPress={more} />
       ) : null}
       {showFooter && props.renderColumnFooter
-        ? props.renderColumnFooter({ column: cell.column, lane: cell.lane, count: cell.items.length })
+        ? props.renderColumnFooter({
+            column: cell.column,
+            lane: cell.lane,
+            count: cell.items.length,
+            loading: board.loadingColumns.has(cell.columnKey),
+          })
         : null}
     </adapter.Cell>
   );

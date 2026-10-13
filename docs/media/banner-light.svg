@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 440" width="1280" height="440" role="img" aria-label="react-native-board-view: Kanban and swimlane boards for React Native and Expo. A small board with three columns, one card lifted mid-drag over a dashed gap.">
+  <style>
+    .bg { fill: #F6F7FA; }
+    .frame { fill: none; stroke: #E3E6EC; }
+    .title { fill: #162033; }
+    .muted { fill: #5B677A; }
+    .col { fill: #E9EBF0; }
+    .card { fill: #FFFFFF; stroke: rgba(15, 23, 42, 0.08); }
+    .line { fill: #D7DBE3; }
+    .line2 { fill: #E6E9EF; }
+    .gap { fill: none; stroke: #2F6FEB; stroke-dasharray: 7 6; stroke-width: 2; }
+    .gapfill { fill: rgba(47, 111, 235, 0.07); }
+    .pill { fill: #FFFFFF; stroke: #E3E6EC; }
+    .accent { fill: #2F6FEB; }
+    .shadow { fill: rgba(9, 18, 36, 0.16); }
+    @media not all {
+      .bg { fill: #0E1116; }
+      .frame { stroke: #232A35; }
+      .title { fill: #E8ECF2; }
+      .muted { fill: #98A2B3; }
+      .col { fill: #171B22; }
+      .card { fill: #222833; stroke: rgba(255, 255, 255, 0.06); }
+      .line { fill: #3A4352; }
+      .line2 { fill: #2E3542; }
+      .gap { stroke: #6EA0FF; }
+      .gapfill { fill: rgba(110, 160, 255, 0.08); }
+      .pill { fill: #171B22; stroke: #2A313C; }
+      .accent { fill: #6EA0FF; }
+      .shadow { fill: rgba(0, 0, 0, 0.45); }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+  <defs>
+    <filter id="blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10" /></filter>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="440" rx="28" />
+  <rect class="frame" x="0.5" y="0.5" width="1279" height="439" rx="28" />
+
+  <!-- Wordmark -->
+  <g transform="translate(72 0)">
+    <rect class="accent" x="0" y="112" width="44" height="44" rx="11" />
+    <rect x="9" y="122" width="7" height="24" rx="2" fill="#FFFFFF" />
+    <rect x="19" y="122" width="7" height="16" rx="2" fill="#FFFFFF" opacity="0.85" />
+    <rect x="29" y="122" width="7" height="20" rx="2" fill="#FFFFFF" opacity="0.7" />
+    <text class="title mono" x="60" y="146" font-size="30" font-weight="700">react-native-board-view</text>
+    <text class="title" x="0" y="222" font-size="40" font-weight="800" letter-spacing="-0.8">Kanban and swimlane boards</text>
+    <text class="title" x="0" y="270" font-size="40" font-weight="800" letter-spacing="-0.8">for React Native and Expo.</text>
+    <text class="muted" x="0" y="314" font-size="19">Your data stays the source of truth. The board groups it,</text>
+    <text class="muted" x="0" y="340" font-size="19">and your app accepts or rejects every move.</text>
+  </g>
+
+  <!-- Board illustration -->
+  <g transform="translate(770 70)">
+    <!-- Column 1 -->
+    <rect class="col" x="0" y="0" width="140" height="300" rx="14" />
+    <circle cx="18" cy="22" r="5" fill="#8B95A7" />
+    <rect class="line" x="30" y="17" width="58" height="10" rx="5" />
+    <rect class="card" x="10" y="44" width="120" height="62" rx="9" />
+    <rect x="10" y="44" width="4" height="62" rx="2" fill="#E5484D" />
+    <rect class="line" x="22" y="58" width="84" height="9" rx="4.5" />
+    <rect class="line2" x="22" y="74" width="60" height="8" rx="4" />
+    <rect class="card" x="10" y="114" width="120" height="50" rx="9" />
+    <rect x="10" y="114" width="4" height="50" rx="2" fill="#F2A93B" />
+    <rect class="line" x="22" y="128" width="72" height="9" rx="4.5" />
+    <rect class="card" x="10" y="172" width="120" height="62" rx="9" />
+    <rect x="10" y="172" width="4" height="62" rx="2" fill="#4F86F7" />
+    <rect class="line" x="22" y="186" width="90" height="9" rx="4.5" />
+    <rect class="line2" x="22" y="202" width="50" height="8" rx="4" />
+
+    <!-- Column 2, with the gap where the card will land -->
+    <rect class="col" x="156" y="0" width="140" height="300" rx="14" />
+    <circle cx="174" cy="22" r="5" fill="#F2A93B" />
+    <rect class="line" x="186" y="17" width="70" height="10" rx="5" />
+    <rect class="card" x="166" y="44" width="120" height="50" rx="9" />
+    <rect x="166" y="44" width="4" height="50" rx="2" fill="#8B95A7" />
+    <rect class="line" x="178" y="58" width="80" height="9" rx="4.5" />
+    <rect class="gapfill" x="166" y="102" width="120" height="62" rx="9" />
+    <rect class="gap" x="166" y="102" width="120" height="62" rx="9" />
+    <rect class="card" x="166" y="172" width="120" height="62" rx="9" />
+    <rect x="166" y="172" width="4" height="62" rx="2" fill="#2DB67C" />
+    <rect class="line" x="178" y="186" width="66" height="9" rx="4.5" />
+    <rect class="line2" x="178" y="202" width="80" height="8" rx="4" />
+
+    <!-- Column 3 -->
+    <rect class="col" x="312" y="0" width="140" height="300" rx="14" />
+    <circle cx="330" cy="22" r="5" fill="#2DB67C" />
+    <rect class="line" x="342" y="17" width="44" height="10" rx="5" />
+    <rect class="card" x="322" y="44" width="120" height="62" rx="9" />
+    <rect x="322" y="44" width="4" height="62" rx="2" fill="#9B6CF2" />
+    <rect class="line" x="334" y="58" width="76" height="9" rx="4.5" />
+    <rect class="line2" x="334" y="74" width="56" height="8" rx="4" />
+
+    <!-- The lifted card, mid-drag -->
+    <g transform="translate(206 92) rotate(-5)">
+      <rect class="shadow" x="4" y="14" width="124" height="64" rx="10" filter="url(#blur)" />
+      <rect class="card" x="0" y="0" width="124" height="64" rx="10" />
+      <rect x="0" y="0" width="4" height="64" rx="2" fill="#E5484D" />
+      <rect class="line" x="14" y="15" width="86" height="9" rx="4.5" />
+      <rect class="line2" x="14" y="32" width="56" height="8" rx="4" />
+    </g>
+    <!-- Finger -->
+    <circle cx="300" cy="150" r="17" fill="#2F6FEB" opacity="0.18" />
+    <circle cx="300" cy="150" r="8" fill="#2F6FEB" opacity="0.55" />
+  </g>
+</svg>

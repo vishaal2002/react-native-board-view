@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 430" width="1200" height="430" role="img" aria-label="How a move works. Your items go to the Board, which groups them into columns and lanes. The user moves a card by drag, the Move to sheet, swipe, a screen reader, or moveItem. The card shows in its new place at once and the board calls onMove. If onMove resolves, you update your items and the pending overlay clears. If it throws or times out, the card rolls back and onMoveError fires.">
+  <style>
+    .bg { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #E3E6EC; }
+    .node { fill: #F3F4F7; stroke: #DDE1E8; }
+    .you { fill: #EEF3FE; stroke: #C9D8FA; }
+    .title { fill: #162033; }
+    .muted { fill: #5B677A; }
+    .flow { stroke: #8B95A7; }
+    .flowhead { fill: #8B95A7; }
+    .good { stroke: #1E9E68; }
+    .goodfill { fill: #1E9E68; }
+    .bad { stroke: #D93F3F; }
+    .badfill { fill: #D93F3F; }
+    .chip { fill: #FFFFFF; }
+    .tag { fill: #2F6FEB; }
+    @media all {
+      .bg { fill: #0E1116; }
+      .frame { stroke: #232A35; }
+      .node { fill: #171B22; stroke: #2A313C; }
+      .you { fill: #142036; stroke: #25406E; }
+      .title { fill: #E8ECF2; }
+      .muted { fill: #98A2B3; }
+      .flow { stroke: #6B7586; }
+      .flowhead { fill: #6B7586; }
+      .good { stroke: #3CCB8C; }
+      .goodfill { fill: #3CCB8C; }
+      .bad { stroke: #FF7A7A; }
+      .badfill { fill: #FF7A7A; }
+      .chip { fill: #0E1116; }
+      .tag { fill: #6EA0FF; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    path { fill: none; stroke-width: 2.5; stroke-linecap: round; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="flowhead" style="stroke:none" />
+    </marker>
+    <marker id="arrowGood" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="goodfill" style="stroke:none" />
+    </marker>
+    <marker id="arrowBad" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="badfill" style="stroke:none" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="430" rx="24" />
+  <rect class="frame" x="0.5" y="0.5" width="1199" height="429" rx="24" />
+
+  <!-- Rollback arc, above -->
+  <path class="bad" d="M1050,158 C1050,52 450,52 450,154" marker-end="url(#arrowBad)" />
+  <rect class="chip" x="510" y="56" width="480" height="54" rx="10" />
+  <text class="title" x="750" y="78" font-size="15" font-weight="700" text-anchor="middle">throws or times out</text>
+  <text class="muted" x="750" y="99" font-size="14" text-anchor="middle">the card rolls back, onMoveError fires, screen reader hears it</text>
+
+  <!-- Accept arc, below -->
+  <path class="good" d="M1050,262 C1050,392 150,392 150,266" marker-end="url(#arrowGood)" />
+  <rect class="chip" x="370" y="326" width="460" height="54" rx="10" />
+  <text class="title" x="600" y="348" font-size="15" font-weight="700" text-anchor="middle">resolves</text>
+  <text class="muted" x="600" y="369" font-size="14" text-anchor="middle">you update your items, and the pending overlay clears</text>
+
+  <!-- Nodes -->
+  <g>
+    <rect class="you" x="30" y="158" width="240" height="104" rx="16" />
+    <text class="tag" x="50" y="186" font-size="12" font-weight="700" letter-spacing="0.8">YOUR APP</text>
+    <text class="title" x="50" y="214" font-size="20" font-weight="700">Your items</text>
+    <text class="muted" x="50" y="240" font-size="14">a flat array and groupBy</text>
+  </g>
+  <path class="flow" d="M274,210 L322,210" marker-end="url(#arrow)" />
+  <g>
+    <rect class="node" x="330" y="158" width="240" height="104" rx="16" />
+    <text class="tag" x="350" y="186" font-size="12" font-weight="700" letter-spacing="0.8">BOARD</text>
+    <text class="title" x="350" y="214" font-size="20" font-weight="700">Columns × lanes</text>
+    <text class="muted" x="350" y="240" font-size="14">a projection, never a copy</text>
+  </g>
+  <path class="flow" d="M574,210 L622,210" marker-end="url(#arrow)" />
+  <g>
+    <rect class="node" x="630" y="158" width="240" height="104" rx="16" />
+    <text class="tag" x="650" y="186" font-size="12" font-weight="700" letter-spacing="0.8">USER</text>
+    <text class="title" x="650" y="214" font-size="20" font-weight="700">Moves a card</text>
+    <text class="muted" x="650" y="240" font-size="14">drag, sheet, swipe, a11y, code</text>
+  </g>
+  <path class="flow" d="M874,210 L922,210" marker-end="url(#arrow)" />
+  <g>
+    <rect class="you" x="930" y="158" width="240" height="104" rx="16" />
+    <text class="tag" x="950" y="186" font-size="12" font-weight="700" letter-spacing="0.8">YOUR APP</text>
+    <text class="title mono" x="950" y="214" font-size="19" font-weight="700">onMove(op)</text>
+    <text class="muted" x="950" y="240" font-size="14">card already shows, pending</text>
+  </g>
+</svg>

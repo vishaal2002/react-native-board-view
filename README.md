@@ -1,105 +1,83 @@
 <div align="center">
 
-# react-native-board-view
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/banner-dark.svg" />
+  <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/banner-light.svg" alt="react-native-board-view: Kanban and swimlane boards for React Native and Expo." width="100%" />
+</picture>
 
-**Kanban and swimlane boards for React Native and Expo.**<br />
-Your items stay the source of truth. The board groups them, and your app accepts or rejects each move.
+<br />
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue)
-![React Native 0.83+](https://img.shields.io/badge/react--native-0.83%2B-61dafb)
-![New Architecture](https://img.shields.io/badge/architecture-new%20only-informational)
 <!-- github-only -->
-[![npm](https://img.shields.io/npm/v/react-native-board-view)](https://www.npmjs.com/package/react-native-board-view)
+
+[![npm version](https://img.shields.io/npm/v/react-native-board-view?color=2F6FEB&label=npm)](https://www.npmjs.com/package/react-native-board-view)
+[![npm downloads](https://img.shields.io/npm/dm/react-native-board-view?color=2F6FEB)](https://www.npmjs.com/package/react-native-board-view)
+
 <!-- /github-only -->
 
-<table>
-  <tr>
-    <td align="center"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/hero.png" alt="Paged board. The Backlog tab is selected, five cards are in the column, and the next column peeks in from the right." width="220" /></td>
-    <td align="center"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/drag.gif" alt="A card stays lifted over a dashed gap, then drops further down the Backlog column." width="220" /></td>
-    <td align="center"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/swimlane-after.png" alt="Swimlane board. Alice's Backlog cell shows all four cards." width="220" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>Paged columns</b><br />one column, the next peeks in</sub></td>
-    <td align="center"><sub><b>Drag to move</b><br />long-press, lift, drop</sub></td>
-    <td align="center"><sub><b>Swimlanes</b><br />cells expand with Show more</sub></td>
-  </tr>
-</table>
+![License: MIT](https://img.shields.io/badge/license-MIT-2F6FEB)
+![React Native 0.83+](https://img.shields.io/badge/react--native-0.83%2B-61dafb)
+![Expo SDK 55+](https://img.shields.io/badge/expo-SDK%2055%2B-000020)
+![New Architecture](https://img.shields.io/badge/new%20architecture-only-5B677A)
+![TypeScript](https://img.shields.io/badge/types-included-3178C6)
 
-<sub>From the example app. Chips above the board are demo controls, not part of <code>Board</code>.</sub>
-
-[Install](#install) · [Quick start](#quick-start) · [How a move works](#how-a-move-works) · [Layouts](#layouts) · [Props](#props) · [Accessibility](#accessibility) · [Performance](#performance)
+**[Install](#install)** · **[Quick start](#quick-start)** · **[How a move works](#how-a-move-works)** · **[Layouts](#layouts)** · **[Loading data](#loading-data)** · **[API](#api)** · **[Recipes](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md)**
 
 </div>
 
-## What you get
+<br />
 
-| Focus           | What you get                                                                                                      |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| **One layout**  | You pass `layout`. The board renders that one mode, not a switcher. `auto` is paged under 600pt, otherwise multi. |
-| **Your data**   | Flat items plus `groupBy`. The board never creates, edits, fetches, or stores them.                               |
-| **Moves**       | Optimistic, with rollback. The overlay stays until your items show the move.                                      |
-| **Virtualized** | FlashList columns. Swimlane cells cap at `cellLimit`, then Show more.                                             |
-| **Accessible**  | Move to… sheet and screen-reader actions. Reduced motion and RTL.                                                 |
-| **Read only**   | `readOnly` keeps scroll, paging, collapse, and Show more, and turns moves off.                                    |
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/drag.webp" alt="A card is long-pressed in Backlog, lifted, carried to the screen edge so the board pages to To do, and dropped second in that column. Both column counts update." width="250" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/move-sheet.webp" alt="The card menu opens the Move sheet. Choosing Review moves the card there, and the board scrolls to it." width="250" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/rollback.webp" alt="A card is dragged lower in To do and shows a saving dot. The fake server rejects it after two seconds, the log says Rejected, and the card returns to the top." width="250" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Drag across columns</b><br /><sub>Long-press, carry, drop. Pages flip at the edge.</sub></td>
+    <td align="center"><b>Move without dragging</b><br /><sub>The Move to… sheet and screen-reader actions.</sub></td>
+    <td align="center"><b>Optimistic, with rollback</b><br /><sub>The server said no, so the card goes back.</sub></td>
+  </tr>
+</table>
 
-## How it works
+<sub>Release build of <code>apps/bare</code> on a Pixel 9 Pro emulator. The chips above each board are demo controls, not part of <code>Board</code>.</sub>
 
-You own the data. The board turns flat items into columns (and optional lanes), and reports every move back to you.
+## Why this board
 
-```mermaid
-flowchart LR
-  A["Your items<br/>+ groupBy"] --> B["Board<br/>columns × lanes"]
-  B --> C["Screen"]
-  C -- "drag · Move to… · swipe · screen reader" --> D["onMove(op)"]
-  D -- resolves --> E["You update your items"]
-  E --> A
-  D -- throws --> F["Rollback + onMoveError"]
-  F --> B
-```
+Most React Native drag-and-drop libraries reorder one list. A board needs cards to move between many virtualized lists, while your server decides if the move sticks. This package does that one job.
 
-## See it work
+<table>
+  <tr>
+    <td width="33%" valign="top"><h4>🗂️ Your data</h4>Pass a flat array and say which field makes the columns. The board never creates, edits, fetches, or stores items.</td>
+    <td width="33%" valign="top"><h4>⚡ Optimistic moves</h4>A move shows at once. It stays until your items show it, and it rolls back if <code>onMove</code> throws or times out.</td>
+    <td width="33%" valign="top"><h4>🚀 Virtualized</h4>Columns are FlashLists, and swimlanes virtualize by lane. 4 × 500 cards held 60 fps median with a card lifted.</td>
+  </tr>
+  <tr>
+    <td valign="top"><h4>📱 Five layouts</h4>Paged for phones, multi and fit for tablets, stacked for lists, and swimlanes on a second axis.</td>
+    <td valign="top"><h4>♿ Accessible</h4>Every move works without a drag. Moves are announced, focus follows the card, and reduced motion is honored.</td>
+    <td valign="top"><h4>🎨 Yours to style</h4>Light and dark themes, compact density, token overrides, every string, and your own card and chrome.</td>
+  </tr>
+</table>
 
-### Paged columns
-
-`layout="paged"`, and `auto` on a phone, shows one column with the next one peeking in. The tabs are the board's pager. A sideways swipe changes the column, and the highlighted tab follows.
-
-| Backlog selected, the next column peeks in                                                                                                                              | Swipe to In progress                                                                                                          |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/hero.png" alt="Paged board. The Backlog tab is selected, five cards are in the column, and the next column peeks in from the right." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/paging.gif" alt="A swipe moves the board from the Backlog column to In progress. The tab highlight follows the page." width="240" /> |
-
-### Drag
-
-Long-press a card and move it. The card lifts, a dashed gap marks where it will land, and the drop calls `onMove` with `source: 'drag'`. A long-press that barely moves opens the Move sheet instead of dragging.
-
-| Lifted, with a dashed gap                                                                                                                       | Dropped lower in the column                                                                                    |
-| ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/drag-lifted.png" alt="Review billing page lifted out of the Backlog column. A dashed rectangle marks the gap it left." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/drag.gif" alt="The same card stays lifted over the dashed gap, then drops further down the Backlog column." width="240" /> |
-
-### Show more
-
-Swimlanes only. `cellLimit` is how many cards a cell paints before Show more. The button is part of the board, and tapping it reveals the next page of that cell. Here the limit is 2, so Alice's Backlog cell shows two cards, then the other two, and the button goes away.
-
-| Before                                                                                                                         | After                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/swimlane-before.png" alt="Alice's Backlog cell shows two cards and a Show 2 more button." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/swimlane-after.png" alt="The same cell shows all four cards, and Show more is gone." width="240" /> |
-
-### Read only
-
-`readOnly` removes the card menu, drag, swipe, and screen-reader move actions. Scroll, paging, collapse, and Show more stay.
-
-| Editable, a "…" move menu on each card | `readOnly`, no menu |
-| --- | --- |
-| <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/hero.png" alt="Paged board with a move menu on each card." width="240" /> | <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/readonly.png" alt="The same paged board with read only on. Cards have no move menu." width="240" /> |
+The drag engine is built for this package on Gesture Handler, Reanimated and FlashList. [Why we did not use an existing library](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/decisions/0001-own-drag-engine.md).
 
 ## Install
-
-New Architecture. Peers: React Native ≥ 0.83, React ≥ 19, Reanimated ≥ 4.1 &lt; 5, Worklets ≥ 0.5 &lt; 1, Gesture Handler ≥ 2.28 &lt; 4, FlashList ≥ 2.0.2 &lt; 3.
 
 ```sh
 npx expo install react-native-board-view react-native-reanimated react-native-worklets react-native-gesture-handler @shopify/flash-list
 ```
 
-Bare React Native: `npm install` the same packages, add `react-native-worklets/plugin` last in `babel.config.js`, then rebuild. Expo Go is untested. Use a [development build](https://docs.expo.dev/develop/development-builds/introduction/).
+| Peer                           | Version                         |
+| ------------------------------ | ------------------------------- |
+| `react-native`                 | 0.83 or later, New Architecture |
+| `react`                        | 19 or later                     |
+| `react-native-reanimated`      | 4.1 to 4.x                      |
+| `react-native-worklets`        | 0.5 to 0.x                      |
+| `react-native-gesture-handler` | 2.28 to 3.x                     |
+| `@shopify/flash-list`          | 2.0.2 to 2.x                    |
+
+**Bare React Native:** `npm install` the same packages, add `react-native-worklets/plugin` last in `babel.config.js`, and rebuild the app.
+
+**Expo:** use a [development build](https://docs.expo.dev/develop/development-builds/introduction/). Expo Go is untested.
 
 ## Quick start
 
@@ -131,19 +109,21 @@ const groupBy: GroupBy<Task> = {
 
 export function TaskBoard({ initial }: { initial: Task[] }) {
   const [tasks, setTasks] = useState(initial);
+
   const onMove = useCallback(async (op: MoveOperation, { signal }: MoveContext) => {
     const response = await fetch(`/api/tasks/${op.id}/move`, {
       method: 'POST',
       body: JSON.stringify({ ...op.changes, rank: op.rank, opId: op.opId }),
       signal,
     });
-    if (!response.ok) throw new Error(`Move failed: ${response.status}`);
+    if (!response.ok) throw new Error(`Move failed: ${response.status}`); // the card rolls back
     setTasks((current) =>
       current.map((task) =>
         task.id === op.id ? applyMove(task, op, groupBy, (item, rank) => ({ ...item, rank })) : task,
       ),
     );
   }, []);
+
   const renderCard = useCallback(
     ({ item, pending, dragging, compact }: CardRenderInfo<Task>) => (
       <CardView title={item.title} pending={pending} dragging={dragging} compact={compact} />
@@ -166,172 +146,302 @@ export function TaskBoard({ initial }: { initial: Task[] }) {
 }
 ```
 
-`Board` includes its own `GestureHandlerRootView`. Keep one on the app root as well. Items need a string `rank`, or pass `getRank`. Seed missing ranks with the [recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#seeding-ranks).
+Three things to know:
 
-## Read only
-
-```tsx
-<Board readOnly items={tasks} getItemId={(task) => task.id} groupBy={groupBy} onMove={onMove} renderCard={renderCard} />
-```
-
-Scrolling, column paging, lane and column collapse, and Show more still work. Long-press drag, swipe, the Move sheet, and screen-reader move actions do not. `onMove` is not called. `onMove` stays required so the same board can leave read-only mode without a remount.
+- **Ranks.** Each item needs a string `rank`, or pass `getRank`. Ranks are [fractional indexes](https://github.com/rocicorp/fractional-indexing). Records without one can be [seeded once](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#seeding-ranks).
+- **Stable props.** Keep `renderCard` and `groupBy` stable, and memoize your card.
+- **Gesture root.** `Board` has its own `GestureHandlerRootView`. Keep one at your app root as well.
 
 ## How a move works
 
-```mermaid
-sequenceDiagram
-  actor User
-  participant Board
-  participant App as Your onMove
-  participant Data as Your items
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/how-it-works-dark.svg" />
+  <img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/how-it-works-light.svg" alt="Your items go to the board, which groups them into columns and lanes. The user moves a card, and onMove gets the operation while the card already shows in its new place. If onMove resolves, you update your items and the pending overlay clears. If it throws or times out, the card rolls back and onMoveError fires." width="100%" />
+</picture>
 
-  User->>Board: drag, Move to…, swipe, or screen reader
-  Board->>Board: card moves on screen, marked pending
-  Board->>App: onMove(op, { signal })
-  alt resolves
-    App->>Data: update items (applyMove)
-    Data->>Board: items show the move
-    Board->>Board: pending overlay clears
-  else throws
-    App-->>Board: error
-    Board->>Board: roll back, onMoveError, announce failure
-  end
-```
+1. **The card moves at once** and is marked `pending`. Your card can show that with `CardView`'s `pending` prop.
+2. **`onMove(op, { signal })` runs.** Moves of the same card run one at a time. Moves of different cards run in parallel.
+3. **Resolve to accept.** The overlay clears as soon as your `items` show the move, or after `settleTimeoutMs`, 5 seconds by default.
+4. **Throw to reject.** The card goes back, later moves of that card are cancelled, `onMoveError` fires, and screen readers hear why.
+5. **Past `inflightTimeoutMs`,** 30 seconds by default, the move rejects with `MoveTimeoutError` and `signal` aborts. Pass `0` when `onMove` waits for the user, for example on a form.
 
-`onMove` receives one `MoveOperation`: `opId`, `id`, `changes` (only fields that change; `null` is the No value bucket), `from`, `rank` ([fractional index](https://github.com/rocicorp/fractional-indexing)), `previousId`, `nextId`, and `source` (`drag`, `sheet`, `swipe`, `accessibility`, `api`).
+You do not need your own optimistic layer. The board's overlay is that layer.
 
-1. The card moves on screen at once and stays `pending`.
-2. Same-item moves run one at a time. Different items run in parallel.
-3. Resolve `onMove` when the server accepts it. The overlay clears once `items` show that move, or after `settleTimeoutMs` (5s).
-4. Throw to roll the card back, cancel later moves of that item, fire `onMoveError`, and announce the failure.
-5. Past `inflightTimeoutMs` (30s) the move rejects with `MoveTimeoutError` and aborts `signal`. Use `0` when `onMove` waits on the user.
+<details>
+<summary><b>What is in a <code>MoveOperation</code></b></summary>
 
-More patterns, including a shared server model: [docs/recipes.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md).
+| Field                  | Meaning                                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `opId`                 | Unique per move. Send it as an idempotency key so a retry cannot apply the move twice.                      |
+| `id`                   | The card.                                                                                                   |
+| `changes`, `from`      | Only the grouped fields that change, new and old. `null` is the No value bucket. A cross-lane drop has two. |
+| `rank`                 | The card's new fractional rank.                                                                             |
+| `previousId`, `nextId` | The visible neighbors it lands between. Servers with integer positions or LexoRank can place from these.    |
+| `source`               | `drag`, `sheet`, `swipe`, `accessibility` or `api`.                                                         |
+
+</details>
 
 ## Layouts
 
-Pass one value. The board does not show the other layouts, and it does not render a control for switching them.
+Pass one `layout`. The board renders that mode and no switcher.
 
-| `layout`  | Behavior                                                                    |
-| --------- | --------------------------------------------------------------------------- |
-| `auto`    | `paged` under 600pt, otherwise `multi`.                                     |
-| `paged`   | One column per page, peek, snap, tabs or dots. An edge drag flips the page. |
-| `multi`   | Fixed-width columns, sideways scroll.                                       |
-| `fit`     | Columns share the width down to `minColumnWidth`, then scroll.              |
-| `stacked` | One vertical list, a section per column.                                    |
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/layout-paged.png" alt="Paged layout on a phone. Column tabs at the top, Backlog on screen, and the next column peeking in from the right." width="190" /></td>
+    <td align="center" width="25%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/layout-stacked.png" alt="Stacked layout on a phone. One vertical list with a collapsible section per column." width="190" /></td>
+    <td align="center" colspan="2"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/layout-fit.png" alt="Fit layout in landscape. All five columns share the width." width="400" /><br /><br /><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/layout-swimlanes.png" alt="Swimlanes in landscape. Status columns across, one lane per assignee, with empty cells marked No cards." width="400" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>paged</b><br /><sub>Phones. One column, the next peeks in.</sub></td>
+    <td align="center"><b>stacked</b><br /><sub>One list, a section per column.</sub></td>
+    <td align="center" colspan="2"><b>fit</b>, and <b>swimlanes</b> below it<br /><sub>Tablets and landscape. Every column on screen.</sub></td>
+  </tr>
+</table>
 
-Sketches of the structure, not screenshots:
+| `layout`  | What it does                                                                                        |
+| --------- | --------------------------------------------------------------------------------------------------- |
+| `auto`    | `paged` below `autoBreakpoint` (600pt by default), `multi` above it. The default.                   |
+| `paged`   | One column per page with snapping, a peek of the next one, and tabs or dots. Edge drags flip pages. |
+| `multi`   | Fixed-width columns side by side that scroll sideways. Set the width with `theme.columnWidth`.      |
+| `fit`     | Columns share the width down to `theme.minColumnWidth`, then the board scrolls.                     |
+| `stacked` | One vertical list with a collapsible section per column.                                            |
 
-```text
-paged: one column per page, the next peeks in
-┌──────────────────────────┐
-│ [To do]  Doing   Done    │  tabs
-├────────────────────┬─────┤
-│ [ card ]           │ [ c │
-│ [ card ]           │ [ c │
-└────────────────────┴─────┘
-
-multi / fit: columns side by side, scroll sideways
-┌───────────┬───────────┬───────────┐
-│ To do     │ Doing     │ Done      │
-├───────────┼───────────┼───────────┤
-│ [ card ]  │ [ card ]  │ [ card ]  │
-│ [ card ]  │ [ card ]  │           │
-└───────────┴───────────┴───────────┘
-
-stacked: one vertical list, a section per column
-┌──────────────────────┐
-│ v To do              │
-│   [ card ]           │
-│   [ card ]           │
-│ > Doing (collapsed)  │
-│ v Done               │
-│   [ card ]           │
-└──────────────────────┘
-
-swimlanes: a second axis, groupBy.lanes
-┌───────┬──────────┬──────────┐
-│       │ To do    │ Doing    │
-├───────┼──────────┼──────────┤
-│ Alice │ [ card ] │ [ card ] │
-├───────┼──────────┼──────────┤
-│ Bob   │ [ card ] │          │
-└───────┴──────────┴──────────┘
-```
-
-Swimlanes are a second axis, `groupBy.lanes`. Lanes virtualize and collapse. Each cell shows `cellLimit` cards (default 50), then Show more. A cross-lane drop changes both fields in one operation. Unknown or `null` values land in a No value column or lane (`labels.noValue`).
-
-## Props
-
-| Prop                                                                                                     | Default                      | Notes                                                                                |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------ |
-| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard`                                                  |                              | Required.                                                                            |
-| `getRank`                                                                                                | `item.rank`                  | Missing rank sorts first.                                                            |
-| `getItemLabel`                                                                                           | id                           | Screen reader and Move sheet.                                                        |
-| `readOnly`                                                                                               | `false`                      | Display only.                                                                        |
-| `moveModes`                                                                                              | drag and sheet on, swipe off | `drag: false`, `sheet: 'manual' \| false`, `swipe: 'auto'` (`multi` and `fit` only). |
-| `canDrag`, `canDrop`                                                                                     | allow                        | Locked cards, refused cells.                                                         |
-| `onMoveError`, `onDragStart`, `onDragOver`, `onDragEnd`                                                  |                              | Rollback and drag hooks.                                                             |
-| `layout`                                                                                                 | `auto`                       | `paged`, `multi`, `fit`, `stacked`.                                                  |
-| `columnId`, `onColumnChange`                                                                             |                              | Set the column on screen. Update `columnId` from the callback when the user swipes. |
-| `onEndReached`                                                                                           |                              | A column list hit its end. The board does not fetch.                                 |
-| `pagerIndicator`                                                                                         | `tabs`                       | `dots`, `none`.                                                                      |
-| `cellLimit`                                                                                              | `50`                         | Swimlane cards before Show more.                                                     |
-| `appearance`                                                                                             | `auto`                       | `light`, `dark`.                                                                     |
-| `density`                                                                                                | `comfortable`                | `compact`.                                                                           |
-| `theme`, `labels`                                                                                        | built-in                     | Partial overrides. `useBoardTheme()` inside cards.                                   |
-| `settleTimeoutMs`, `inflightTimeoutMs`                                                                   | 5000, 30000                  | `0` waits.                                                                           |
-| `collapsibleColumns`                                                                                     | on in `stacked`              | Also `collapsedColumns` / `collapsedLanes` plus change callbacks.                    |
-| `autoScroll`, `longPressDelay`                                                                           | on, 200ms                    |                                                                                      |
-| `renderColumnHeader`, `renderLaneHeader`, `renderEmptyCell`, `renderColumnFooter`, `renderDropIndicator` |                              | Optional chrome.                                                                     |
-| `ref`                                                                                                    |                              | `scrollToColumn`, `scrollToItem`, `openMoveSheet`, `closeMoveSheet`.                 |
-
-Keep `renderCard` and `groupBy` stable. `CardView` accepts `title`, `description`, `tags`, `meta`, `assignee`, `accentColor`, `pending`, `dragging`, `compact`, and `onPress`.
+**Swimlanes are a second axis, not a layout.** Add `groupBy.lanes` to any layout. Lanes virtualize and collapse. A cell shows `cellLimit` cards (50 by default), then Show more. A drop across lanes changes both fields in one operation.
 
 ```tsx
-<Board theme={{ accent: '#7C3AED', radius: 16, columnWidth: 280 }} labels={{ noValue: 'Unassigned' }} />
+const groupBy: GroupBy<Task> = {
+  columns: { key: 'status', values: STATUSES },
+  lanes: { key: 'assignee', values: PEOPLE },
+};
 ```
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/swimlanes.webp" alt="A swimlane cell shows two cards and Show 2 more. The tap reveals the other two. A card is then dragged down, the board auto-scrolls, and the card drops into another person's lane." width="280" /></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/rules.webp" alt="A Backlog card is dragged to Done, which only accepts reviewed cards. Done gets a red outline, and on release the card flies home." width="280" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Show more, and a cross-lane drop</b><br /><sub>The drop changes the card's lane field.</sub></td>
+    <td align="center"><b>Rules</b><br /><sub><code>canDrop</code> refuses Done, so it turns red.</sub></td>
+  </tr>
+</table>
+
+Unknown or `null` values land in a No value column or lane. Rename it with `labels.noValue`.
+
+## Ways to move a card
+
+| How             | On by default            | Turn it off or change it                                                                     |
+| --------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| Long-press drag | Yes                      | `moveModes={{ drag: false }}`. `longPressDelay` sets the hold, 200ms by default.             |
+| Move to… sheet  | Yes, from the "…" button | `sheet: 'manual'` keeps the sheet and leaves the button to you. `sheet: false` removes it.   |
+| Swipe sideways  | No                       | `swipe: 'auto'`, in `multi` and `fit` only. On paged phones a sideways swipe turns the page. |
+| Screen reader   | Always                   | Actions follow `canDrop`.                                                                    |
+| From your code  | Always                   | `ref.moveItem(id, { columnId })`. See [Moving cards from code](#moving-cards-from-code).     |
+
+**Rules.** `canDrag(item)` locks cards. `canDrop(item, target)` refuses cells: while dragging they turn red, in the sheet they are disabled, and screen-reader actions leave them out. Your server must still enforce the same rules. WIP limits are a [recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#rules-locked-cards-allowed-transitions-wip-limits).
+
+**Read only.** `readOnly` keeps scrolling, paging, collapsing and Show more, and turns every way of moving off. `onMove` stays required, so the same board can leave read-only mode without a remount.
+
+**Haptics.** `onDragStart`, `onDragOver` and `onDragEnd` are the hooks. The [recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#haptics) wires them to `expo-haptics`.
+
+## Loading data
+
+![New in 0.4](https://img.shields.io/badge/new%20in-0.4-2F6FEB)
+
+The board never fetches. It tells you when to, and it shows what you pass back.
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/load-more.webp" alt="Backlog shows 22 in its header with six cards loaded. Scrolling to the end shows a spinner, then six more cards appear." width="280" /></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/refresh.webp" alt="Pulling Backlog down shows the refresh spinner. A new card from the server lands on top, and the count goes from 22 to 23." width="280" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Load more</b><br /><sub><code>onEndReached</code>, <code>loadingColumns</code>, <code>columnTotals</code></sub></td>
+    <td align="center"><b>Pull to refresh</b><br /><sub><code>onRefresh</code>, <code>refreshing</code></sub></td>
+  </tr>
+</table>
+
+```tsx
+<Board
+  items={tasks}
+  onEndReached={(columnId) => loadNextPage(columnId)} // a column hit its end
+  loadingColumns={loading} // ['todo'] while that page loads
+  columnTotals={totals} // { todo: 120 }: headers and tabs show 120, not 18
+  onRefresh={refresh}
+  refreshing={refreshing}
+  // …
+/>
+```
+
+The full pattern is in the [paging recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#columns-loaded-in-pages).
+
+## Moving cards from code
+
+![New in 0.4](https://img.shields.io/badge/new%20in-0.4-2F6FEB)
+
+<img align="right" src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/highlight.webp" alt="Find last card scrolls to the last card in Backlog and flashes an outline on it. Move it to the top then moves that card to the top of the column, where it flashes again and shows a saving dot." width="230" />
+
+`ref.moveItem` moves a card the same way a drop does. The card moves at once, `onMove` gets `source: 'api'`, and a rejection rolls it back. `canDrop` and `readOnly` still apply, and the method returns `false` when nothing was queued.
+
+`scrollToItem` with `highlight: true` flashes an outline on the card once it is on screen. Use it for search results, deep links, or to show where a card went. With reduced motion on, the outline holds still.
+
+```tsx
+const board = useRef<BoardHandle>(null);
+
+// A "Done" button on a card
+board.current?.moveItem(task.id, { columnId: 'done', index: 'end' });
+
+// Jump to a search result
+board.current?.scrollToItem(task.id, { highlight: true });
+```
+
+`columnId` is required. `laneId` defaults to the card's lane. `index` defaults to `0`, the top.
+
+<br clear="right" />
+
+## Theming
+
+<table>
+  <tr>
+    <td align="center" width="30%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/dark-paged.png" alt="The paged board in the dark theme." width="190" /></td>
+    <td align="center" width="70%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/dark-fit.png" alt="The fit layout in landscape in the dark theme." width="440" /></td>
+  </tr>
+</table>
+
+`appearance` follows the system by default. `density="compact"` tightens spacing. `theme` overrides any token, and `useBoardTheme()` gives your cards the same tokens.
+
+```tsx
+<Board
+  theme={{ accent: '#7C3AED', radius: 16, columnWidth: 280 }}
+  labels={{ noValue: 'Unassigned', showMore: (n) => `${n} more` }}
+  // …
+/>
+```
+
+`CardView` is a ready-made card. It takes `title`, `description`, `tags`, `meta`, `assignee`, `accentColor`, `pending`, `dragging`, `compact` and `onPress`. Use it, wrap it, or render your own. Headers, empty cells, footers and the drop indicator have render props too.
 
 ## Accessibility
 
-Each card is one element: item, column, lane, and position. Actions are Move to…, Move to a column, and Move to a lane. The sheet lists allowed destinations. A successful move is announced when `onMove` resolves. Focus follows a sheet or screen-reader move. `readOnly` removes those move actions and keeps the label.
+- **One element per card.** The label gives the item, its column and lane, and its position, for example "Fix login, To do, 2 of 5".
+- **Moves without a drag.** Actions are Move to…, Move to a column, and Move to a lane. The sheet lists only allowed destinations.
+- **Announcements.** A move is announced when `onMove` resolves, never before. A rollback is announced with where the card went back to.
+- **Focus.** It follows a card moved from the sheet or by a screen-reader action.
+- **Motion and layout.** Reduced motion is honored, RTL layouts mirror, and text can grow without clipping.
+- **Strings.** Every string, including announcements, can be replaced through `labels`.
 
 ## Performance
 
-On a Pixel 9 Pro emulator, release build, 4 × 500 cards, holding a card measured 60 fps median on both threads. Auto-scroll tracks FlashList cell rendering, same as a finger scroll. Method and the rest of the table: [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md). Memoize cards, and filter items before they reach the board.
+| 4 columns × 500 cards, release build, Pixel 9 Pro emulator | JS fps, median | UI fps, median |
+| ---------------------------------------------------------- | -------------- | -------------- |
+| Idle board                                                 | 60             | 60             |
+| Card lifted and held                                       | 60             | 60             |
+| Drag with vertical auto-scroll                             | 30             | 30             |
 
-## 0.3.0
+The drag engine costs about 0.15 ms per frame. During auto-scroll the frame rate follows FlashList rendering new cells, the same as a finger scroll. The method, the slow-card case and what is still unmeasured are in [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
 
-- Paged Show more draws on the column that is on screen. The next column still peeks in.
-- `columnId` sets that column. `onEndReached` reports a column list that hit its end, and the board does not fetch.
+To keep it fast, memoize your card and filter `items` before they reach the board.
 
-## 0.2.0
+## API
 
-- Show more reveals the next page of cards in a swimlane cell.
-- Paged column tabs match the column on screen after a layout change.
-- `readOnly`.
+### `<Board>` props
 
-Captures above are from `apps/bare` on a Pixel 9 Pro emulator (Android 17, arm64), debug build, 2026-10-10. Show more was checked there: a cell limited to 2 cards showed the rest after the tap. The drag clip lifts Review billing page, opens a dashed gap, and drops it lower in Backlog. The paging clip swipes from Backlog to In progress. These clips are not a release-build performance run.
+**Data and moves**
 
-**Still open**
+| Prop                                                    | Default          | Notes                                                                      |
+| ------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------- |
+| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                  |
+| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                      |
+| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                 |
+| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                          |
+| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                               |
+| `readOnly`                                              | `false`          | Display only.                                                              |
+| `moveModes`                                             | drag and sheet   | `{ drag, sheet, swipe }`. See [Ways to move a card](#ways-to-move-a-card). |
+| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                   |
+| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                         |
+| `rankStrategy`                                          | fractional index | Replace the rank math.                                                     |
 
-- Phone benchmarks on a mid-tier Android device and an iPhone. The only release table is the emulator run in [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
-- A five-person pass with developers who have not used the package. One emulator session is written up in [docs/usability.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/usability.md).
-- 1.0 device gates in [docs/spike.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). S4, S7, and physical-device performance are still open.
+**Layout and navigation**
 
-The playground is `apps/example` or `apps/bare`.
+| Prop                                 | Default         | Notes                                                                           |
+| ------------------------------------ | --------------- | ------------------------------------------------------------------------------- |
+| `layout`                             | `auto`          | `paged`, `multi`, `fit`, `stacked`.                                             |
+| `autoBreakpoint`                     | `600`           | Under `auto`, boards narrower than this are paged. <sup>0.4</sup>               |
+| `pagerIndicator`                     | `tabs`          | Paged only. `dots` or `none`.                                                   |
+| `columnId`, `onColumnChange`         |                 | The column on screen. Update `columnId` from the callback.                      |
+| `initialColumnId`                    |                 | The first column on screen when `columnId` is not set.                          |
+| `collapsibleColumns`                 | on in `stacked` | Never in `paged`.                                                               |
+| `collapsedColumns`, `collapsedLanes` | board-managed   | Controlled lists, with `onCollapsedColumnsChange` and `onCollapsedLanesChange`. |
+| `cellLimit`                          | `50`            | Swimlane cards per cell before Show more.                                       |
+| `autoScroll`, `longPressDelay`       | `true`, `200`   | Edge scrolling while dragging, and the hold before a drag.                      |
 
-## Out of scope
+**Loading** <sup>0.4</sup>
 
-No create, edit, delete, fetch, or offline store. No rank rebalancing in the client (`shouldRebalance`, `rebalanceRanks` are there for your server). No WIP-limit prop, sub-columns, column reorder, or multi-select. One cell per item. No Reanimated 3, no old architecture, no web.
+| Prop                      | Notes                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `onEndReached`            | A column reached its end. Fires again only after your append and a new scroll to the end. |
+| `loadingColumns`          | Column ids that are fetching. A spinner shows where `onEndReached` fired.                 |
+| `columnTotals`            | Server counts by column id, shown in headers, tabs and screen-reader labels.              |
+| `onRefresh`, `refreshing` | Pull to refresh.                                                                          |
 
-## Packages
+**Appearance and rendering**
 
-| Package                   | Role                                                                     |
-| ------------------------- | ------------------------------------------------------------------------ |
-| `react-native-board-view` | `Board`, and a re-export of the core. **0.3.0.**                         |
-| `board-view-core`         | Grouping, ranks, move planning, and the move queue. No React. **0.1.0.** |
+| Prop                                                           | Default       | Notes                                               |
+| -------------------------------------------------------------- | ------------- | --------------------------------------------------- |
+| `appearance`                                                   | `auto`        | `light` or `dark`.                                  |
+| `density`                                                      | `comfortable` | `compact`.                                          |
+| `theme`, `labels`                                              | built in      | Partial overrides.                                  |
+| `renderColumnHeader`, `renderLaneHeader`                       |               | Headers get counts, `total`, and a collapse toggle. |
+| `renderEmptyCell`, `renderColumnFooter`, `renderDropIndicator` |               | Footers get `loading`.                              |
+| `style`, `testID`, `ref`                                       |               |                                                     |
 
-[Recipes](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md) · [Contributing](https://github.com/vishaal2002/react-native-board-view/blob/main/CONTRIBUTING.md)
+### Ref handle
 
-MIT
+| Method                                        | What it does                                                                                                    |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `moveItem(id, { columnId, laneId?, index? })` | Moves a card through the same optimistic queue as a drop. Returns `false` if nothing was queued. <sup>0.4</sup> |
+| `scrollToItem(id, { animated?, highlight? })` | Scrolls a card into view. `highlight` flashes an outline on it. <sup>0.4</sup>                                  |
+| `scrollToColumn(id, { animated? })`           | Scrolls a column into view.                                                                                     |
+| `openMoveSheet(id)`, `closeMoveSheet()`       | Opens or closes the Move sheet.                                                                                 |
+
+### `renderCard` info
+
+`item`, `cellId`, `index`, `count`, `column`, `lane`, `pending`, `dragging` (true for the lifted copy), `compact` (the column is narrow), and `openMoveSheet()`.
+
+### The core, on your server too
+
+`react-native-board-view` re-exports `board-view-core`, which has no React dependency and runs in Node as ESM or CommonJS. Use the same grouping, rank and move planning on your server: `projectBoard`, `planMove`, `applyMove`, `seedRanks`, `rebalanceRanks` and `shouldRebalance`. See the [recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#one-implementation-on-the-client-and-the-server).
+
+## Recipes
+
+- [Plain `fetch` and local state](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#plain-fetch-and-local-state)
+- [Columns loaded in pages](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#columns-loaded-in-pages)
+- [Moving cards from code](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#moving-cards-from-code) and [undo](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#undo)
+- [TanStack Query](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#tanstack-query) and [local-first stores](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#local-first-stores-watermelondb-powersync-zero-legend-state)
+- [Asking for input before a move](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#asking-for-input-before-a-move-required-fields)
+- [Rules and WIP limits](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#rules-locked-cards-allowed-transitions-wip-limits)
+- [Seeding](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#seeding-ranks) and [rebalancing](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#keeping-ranks-short-rebalancing) ranks
+- [Sorted or filtered views](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#sorted-or-filtered-views)
+- [Haptics](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#haptics)
+
+## Status
+
+The API can still change before 1.0. Breaking changes are listed in the [changelog](https://github.com/vishaal2002/react-native-board-view/blob/main/CHANGELOG.md).
+
+These are still open before 1.0:
+
+- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md).
+- **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet.
+- **Usability study.** Five developers new to the package have not been timed yet.
+
+**Out of scope:** creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, column reorder, multi-select, and items in more than one cell. Reanimated 3, the old architecture, and web.
+
+## Try the demo
+
+`apps/example` (Expo) and `apps/bare` (React Native CLI) run the same demo, with a screen per layout, rule and stress test. The captures above come from its Showcase, Live data, Optimistic moves, Rules and Swimlanes screens. Setup is in [CONTRIBUTING.md](https://github.com/vishaal2002/react-native-board-view/blob/main/CONTRIBUTING.md).
+
+| Package                   | What it is                                                             |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `react-native-board-view` | `Board`, `CardView`, and a re-export of the core. **0.4.0**            |
+| `board-view-core`         | Grouping, ranks, move planning and the move queue. No React. **0.1.0** |
+
+[MIT](https://github.com/vishaal2002/react-native-board-view/blob/main/LICENSE) © react-native-board-view contributors

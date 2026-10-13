@@ -19,6 +19,12 @@ describe('resolveLayout', () => {
     expect(resolveLayout('auto', 820)).toBe('multi');
   });
 
+  it('moves the auto switch to autoBreakpoint', () => {
+    expect(resolveLayout('auto', 700, 768)).toBe('paged');
+    expect(resolveLayout('auto', 500, 480)).toBe('multi');
+    expect(resolveLayout('fit', 500, 768)).toBe('fit');
+  });
+
   it('keeps an explicit layout', () => {
     expect(resolveLayout('fit', 390)).toBe('fit');
     expect(resolveLayout('stacked', 1200)).toBe('stacked');

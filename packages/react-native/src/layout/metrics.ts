@@ -1,6 +1,6 @@
 import type { BoardLayout, BoardTheme } from '../types';
 
-/** Boards narrower than this use the paged phone layout under `layout="auto"`. */
+/** Default `autoBreakpoint`: boards narrower than this use the paged phone layout under `layout="auto"`. */
 export const COMPACT_WIDTH = 600;
 const PAGED_PADDING = 12;
 const PAGED_PEEK = 28;
@@ -38,9 +38,9 @@ export function showsCellFooter(mode: ResolvedLayout, visualIndex: number, page:
   return mode !== 'paged' || visualIndex === page;
 }
 
-export function resolveLayout(layout: BoardLayout, boardWidth: number): ResolvedLayout {
+export function resolveLayout(layout: BoardLayout, boardWidth: number, breakpoint = COMPACT_WIDTH): ResolvedLayout {
   if (layout !== 'auto') return layout;
-  return boardWidth < COMPACT_WIDTH ? 'paged' : 'multi';
+  return boardWidth < breakpoint ? 'paged' : 'multi';
 }
 
 type MetricsTheme = Pick<BoardTheme, 'columnWidth' | 'columnGap' | 'collapsedColumnWidth' | 'minColumnWidth'>;
