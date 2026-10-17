@@ -32,6 +32,7 @@ export const PAGE_DWELL_MS = 360;
 export const MAX_STEP_MS = 48;
 
 function clamp(value: number, min: number, max: number): number {
+  'worklet';
   if (max < min) return min;
   return Math.min(max, Math.max(min, value));
 }
@@ -41,12 +42,14 @@ function clamp(value: number, min: number, max: number): number {
  * it; tablets get a narrow one so cards near the edge stay droppable.
  */
 export function edgeZone(frameSize: number, compact: boolean): number {
+  'worklet';
   if (compact) return clamp(frameSize * 0.18, 56, 96);
   return clamp(frameSize * 0.08, 32, 64);
 }
 
 /** Pointer direction relative to the edges: -1 start edge, 1 end edge, 0 neither. */
 export function edgeDirection(pointer: number, frameStart: number, frameSize: number, zone: number): -1 | 0 | 1 {
+  'worklet';
   if (frameSize <= 0) return 0;
   const effective = Math.min(zone, frameSize / 3);
   if (pointer < frameStart + effective) return -1;
@@ -55,12 +58,16 @@ export function edgeDirection(pointer: number, frameStart: number, frameSize: nu
 }
 
 /**
- * One auto-scroll step. Continuous mode ramps speed the longer the pointer
+ * One auto-scroll step. A worklet: the engine runs it on the UI thread for
+ * scrollers that can be driven there, and in JS for the rest.
+ *
+ * Continuous mode ramps speed the longer the pointer
  * stays in the edge, and slows near the outer edge of the zone, so speed
  * never jumps. It stops at 0 and `maxOffset`. Paged mode waits for a dwell,
  * then moves exactly one page. Reduced motion uses a flat, slower speed.
  */
 export function stepAutoScroll(input: AutoScrollInput): AutoScrollStep {
+  'worklet';
   const direction = edgeDirection(input.pointer, input.frameStart, input.frameSize, input.edgeZone);
   if (direction === 0) return { offset: input.offset, dwellMs: 0, flipped: false };
 
@@ -90,4 +97,19 @@ export function stepAutoScroll(input: AutoScrollInput): AutoScrollStep {
     : Math.min(MAX_PX_PER_SEC, BASE_PX_PER_SEC + (RAMP_PX_PER_SEC2 * dwellMs) / 1000) * intensity;
   const next = clamp(input.offset + direction * speed * (dt / 1000), 0, maxOffset);
   return { offset: next, dwellMs, flipped: false };
+}
+
+/**
+ * Where the UI thread's next auto-scroll step starts. It integrates from its
+ * own last position, because the offset event for that scroll may not be back
+ * yet. When the live offset matches none of the offsets it wrote recently,
+ * someone else moved the list (FlashList correcting for a row above that
+ * changed height), and it continues from the live offset instead.
+ */
+export function autoScrollOrigin(position: number, live: number, written: readonly number[]): number {
+  'worklet';
+  if (Number.isNaN(position)) return live;
+  if (written.length === 0) return position;
+  for (const value of written) if (Math.abs(value - live) < 1) return position;
+  return live;
 }

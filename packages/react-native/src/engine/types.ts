@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 import type { LayoutChangeEvent, StyleProp, ViewStyle } from 'react-native';
-import type { SharedValue } from 'react-native-reanimated';
+import type { AnimatedRef, SharedValue } from 'react-native-reanimated';
 import type { AutoScrollMode } from './autoScroll';
 import type { Rect } from './geometry';
 
@@ -79,12 +79,16 @@ export interface DragBoardProps {
   /** Mirrors the pointer in board coordinates while dragging. */
   dragPosition?: SharedValue<{ x: number; y: number }>;
   longPressDelay?: number;
+  /** Drags start only from `Handle`s, without a long press. */
+  handleOnly?: boolean;
   reducedMotion?: boolean;
   /** Phone-sized board: wider auto-scroll edges. */
   compact?: boolean;
   enabled?: boolean;
   /** Renders the lifted card. */
   renderHover(itemId: string): ReactNode;
+  /** How the lifted card looks, and how long the drop takes. */
+  lift?: LiftStyle;
   colors?: { outline: string; reject: string };
   /**
    * Live horizontal scroll offset on the UI thread. Lets drop-target
@@ -92,6 +96,25 @@ export interface DragBoardProps {
    */
   horizontalOffset?: SharedValue<number>;
   children: ReactNode;
+}
+
+export interface LiftStyle {
+  readonly scale: number;
+  /** Degrees. */
+  readonly tilt: number;
+  readonly shadowOpacity: number;
+  readonly dropMs: number;
+}
+
+/** A scroll view the engine can move from the UI thread. */
+export interface UiScrollTarget {
+  /** Unique per scroll view, so limits published for one are never applied to another. */
+  readonly id: number;
+  // The engine only scrolls it; any Animated scroll view works.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly ref: AnimatedRef<any>;
+  /** The scroll offset, kept on the UI thread. */
+  readonly offset: SharedValue<number>;
 }
 
 /** A scroll container the engine can read and drive while dragging. */
@@ -104,6 +127,8 @@ export interface ScrollerHandle {
   scrollTo(offset: number, animated: boolean): void;
   readonly mode?: AutoScrollMode;
   getPageSize?(): number;
+  /** Continuous auto-scroll runs on the UI thread when this is set. */
+  readonly ui?: UiScrollTarget;
 }
 
 /**
@@ -142,6 +167,12 @@ export interface DragCardProps {
   children: ReactNode;
 }
 
+export interface DragHandleProps {
+  children?: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  hitSlop?: number | { top?: number; bottom?: number; left?: number; right?: number };
+}
+
 export interface PlaceholderProps {
   height: number;
   radius: number;
@@ -157,6 +188,8 @@ export interface DragAdapter {
   readonly Cell: ComponentType<DragCellProps>;
   /** Hides the card while the lifted copy settles over it. */
   readonly Card: ComponentType<DragCardProps>;
+  /** Starts a drag when `handleOnly` is set. Otherwise a plain view. */
+  readonly Handle: ComponentType<DragHandleProps>;
   /** The gap a cell renders where the lifted card will land. */
   readonly Placeholder: ComponentType<PlaceholderProps>;
   /** Registers the board's horizontal scroller (or a shared vertical one). */

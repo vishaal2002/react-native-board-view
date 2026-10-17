@@ -16,14 +16,18 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   measure,
+  scrollTo,
+  useAnimatedReaction,
   useAnimatedRef,
   useAnimatedStyle,
+  useFrameCallback,
   useSharedValue,
   withTiming,
+  type FrameInfo,
   type SharedValue,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { edgeZone, stepAutoScroll } from './autoScroll';
+import { autoScrollOrigin, edgeZone, stepAutoScroll } from './autoScroll';
 import { containsPoint, type Rect } from './geometry';
 import {
   PLACEHOLDER_ID,
@@ -33,16 +37,23 @@ import {
   type DragBoardProps,
   type DragCardProps,
   type DragCellProps,
+  type DragHandleProps,
   type DragPlacement,
+  type LiftStyle,
   type PlaceholderProps,
   type ScrollerHandle,
+  type UiScrollTarget,
 } from './types';
 
 /** Long-press released within this distance (px) opens the menu instead of dropping. */
 const MENU_SLOP = 10;
-const SETTLE_MS = 200;
+/** A drag from a handle starts once the finger moves this far, before a list starts scrolling. */
+const HANDLE_SLOP = 3;
 const AUTO_SCROLL_QUIET_MS = 150;
-const LIFT_SCALE = 1.03;
+/** How the lifted card looks and how long a drop takes, unless the board passes its own. */
+const DEFAULT_LIFT: LiftStyle = { scale: 1.03, tilt: 0, shadowOpacity: 0.25, dropMs: 200 };
+/** Offsets the UI thread wrote recently. An offset outside them was moved by someone else. */
+const OFFSET_HISTORY = 6;
 /** A new drop slot must hold for this many frames before the placeholder moves. */
 const STABLE_FRAMES = 2;
 /** Frames to let lists lay out after the placeholder moves before reading geometry again. */
@@ -73,6 +84,27 @@ interface Outline {
   height: number;
 }
 
+/** What the UI thread needs to auto-scroll one axis. Published by the JS loop when it changes. */
+interface AxisConfig {
+  on: boolean;
+  /** The `UiScrollTarget.id` these limits belong to. */
+  target: number;
+  start: number;
+  size: number;
+  zone: number;
+  max: number;
+  reduced: boolean;
+}
+
+const AXIS_OFF: AxisConfig = { on: false, target: -1, start: 0, size: 0, zone: 0, max: 0, reduced: false };
+
+interface UiTargets {
+  x: UiScrollTarget | null;
+  y: UiScrollTarget | null;
+}
+
+const NO_UI_TARGETS: UiTargets = { x: null, y: null };
+
 const HIDDEN_OUTLINE: Outline = { visible: false, allowed: true, x: 0, follow: false, y: 0, width: 0, height: 0 };
 
 type Placement = DragPlacement;
@@ -98,7 +130,22 @@ interface EngineStore {
   hoverHeight: SharedValue<number>;
   hoverOpacity: SharedValue<number>;
   hoverReady: SharedValue<boolean>;
+  /** The pan moves the lifted copy. Set with `grab`, so a stale grab from the last drag is never used. */
+  tracking: SharedValue<boolean>;
   outline: SharedValue<Outline>;
+  /** Pointer in board coordinates, written by the pan on the UI thread. */
+  pointerX: SharedValue<number>;
+  pointerY: SharedValue<number>;
+  /** Auto-scroll may run: the finger has moved since the pick-up. */
+  armed: SharedValue<boolean>;
+  autoX: SharedValue<AxisConfig>;
+  autoY: SharedValue<AxisConfig>;
+  /** Bumped by the UI thread each time it scrolls, so JS knows content moved. */
+  uiScrollTick: SharedValue<number>;
+  /** A finger went down on a drag handle. The board's pan starts a handle drag only then. */
+  handleDown: SharedValue<boolean>;
+  /** Where the current touch went down, in window coordinates. A handle drag starts from here. */
+  touchStart: SharedValue<Point>;
   cells: Map<string, CellGeometry>;
   scrollers: { horizontal: ScrollerHandle | null; vertical: ScrollerHandle | null };
   placement: { current: Placement | null };
@@ -106,6 +153,9 @@ interface EngineStore {
 }
 
 const EngineContext = createContext<EngineStore | null>(null);
+
+/** True while drags start from handles. */
+const HandleContext = createContext(false);
 
 function useEngine(): EngineStore {
   const store = use(EngineContext);
@@ -124,7 +174,16 @@ function DragProvider({ children }: { children: ReactNode }) {
   const hoverHeight = useSharedValue(0);
   const hoverOpacity = useSharedValue(1);
   const hoverReady = useSharedValue(false);
+  const tracking = useSharedValue(false);
   const outline = useSharedValue<Outline>(HIDDEN_OUTLINE);
+  const pointerX = useSharedValue(0);
+  const pointerY = useSharedValue(0);
+  const armed = useSharedValue(false);
+  const autoX = useSharedValue<AxisConfig>(AXIS_OFF);
+  const autoY = useSharedValue<AxisConfig>(AXIS_OFF);
+  const uiScrollTick = useSharedValue(0);
+  const handleDown = useSharedValue(false);
+  const touchStart = useSharedValue<Point>({ x: 0, y: 0 });
   const [store] = useState<EngineStore>(() => ({
     activeId,
     phase,
@@ -136,7 +195,16 @@ function DragProvider({ children }: { children: ReactNode }) {
     hoverHeight,
     hoverOpacity,
     hoverReady,
+    tracking,
     outline,
+    pointerX,
+    pointerY,
+    armed,
+    autoX,
+    autoY,
+    uiScrollTick,
+    handleDown,
+    touchStart,
     cells: new Map(),
     scrollers: { horizontal: null, vertical: null },
     placement: { current: null },
@@ -268,6 +336,8 @@ interface ActiveDrag {
   sourceIndex: number;
   height: number;
   start: Point;
+  /** Where the card was when it was picked up, for a release before the placeholder shows. */
+  home: Rect;
   pointer: Point;
   lastTime: number;
   dwellX: number;
@@ -277,6 +347,8 @@ interface ActiveDrag {
   armed: boolean;
   /** When auto-scroll last moved content, in rAF time. */
   lastScrollAt: number;
+  /** Last `uiScrollTick` seen, to notice UI-thread scrolling. */
+  uiTick: number;
   /** Last cell under the pointer: past its end (over a footer, a tab bar) it keeps scrolling. */
   lastCellId: string | null;
   /** Slot seen last frame, waiting to be confirmed. */
@@ -302,38 +374,81 @@ function DragBoard(props: DragBoardProps) {
   propsRef.current = props;
   const boardRef = useAnimatedRef<Animated.View>();
   const [hoverItemId, setHoverItemId] = useState<string | null>(null);
+  // Bumped by every drag, so the copy remounts and its first layout always means "drawn".
+  const [dragKey, setDragKey] = useState(0);
   const drag = useRef<ActiveDrag | null>(null);
   const frameRef = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const { activeId, phase, origin, grab, hoverX, hoverY, hoverWidth, hoverHeight, hoverOpacity, hoverReady, outline } =
-    store;
+  const {
+    activeId,
+    phase,
+    origin,
+    grab,
+    hoverX,
+    hoverY,
+    hoverWidth,
+    hoverHeight,
+    hoverOpacity,
+    hoverReady,
+    tracking,
+    outline,
+    armed,
+    autoX,
+    autoY,
+    uiScrollTick,
+  } = store;
+  const [uiTargets, setUiTargets] = useState<UiTargets>(NO_UI_TARGETS);
+  const uiTargetsRef = useRef<UiTargets>(NO_UI_TARGETS);
+  /** Hands an axis to the UI thread (a target) or takes it back (null). */
+  const setUiTarget = useCallback((axis: 'x' | 'y', target: UiScrollTarget | null) => {
+    if (uiTargetsRef.current[axis] === target) return;
+    uiTargetsRef.current = { ...uiTargetsRef.current, [axis]: target };
+    setUiTargets(uiTargetsRef.current);
+  }, []);
+  const stopUiScroll = useCallback(() => {
+    armed.value = false;
+    autoX.value = AXIS_OFF;
+    autoY.value = AXIS_OFF;
+    if (uiTargetsRef.current === NO_UI_TARGETS) return;
+    uiTargetsRef.current = NO_UI_TARGETS;
+    setUiTargets(NO_UI_TARGETS);
+  }, [armed, autoX, autoY]);
 
   const later = useCallback((ms: number, run: () => void) => {
     timers.current.push(setTimeout(run, ms));
   }, []);
 
-  /** Reveals the real card under the lifted copy, after lists rendered it, and ends the drag. */
+  /**
+   * Ends the drag. The real card is shown first, under the copy that still
+   * covers its spot, and the copy goes two frames later. A list that draws the
+   * card a frame late then shows the copy for that frame, never an empty slot.
+   */
   const reveal = useCallback(() => {
     setPlacement(store, null, false);
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        activeId.value = '';
+    const nextFrames = (frames: number, run: () => void) => {
+      if (frames <= 0) run();
+      else requestAnimationFrame(() => nextFrames(frames - 1, run));
+    };
+    nextFrames(2, () => {
+      activeId.value = '';
+      outline.value = HIDDEN_OUTLINE;
+      nextFrames(2, () => {
         phase.value = PHASE_IDLE;
         hoverReady.value = false;
+        tracking.value = false;
         hoverOpacity.value = 1;
-        outline.value = HIDDEN_OUTLINE;
         drag.current = null;
         setHoverItemId(null);
-      }),
-    );
-  }, [activeId, hoverOpacity, hoverReady, outline, phase, store]);
+      });
+    });
+  }, [activeId, hoverOpacity, hoverReady, outline, phase, store, tracking]);
 
   /** Flies the lifted copy to `to` (or fades it when there is nowhere to go), then reveals. */
   const settle = useCallback(
     (to: Rect | null) => {
       phase.value = PHASE_SETTLING;
       outline.value = HIDDEN_OUTLINE;
-      const duration = propsRef.current.reducedMotion ? 0 : SETTLE_MS;
+      const duration = propsRef.current.reducedMotion ? 0 : (propsRef.current.lift?.dropMs ?? DEFAULT_LIFT.dropMs);
       const timing = { duration, easing: Easing.out(Easing.cubic) };
       if (to) {
         hoverX.value = withTiming(to.x, timing);
@@ -377,11 +492,17 @@ function DragBoard(props: DragBoardProps) {
         // Store content x so the overlay can subtract the live UI-thread offset.
         const horizontal = store.scrollers.horizontal;
         const follow = horizontal != null && propsRef.current.horizontalOffset != null;
+        // A tall swimlane cell can reach past its list: keep the outline inside what the list shows.
+        const viewport = geometry.scroller?.getViewport();
+        const top = viewport ? Math.max(rect.y, viewport.start) : rect.y;
+        const bottom = viewport ? Math.min(rect.y + rect.height, viewport.start + viewport.size) : rect.y + rect.height;
         outline.value = {
-          visible: true,
+          visible: bottom > top,
           allowed,
           ...rect,
           x: follow ? rect.x + horizontal.getOffset() : rect.x,
+          y: top,
+          height: Math.max(0, bottom - top),
           follow,
         };
       }
@@ -444,11 +565,54 @@ function DragBoard(props: DragBoardProps) {
         const travelled = Math.hypot(active.pointer.x - active.start.x, active.pointer.y - active.start.y);
         if (travelled < MENU_SLOP) return;
         active.armed = true;
+        armed.value = true;
+      }
+      // Content the UI thread scrolled since the last frame counts as auto-scroll, like our own.
+      const tick = uiScrollTick.value;
+      if (tick !== active.uiTick) {
+        active.uiTick = tick;
+        active.scrolled = true;
+        active.lastScrollAt = active.lastTime;
       }
       const { reducedMotion = false, compact = true } = propsRef.current;
-      const run = (scroller: ScrollerHandle, pointer: number, dwell: number): number => {
-        const viewport = scroller.getViewport();
-        if (!viewport) return 0;
+      const run = (axis: 'x' | 'y', scroller: ScrollerHandle | null, pointer: number, dwell: number): number => {
+        const viewport = scroller?.getViewport();
+        const config = axis === 'x' ? autoX : autoY;
+        // One synchronous read per axis and frame: each read crosses to the UI runtime.
+        const current = config.value;
+        if (!scroller || !viewport) {
+          setUiTarget(axis, null);
+          if (current.on) config.value = AXIS_OFF;
+          return 0;
+        }
+        const mode = scroller.mode ?? 'continuous';
+        if (scroller.ui && mode === 'continuous') {
+          // The UI thread scrolls this one every frame; JS only keeps its limits current.
+          const next: AxisConfig = {
+            on: true,
+            target: scroller.ui.id,
+            start: viewport.start,
+            size: viewport.size,
+            zone: edgeZone(viewport.size, compact),
+            max: scroller.getMaxOffset(),
+            reduced: reducedMotion,
+          };
+          if (
+            !current.on ||
+            current.target !== next.target ||
+            current.start !== next.start ||
+            current.size !== next.size ||
+            current.zone !== next.zone ||
+            Math.abs(current.max - next.max) >= 0.5 ||
+            current.reduced !== next.reduced
+          ) {
+            config.value = next;
+          }
+          setUiTarget(axis, scroller.ui);
+          return 0;
+        }
+        setUiTarget(axis, null);
+        if (current.on) config.value = AXIS_OFF;
         const offset = scroller.getOffset();
         const step = stepAutoScroll({
           pointer,
@@ -459,7 +623,7 @@ function DragBoard(props: DragBoardProps) {
           maxOffset: scroller.getMaxOffset(),
           dwellMs: dwell,
           dtMs: dt,
-          mode: scroller.mode ?? 'continuous',
+          mode,
           pageSize: scroller.getPageSize?.() ?? viewport.size,
           reducedMotion,
         });
@@ -470,14 +634,13 @@ function DragBoard(props: DragBoardProps) {
         }
         return step.dwellMs;
       };
-      const horizontal = store.scrollers.horizontal;
-      active.dwellX = horizontal ? run(horizontal, active.pointer.x, active.dwellX) : 0;
+      active.dwellX = run('x', store.scrollers.horizontal, active.pointer.x, active.dwellX);
       const hit = findCell(store.cells, active.pointer.x, active.pointer.y);
       if (hit) active.lastCellId = hit[0];
       const vertical = hit?.[1].scroller ?? outerScroller(active) ?? store.scrollers.vertical;
-      active.dwellY = vertical ? run(vertical, active.pointer.y, active.dwellY) : 0;
+      active.dwellY = run('y', vertical, active.pointer.y, active.dwellY);
     },
-    [outerScroller, store],
+    [armed, autoX, autoY, outerScroller, setUiTarget, store, uiScrollTick],
   );
 
   const loop = useCallback(
@@ -508,6 +671,7 @@ function DragBoard(props: DragBoardProps) {
         sourceIndex: card.index,
         height: card.rect.height,
         start: { x, y },
+        home: card.rect,
         pointer: { x, y },
         lastTime: 0,
         dwellX: 0,
@@ -515,6 +679,7 @@ function DragBoard(props: DragBoardProps) {
         scrolled: false,
         armed: false,
         lastScrollAt: -Infinity,
+        uiTick: uiScrollTick.value,
         lastCellId: hit[0],
         candidate: null,
         candidateFrames: 0,
@@ -528,33 +693,52 @@ function DragBoard(props: DragBoardProps) {
       hoverX.value = card.rect.x;
       hoverY.value = card.rect.y;
       hoverOpacity.value = 1;
-      activeId.value = card.itemId;
+      tracking.value = true;
+      // The real card stays visible until the lifted copy is drawn over it (onHoverLaidOut).
+      setDragKey((key) => key + 1);
       setHoverItemId(card.itemId);
       current.onDragStart?.({ itemId: card.itemId, cellId: hit[0] });
     },
-    [activeId, grab, hoverHeight, hoverOpacity, hoverWidth, hoverX, hoverY, phase, store],
+    [grab, hoverHeight, hoverOpacity, hoverWidth, hoverX, hoverY, phase, store, tracking, uiScrollTick],
   );
 
-  /** The lifted copy is on screen: swap the card for a placeholder underneath it and start tracking. */
-  const onHoverMounted = useCallback(() => {
+  /** Swaps the card for a placeholder of its height and starts the per-frame loop. */
+  const showPlaceholder = useCallback(
+    (active: ActiveDrag) => {
+      setPlacement(
+        store,
+        {
+          itemId: active.itemId,
+          sourceCellId: active.sourceCellId,
+          sourceIndex: active.sourceIndex,
+          height: active.height,
+          cellId: active.sourceCellId,
+          index: active.sourceIndex,
+        },
+        false,
+      );
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = requestAnimationFrame(loop);
+    },
+    [loop, store],
+  );
+
+  /**
+   * The lifted copy has laid out. Show it and hide the real card in the same
+   * UI frame, then swap the card for a placeholder once the copy covers it.
+   * Swapping any earlier leaves an empty gap on screen for a frame or two.
+   */
+  const onHoverLaidOut = useCallback(() => {
     const active = drag.current;
-    if (!active) return;
+    if (!active || hoverReady.value || phase.value !== PHASE_DRAGGING) return;
+    activeId.value = active.itemId;
     hoverReady.value = true;
-    setPlacement(
-      store,
-      {
-        itemId: active.itemId,
-        sourceCellId: active.sourceCellId,
-        sourceIndex: active.sourceIndex,
-        height: active.height,
-        cellId: active.sourceCellId,
-        index: active.sourceIndex,
-      },
-      false,
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (drag.current === active && phase.value === PHASE_DRAGGING) showPlaceholder(active);
+      }),
     );
-    cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(loop);
-  }, [hoverReady, loop, store]);
+  }, [activeId, hoverReady, phase, showPlaceholder]);
 
   const move = useCallback((x: number, y: number) => {
     const active = drag.current;
@@ -564,6 +748,7 @@ function DragBoard(props: DragBoardProps) {
   const end = useCallback(
     (cancelled: boolean) => {
       cancelAnimationFrame(frameRef.current);
+      stopUiScroll();
       const active = drag.current;
       if (!active) {
         phase.value = PHASE_IDLE;
@@ -571,14 +756,15 @@ function DragBoard(props: DragBoardProps) {
       }
       const current = propsRef.current;
       const placement = store.placement.current;
-      if (!placement) {
-        // Released before the lifted copy appeared: nothing moved.
-        settle(null);
-        current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
-        return;
-      }
       const travelled = Math.hypot(active.pointer.x - active.start.x, active.pointer.y - active.start.y);
       const menu = !cancelled && travelled < MENU_SLOP && !active.scrolled;
+      if (!placement) {
+        // Released before the placeholder appeared: nothing moved, so the copy settles onto the card.
+        settle(active.home);
+        current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
+        if (menu) current.onLongPressMenu?.({ itemId: active.itemId, cellId: active.sourceCellId });
+        return;
+      }
       const atHome = placement.cellId === active.sourceCellId && placement.index === active.sourceIndex;
       const released = findCell(store.cells, active.pointer.x, active.pointer.y);
       // Released outside every cell that takes the card: the move is cancelled.
@@ -622,7 +808,7 @@ function DragBoard(props: DragBoardProps) {
       current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
       if (menu) current.onLongPressMenu?.({ itemId: active.itemId, cellId: active.sourceCellId });
     },
-    [allowedIn, phase, placeholderRect, settle, store],
+    [allowedIn, phase, placeholderRect, settle, stopUiScroll, store],
   );
 
   // App data changed mid-drag: if the lifted card is gone or now lives elsewhere, drop the drag.
@@ -632,10 +818,11 @@ function DragBoard(props: DragBoardProps) {
     if (!active || !isDragValid || phase.value !== PHASE_DRAGGING) return;
     if (isDragValid(active.itemId, active.sourceCellId)) return;
     cancelAnimationFrame(frameRef.current);
+    stopUiScroll();
     setPlacement(store, null, false);
     settle(null);
     propsRef.current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
-  }, [isDragValid, phase, revision, settle, store]);
+  }, [isDragValid, phase, revision, settle, stopUiScroll, store]);
 
   useEffect(
     () => () => {
@@ -645,58 +832,228 @@ function DragBoard(props: DragBoardProps) {
     [],
   );
 
-  const { longPressDelay = 200, enabled = true, dragPosition } = props;
-  const gesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .enabled(enabled)
-        .activateAfterLongPress(longPressDelay)
-        .maxPointers(1)
-        .shouldCancelWhenOutside(false)
-        .onStart((event) => {
-          'worklet';
-          if (phase.value !== PHASE_IDLE) return;
-          const frame = measure(boardRef);
-          if (!frame) return;
-          origin.value = { x: frame.pageX, y: frame.pageY };
-          phase.value = PHASE_DRAGGING;
-          scheduleOnRN(begin, event.absoluteX - frame.pageX, event.absoluteY - frame.pageY);
-        })
-        .onUpdate((event) => {
-          'worklet';
-          if (phase.value !== PHASE_DRAGGING) return;
-          const x = event.absoluteX - origin.value.x;
-          const y = event.absoluteY - origin.value.y;
-          if (dragPosition) dragPosition.value = { x, y };
-          if (activeId.value !== '') {
-            hoverX.value = x - grab.value.x;
-            hoverY.value = y - grab.value.y;
-          }
-          scheduleOnRN(move, x, y);
-        })
-        .onFinalize((_event, success) => {
-          'worklet';
-          if (phase.value !== PHASE_DRAGGING) return;
-          scheduleOnRN(end, !success);
-        }),
-    [activeId, begin, boardRef, dragPosition, enabled, end, grab, hoverX, hoverY, longPressDelay, move, origin, phase],
-  );
+  const { pointerX, pointerY, handleDown, touchStart } = store;
+  const { longPressDelay = 200, enabled = true, handleOnly = false, dragPosition } = props;
+  /**
+   * The board owns every drag, in both modes, so a drag survives its card being
+   * swapped for the placeholder. Long-press mode waits for the press. Handle
+   * mode activates on the first movement, only when the touch started on a
+   * handle, and starts from where the finger went down.
+   */
+  const gesture = useMemo(() => {
+    const pan = Gesture.Pan().enabled(enabled).maxPointers(1).shouldCancelWhenOutside(false);
+    const activation = handleOnly
+      ? pan
+          .manualActivation(true)
+          .onTouchesDown((event) => {
+            'worklet';
+            const touch = event.allTouches[0];
+            if (touch) touchStart.value = { x: touch.absoluteX, y: touch.absoluteY };
+          })
+          .onTouchesMove((event, manager) => {
+            'worklet';
+            if (!handleDown.value) {
+              manager.fail();
+              return;
+            }
+            const touch = event.allTouches[0];
+            if (!touch) return;
+            const moved = Math.hypot(touch.absoluteX - touchStart.value.x, touch.absoluteY - touchStart.value.y);
+            if (moved >= HANDLE_SLOP) manager.activate();
+          })
+      : pan.activateAfterLongPress(longPressDelay);
+    return activation
+      .onStart((event) => {
+        'worklet';
+        if (phase.value !== PHASE_IDLE) return;
+        const frame = measure(boardRef);
+        if (!frame) return;
+        origin.value = { x: frame.pageX, y: frame.pageY };
+        phase.value = PHASE_DRAGGING;
+        // A handle drag picks the card under the finger's first touch, not where it is now.
+        const startX = handleOnly ? touchStart.value.x : event.absoluteX;
+        const startY = handleOnly ? touchStart.value.y : event.absoluteY;
+        scheduleOnRN(begin, startX - frame.pageX, startY - frame.pageY);
+      })
+      .onUpdate((event) => {
+        'worklet';
+        if (phase.value !== PHASE_DRAGGING) return;
+        const x = event.absoluteX - origin.value.x;
+        const y = event.absoluteY - origin.value.y;
+        if (dragPosition) dragPosition.value = { x, y };
+        pointerX.value = x;
+        pointerY.value = y;
+        if (tracking.value) {
+          hoverX.value = x - grab.value.x;
+          hoverY.value = y - grab.value.y;
+        }
+        scheduleOnRN(move, x, y);
+      })
+      .onFinalize((_event, success) => {
+        'worklet';
+        handleDown.value = false;
+        if (phase.value !== PHASE_DRAGGING) return;
+        // Stop UI-thread scrolling now: JS may take a few frames to run end().
+        armed.value = false;
+        scheduleOnRN(end, !success);
+      });
+  }, [
+    armed,
+    begin,
+    boardRef,
+    dragPosition,
+    enabled,
+    end,
+    grab,
+    handleDown,
+    handleOnly,
+    hoverX,
+    hoverY,
+    longPressDelay,
+    move,
+    origin,
+    phase,
+    pointerX,
+    pointerY,
+    touchStart,
+    tracking,
+  ]);
+  const handles = enabled && handleOnly;
 
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View ref={boardRef} style={styles.fill} collapsable={false}>
-        {props.children}
+        <HandleContext value={handles}>{props.children}</HandleContext>
+        <UiAutoScroll targets={uiTargets} />
         <DragOverlay
           hoverItemId={hoverItemId}
           renderHover={props.renderHover}
           colors={props.colors}
           reducedMotion={props.reducedMotion ?? false}
           horizontalOffset={props.horizontalOffset}
-          onMounted={onHoverMounted}
+          lift={props.lift ?? DEFAULT_LIFT}
+          dragKey={dragKey}
+          onLaidOut={onHoverLaidOut}
         />
       </Animated.View>
     </GestureDetector>
   );
+}
+
+/**
+ * Continuous auto-scroll on the UI thread. JS picks the scroll views under the
+ * finger and publishes their limits; this frame callback moves them every
+ * screen frame, so scrolling stays smooth while JS renders the cells coming
+ * into view. It runs only while a drag has a UI-thread target.
+ */
+function UiAutoScroll({ targets }: { targets: UiTargets }) {
+  const { phase, armed, pointerX, pointerY, autoX, autoY, uiScrollTick } = useEngine();
+  const posX = useSharedValue(Number.NaN);
+  const posY = useSharedValue(Number.NaN);
+  const dwellX = useSharedValue(0);
+  const dwellY = useSharedValue(0);
+  const writtenX = useSharedValue<number[]>([]);
+  const writtenY = useSharedValue<number[]>([]);
+  const { x: targetX, y: targetY } = targets;
+
+  const tick = useCallback(
+    (frame: FrameInfo) => {
+      'worklet';
+      if (phase.value !== PHASE_DRAGGING || !armed.value) return;
+      const dt = frame.timeSincePreviousFrame ?? 16;
+      const axes = [
+        {
+          target: targetX,
+          config: autoX.value,
+          pointer: pointerX.value,
+          pos: posX,
+          dwell: dwellX,
+          written: writtenX,
+          horizontal: true,
+        },
+        {
+          target: targetY,
+          config: autoY.value,
+          pointer: pointerY.value,
+          pos: posY,
+          dwell: dwellY,
+          written: writtenY,
+          horizontal: false,
+        },
+      ];
+      for (const axis of axes) {
+        const { target, config } = axis;
+        // Limits for another scroller: JS moved on and React has not handed us the new target yet.
+        if (!target || !config.on || config.target !== target.id) {
+          axis.dwell.value = 0;
+          continue;
+        }
+        // Integrate from where we last put it, because the offset event for that scroll may
+        // not be back yet. An offset none of our recent writes explain was moved by someone
+        // else (FlashList correcting for a row above that changed height), so follow it.
+        const written = axis.written.value;
+        const from = autoScrollOrigin(axis.pos.value, target.offset.value, written);
+        const step = stepAutoScroll({
+          pointer: axis.pointer,
+          frameStart: config.start,
+          frameSize: config.size,
+          edgeZone: config.zone,
+          offset: from,
+          maxOffset: config.max,
+          dwellMs: axis.dwell.value,
+          dtMs: dt,
+          mode: 'continuous',
+          pageSize: config.size,
+          reducedMotion: config.reduced,
+        });
+        axis.dwell.value = step.dwellMs;
+        // Sub-pixel steps wait and add up, so the position never runs ahead of the screen.
+        if (Math.abs(step.offset - from) < 0.5) {
+          axis.pos.value = from;
+          continue;
+        }
+        if (axis.horizontal) scrollTo(target.ref, step.offset, 0, false);
+        else scrollTo(target.ref, 0, step.offset, false);
+        axis.pos.value = step.offset;
+        axis.written.value = [...written.slice(1 - OFFSET_HISTORY), from, step.offset];
+        uiScrollTick.value += 1;
+      }
+    },
+    [
+      armed,
+      autoX,
+      autoY,
+      dwellX,
+      dwellY,
+      phase,
+      pointerX,
+      pointerY,
+      posX,
+      posY,
+      targetX,
+      targetY,
+      uiScrollTick,
+      writtenX,
+      writtenY,
+    ],
+  );
+  const callback = useFrameCallback(tick, false);
+
+  // A new target starts from its own offset, with no dwell or history carried over.
+  useEffect(() => {
+    posX.value = Number.NaN;
+    dwellX.value = 0;
+    writtenX.value = [];
+  }, [dwellX, posX, targetX, writtenX]);
+  useEffect(() => {
+    posY.value = Number.NaN;
+    dwellY.value = 0;
+    writtenY.value = [];
+  }, [dwellY, posY, targetY, writtenY]);
+  useEffect(() => {
+    callback.setActive(targetX !== null || targetY !== null);
+  }, [callback, targetX, targetY]);
+  return null;
 }
 
 function DragOverlay({
@@ -705,31 +1062,42 @@ function DragOverlay({
   colors,
   reducedMotion,
   horizontalOffset,
-  onMounted,
+  lift,
+  dragKey,
+  onLaidOut,
 }: {
   hoverItemId: string | null;
+  dragKey: number;
   renderHover: DragBoardProps['renderHover'];
   colors: DragBoardProps['colors'];
   reducedMotion: boolean;
   horizontalOffset: DragBoardProps['horizontalOffset'];
-  onMounted: () => void;
+  lift: LiftStyle;
+  onLaidOut: () => void;
 }) {
-  const { hoverX, hoverY, hoverWidth, hoverHeight, hoverOpacity, hoverReady, activeId, phase, outline } = useEngine();
-
-  useLayoutEffect(() => {
-    if (hoverItemId != null) onMounted();
-  }, [hoverItemId, onMounted]);
+  const { hoverX, hoverY, hoverWidth, hoverHeight, hoverOpacity, hoverReady, phase, outline } = useEngine();
+  const { scale, tilt } = lift;
+  // 0 at rest, 1 lifted. Scale and tilt are read from it, so both stay plain numbers in the style.
+  const liftProgress = useSharedValue(0);
+  useAnimatedReaction(
+    () => phase.value === PHASE_DRAGGING && !reducedMotion,
+    (lifted, previous) => {
+      if (lifted !== previous) liftProgress.value = withTiming(lifted ? 1 : 0, { duration: 140 });
+    },
+    [reducedMotion],
+  );
 
   const hoverStyle = useAnimatedStyle(() => {
-    const lifted = phase.value === PHASE_DRAGGING;
+    const progress = liftProgress.value;
     return {
       width: hoverWidth.value,
       height: hoverHeight.value,
-      opacity: activeId.value !== '' && hoverReady.value ? hoverOpacity.value : 0,
+      opacity: hoverReady.value ? hoverOpacity.value : 0,
       transform: [
         { translateX: hoverX.value },
         { translateY: hoverY.value },
-        { scale: withTiming(lifted && !reducedMotion ? LIFT_SCALE : 1, { duration: 140 }) },
+        { scale: 1 + (scale - 1) * progress },
+        { rotate: `${tilt * progress}deg` },
       ],
     };
   });
@@ -751,10 +1119,47 @@ function DragOverlay({
   return (
     <View pointerEvents="none" style={styles.overlay}>
       <Animated.View style={[styles.outline, outlineStyle]} />
-      <Animated.View style={[styles.hover, hoverStyle]}>
-        {hoverItemId != null ? renderHover(hoverItemId) : null}
+      <Animated.View style={[styles.hover, { shadowOpacity: lift.shadowOpacity }, hoverStyle]}>
+        {hoverItemId != null ? (
+          // Keyed per drag, so every drag mounts a fresh view and its first layout means "drawn".
+          <View key={dragKey} onLayout={onLaidOut}>
+            {renderHover(hoverItemId)}
+          </View>
+        ) : null}
       </Animated.View>
     </View>
+  );
+}
+
+/**
+ * Marks a touch as starting on a handle; the board's pan then starts the
+ * drag. The handle never owns the drag itself, because its card is swapped
+ * for a placeholder as soon as the drag begins. Outside handle mode it only
+ * draws its children.
+ */
+function DragHandle({ children, style, hitSlop }: DragHandleProps) {
+  const handles = use(HandleContext);
+  const { handleDown } = useEngine();
+  const gesture = useMemo(() => {
+    if (!handles) return null;
+    const touch = Gesture.Manual()
+      .onTouchesDown(() => {
+        'worklet';
+        handleDown.value = true;
+      })
+      .onTouchesUp(() => {
+        'worklet';
+        handleDown.value = false;
+      });
+    return hitSlop === undefined ? touch : touch.hitSlop(hitSlop);
+  }, [handleDown, handles, hitSlop]);
+  if (!gesture) return <View style={style}>{children}</View>;
+  return (
+    <GestureDetector gesture={gesture}>
+      <View style={style} collapsable={false}>
+        {children}
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -766,7 +1171,6 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     shadowColor: '#0B1220',
-    shadowOpacity: 0.25,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 10 },
   },
@@ -798,6 +1202,7 @@ export const gestureAdapter: DragAdapter = {
   Board: DragBoard,
   Cell: DragCell,
   Card: DragCard,
+  Handle: DragHandle,
   Placeholder,
   useScroller,
   usePlacement,

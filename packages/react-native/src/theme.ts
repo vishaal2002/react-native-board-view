@@ -25,6 +25,14 @@ const comfortable: Metrics = {
   cellMinHeight: 88,
 };
 
+/** How the lifted card looks and how long a drop takes. Density does not change these. */
+const lift: Pick<BoardTheme, 'liftScale' | 'liftTilt' | 'liftShadowOpacity' | 'dropDuration'> = {
+  liftScale: 1.03,
+  liftTilt: 0,
+  liftShadowOpacity: 0.25,
+  dropDuration: 200,
+};
+
 /** Tighter spacing for dense boards. Pass `density="compact"`. */
 export const compactMetrics: Metrics = {
   radius: 10,
@@ -54,6 +62,7 @@ export const lightTheme: BoardTheme = {
   sheetBackdrop: 'rgba(9, 18, 36, 0.45)',
   sheetDivider: '#E3E6EC',
   ...comfortable,
+  ...lift,
 };
 
 export const darkTheme: BoardTheme = {
@@ -72,9 +81,29 @@ export const darkTheme: BoardTheme = {
   sheetBackdrop: 'rgba(0, 0, 0, 0.62)',
   sheetDivider: '#2A313C',
   ...comfortable,
+  ...lift,
+  // A dark board needs a stronger shadow for the lifted card to read as raised.
+  liftShadowOpacity: 0.55,
 };
 
 const where = (column: string, lane: string | null) => (lane ? `${column}, lane ${lane}` : column);
+
+/**
+ * The theme `Board` actually uses. Compact spacing is applied after the
+ * palette, and a partial `theme` override wins last, so density never
+ * resets lift tokens and callers can still replace them.
+ */
+export function resolveTheme(
+  dark: boolean,
+  density: 'comfortable' | 'compact' | undefined,
+  override?: Partial<BoardTheme>,
+): BoardTheme {
+  return {
+    ...(dark ? darkTheme : lightTheme),
+    ...(density === 'compact' ? compactMetrics : null),
+    ...override,
+  };
+}
 
 export const defaultLabels: BoardLabels = {
   noValue: 'No value',

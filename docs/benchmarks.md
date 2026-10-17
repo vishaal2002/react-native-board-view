@@ -44,7 +44,7 @@ The engine itself was instrumented with timers for this run; the timers were rem
 
 - **Drag logic is not the bottleneck.** During auto-scroll, frame rate follows FlashList rendering the cells that scroll into view. A finger scroll with no drag lands in the same range on this emulator: JS 29.
 - **Hover card.** It follows the finger on the UI thread, so it keeps tracking while the JS thread renders cells.
-- **UI-thread drop during auto-scroll.** UI falls to the JS rate because auto-scroll issues `scrollToOffset` from the JS loop. A known follow-up is to drive auto-scroll from the UI thread with Reanimated `scrollTo`. That would decouple scroll smoothness from JS load; cell rendering would still lag behind on slow JS.
+- **UI-thread drop during auto-scroll.** UI falls to the JS rate because auto-scroll issues `scrollToOffset` from the JS loop. 0.5.0 drives continuous scrollers from the UI thread. That run is the 2026-10-15 section. Cell rendering can still limit the JS rate.
 - **The emulator is not a phone.** These numbers say nothing about real low-end devices.
 
 ### Fixed during this run
@@ -54,13 +54,55 @@ The engine itself was instrumented with timers for this run; the timers were rem
 
 A later debug session on the same emulator (2026-10-10) checked Show more, read-only mode, paging, and a long-press reorder. It was not a release build, so it added no frame-rate numbers.
 
+## 2026-10-15: same Pixel 9 Pro AVD, release build, 0.5.0
+
+Host: Apple Silicon Mac, drawing from battery (37% and discharging at the swimlane run). Display 1280×2856 at 60 Hz. Touches came from `adb emu event mouse`.
+
+`dumpsys gfxinfo` was reset, then read after the interval. "Total frames rendered" is what the app drew in that window.
+
+### Column list, 500 cards, card held at the bottom edge for 4 s
+
+This pair was measured earlier the same day. The JS-driven build is the 0.4.0 path (scroll commands from the JS loop). It was not reinstalled after the UI-thread build replaced it.
+
+| Build                   | Frames drawn | About  | Janky frames |
+| ----------------------- | ------------ | ------ | ------------ |
+| JS-driven, as in 0.4.0  | 170          | 42 fps | 42–45%       |
+| UI thread, this release | 245          | 61 fps | 0.4%         |
+
+During auto-scroll the FPS meter read JS 29–31 and UI 60 on both builds. JS stays there because FlashList is rendering cells. The hover card and, in 0.5.0, the scroll offset do not wait for that.
+
+### Swimlanes, 20 lanes × 6 columns (1,200 cards)
+
+The Scale screen's "20 lanes × 6" board. Lane-list auto-scroll is the UI-thread path.
+
+| Scenario                                   | What was drawn                                                              |
+| ------------------------------------------ | --------------------------------------------------------------------------- |
+| Idle, board still                          | 4 frames in about 4 s. The screen was not animating, so this is not a rate. |
+| Card lifted and held still for 4.0 s       | 2 frames, both marked janky. The overlay is still once the lift tween ends. |
+| Drag with lane-list auto-scroll for 4.01 s | 225 frames (about 56 fps). Janky frames: 17 (7.56%).                        |
+
+The meter just after that drag read JS 31 / UI 60, lowest 500 ms window 29 / 58. The drag moved the placeholder 35 times in 4.5 s. An idle reading of JS 17 / UI 17 taken during that battery run was the host, not the board. On 2026-10-17, on mains power, the settled 20 × 6 board read JS 60 / UI 60.
+
+## 2026-10-17: re-run after the 0.5.0 fixes
+
+Same AVD and release build method, host on mains power. Each row is `dumpsys gfxinfo` over 4 s with the card held at the edge.
+
+| Scenario                                  | Frames drawn | Janky frames |
+| ----------------------------------------- | ------------ | ------------ |
+| 4 × 500, column auto-scroll (two runs)    | 246 and 245  | 0%           |
+| 4 × 500, stacked list auto-scroll         | 246          | 0%           |
+| 20 lanes × 6, lane auto-scroll (two runs) | 228 and 227  | 8.3%, 7.9%   |
+| Auto-scroll screen, `multi`, sideways     | 201          | 7.0%         |
+| Auto-scroll screen, `fit`, sideways       | 106          | 12.3%        |
+
+The `fit` row draws fewer frames because the board reached column 12 and stopped partway through the 4 s. Every drop above landed at the index shown. Frame-by-frame captures of a lift and a drop showed no empty slot.
+
 ## Still to measure (release gates)
 
-| Device                                        | Build   | Workload                        |
-| --------------------------------------------- | ------- | ------------------------------- |
-| Low-end Android (Galaxy A14 / Pixel 4a class) | Release | The six scenarios above         |
-| iPhone 12 class                               | Release | The six scenarios above         |
-| Any                                           | Release | Swimlanes, 20 lanes × 6 columns |
+| Device                                        | Build   | Workload                |
+| --------------------------------------------- | ------- | ----------------------- |
+| Low-end Android (Galaxy A14 / Pixel 4a class) | Release | The six scenarios above |
+| iPhone 12 class                               | Release | The six scenarios above |
 
 ## Gesture Handler 3 check, 2026-10-10
 

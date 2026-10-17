@@ -2,6 +2,30 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
+## 0.5.0
+
+`react-native-board-view` only. `board-view-core` stays 0.1.0.
+
+- **Drag handles.** `moveModes.drag` accepts `'handle'`. Long-press no longer starts a drag. A touch that starts on a `<DragHandle>` in the card starts the drag as soon as the finger moves, so the rest of the card keeps its taps and scrolling. The long-press Move sheet stays off in this mode. The "…" button and screen-reader actions stay.
+- **`DragHandle`.** Exported. It draws a six-dot grip by default and is hidden from screen readers, because the card already has move actions.
+- **`CardView` `leading`.** A slot before the title, for the handle or anything else you draw there.
+- **Lift and drop tokens.** `liftScale` (1.03), `liftTilt` (0 degrees), `liftShadowOpacity` (0.25 in light, 0.55 in dark) and `dropDuration` (200 ms). `density="compact"` does not reset them. Reduced motion turns the scale and the tilt off. `liftShadowOpacity` is an iOS shadow on top of the card's own. Android ignores it.
+- **UI-thread auto-scroll.** Column lists, swimlane lanes, the stacked list, and sideways scrolling in `multi` and `fit` move on the UI thread while a card is held at the edge. Paged boards still flip one page per dwell from JS. The method and the numbers are in [docs/benchmarks.md](docs/benchmarks.md).
+- **Swimlane benchmark.** The Scale screen can show 20 lanes × 6 columns (1,200 cards). That run is in the benchmarks doc.
+
+### Fixed
+
+- Lifting a card no longer flashes an empty gap. The real card stays until the lifted copy has been drawn over it, and the placeholder appears two frames later. Releasing before that lands the copy on the card's original rect, and a quick long-press still opens the Move sheet.
+- Dropping a card no longer flashes an empty slot. The card is shown under the lifted copy first, and the copy goes two frames later.
+- In swimlanes, the drop outline of a tall cell no longer draws past the lane list onto your header.
+- Auto-scroll stops in the frame you release, not a few frames later.
+
+### Breaking
+
+- `BoardTheme` has four new required fields: `liftScale`, `liftTilt`, `liftShadowOpacity` and `dropDuration`. Code that builds a whole theme object must add them. `theme` overrides are partial, so passing `theme` is unaffected.
+
+Swipe-to-move stays experimental and off by default. It does not graduate in this release. The decision, to keep it that way until the five-developer usability study at 0.7, is in [docs/decisions/0003-swipe-stays-experimental.md](docs/decisions/0003-swipe-stays-experimental.md).
+
 ## 0.4.0
 
 `react-native-board-view` only. `board-view-core` stays 0.1.0.

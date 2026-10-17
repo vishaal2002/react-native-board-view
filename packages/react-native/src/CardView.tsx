@@ -27,6 +27,8 @@ export interface CardViewProps {
   compact?: boolean;
   onPress?: () => void;
   style?: StyleProp<ViewStyle>;
+  /** Drawn before the content, after the accent bar. For example a `<DragHandle />`. */
+  leading?: ReactNode;
   children?: ReactNode;
 }
 
@@ -65,6 +67,7 @@ export const CardView = memo(function CardView({
   compact = false,
   onPress,
   style,
+  leading,
   children,
 }: CardViewProps) {
   const theme = useBoardTheme();
@@ -83,6 +86,7 @@ export const CardView = memo(function CardView({
       ]}
     >
       {accentColor ? <View style={[styles.accent, { backgroundColor: accentColor }]} /> : null}
+      {leading ? <View style={styles.leading}>{leading}</View> : null}
       {compact ? (
         <View style={styles.compactContent}>
           <Text style={[styles.compactTitle, { color: theme.text }, fontFamily]} numberOfLines={3}>
@@ -155,6 +159,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   accent: { width: 4 },
+  leading: { justifyContent: 'center', paddingLeft: 4 },
   content: { flex: 1, paddingHorizontal: 12, paddingVertical: 11, gap: 6 },
   title: { fontSize: 15, fontWeight: '600', lineHeight: 20, paddingRight: 22 },
   compactContent: { flex: 1, paddingHorizontal: 8, paddingVertical: 8, gap: 6 },

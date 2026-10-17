@@ -12,10 +12,10 @@ import { PagerDots, PagerTabs } from './layout/Pager';
 import { StackedLayout } from './layout/StackedLayout';
 import { SwimlaneLayout } from './layout/SwimlaneLayout';
 import { MoveSheet } from './sheet/MoveSheet';
-import { compactMetrics, darkTheme, defaultLabels, lightTheme } from './theme';
+import { defaultLabels, resolveTheme } from './theme';
 import { moveTargetOf, useBoardController } from './useBoardController';
 import { useReducedMotion } from './useReducedMotion';
-import type { BoardLabels, BoardProps, BoardTheme } from './types';
+import type { BoardLabels, BoardProps } from './types';
 
 const NO_IDS: readonly string[] = [];
 /** How long a `scrollToItem` highlight stays, long enough for the scroll to land and the flash to fade. */
@@ -50,14 +50,7 @@ export function Board<T>(props: BoardProps<T>) {
   const scheme = useColorScheme();
   const appearance = props.appearance ?? 'auto';
   const dark = appearance === 'dark' || (appearance === 'auto' && scheme === 'dark');
-  const theme = useMemo<BoardTheme>(
-    () => ({
-      ...(dark ? darkTheme : lightTheme),
-      ...(props.density === 'compact' ? compactMetrics : null),
-      ...props.theme,
-    }),
-    [dark, props.density, props.theme],
-  );
+  const theme = useMemo(() => resolveTheme(dark, props.density, props.theme), [dark, props.density, props.theme]);
   const labels = useMemo<BoardLabels>(() => ({ ...defaultLabels, ...props.labels }), [props.labels]);
   const controller = useBoardController(props, labels);
   const reducedMotion = useReducedMotion();
@@ -250,7 +243,17 @@ export function Board<T>(props: BoardProps<T>) {
   const onLongPressMenu = useCallback(({ itemId }: { itemId: string }) => openMoveSheet(itemId), [openMoveSheet]);
   const renderHover = useCallback((itemId: string) => <HoverCard itemId={itemId} />, []);
   const colors = useMemo(() => ({ outline: theme.accent, reject: theme.reject }), [theme]);
+  const lift = useMemo(
+    () => ({
+      scale: theme.liftScale,
+      tilt: theme.liftTilt,
+      shadowOpacity: theme.liftShadowOpacity,
+      dropMs: theme.dropDuration,
+    }),
+    [theme.dropDuration, theme.liftScale, theme.liftShadowOpacity, theme.liftTilt],
+  );
 
+  const handleOnly = props.moveModes?.drag === 'handle';
   const DragProvider = gestureAdapter.Provider;
   const DragBoard = gestureAdapter.Board;
   const ready = boardWidth > 0 && boardHeight > 0;
@@ -278,15 +281,17 @@ export function Board<T>(props: BoardProps<T>) {
                 onDragEnd={onDragEnd}
                 isDragValid={isDragValid}
                 revision={model}
-                onLongPressMenu={sheetMode !== false ? onLongPressMenu : undefined}
+                onLongPressMenu={sheetMode !== false && !handleOnly ? onLongPressMenu : undefined}
                 canDrag={canDragItem}
                 canDrop={canDropTo}
                 enabled={!readOnly && props.moveModes?.drag !== false}
                 longPressDelay={props.longPressDelay ?? 200}
+                handleOnly={handleOnly}
                 reducedMotion={reducedMotion}
                 compact={boardWidth < 600}
                 renderHover={renderHover}
                 colors={colors}
+                lift={lift}
                 horizontalOffset={mode === 'stacked' ? undefined : scrollX}
               >
                 {mode === 'stacked' ? <StackedLayout /> : props.groupBy.lanes ? <SwimlaneLayout /> : <ColumnsLayout />}

@@ -14,6 +14,7 @@ import { PLACEHOLDER_ID, type CellGeometry, type DragPlacement, type ScrollerHan
 import { BoardCard } from './BoardCard';
 import { DefaultColumnHeader, DefaultEmptyCell, DefaultLaneHeader, LoadingFooter } from './defaults';
 import { cardIndexFromRaw } from './displayed';
+import { useFlashListUiScroll } from './uiScroll';
 
 const SECTION_SPACING = 12;
 const CLOSING_PAD = 4;
@@ -254,6 +255,7 @@ export function StackedLayout() {
   const live = useRef<StackedLive>({ board, rows, ranges, top: frame.top, height: frame.height });
   live.current = { board, rows, ranges, top: frame.top, height: frame.height };
 
+  const { renderScrollComponent, target } = useFlashListUiScroll();
   const scroller = useMemo<ScrollerHandle>(
     () => ({
       axis: 'y',
@@ -264,8 +266,9 @@ export function StackedLayout() {
         scrollY.current = offset;
         listRef.current?.scrollToOffset({ offset, animated: false });
       },
+      ui: target,
     }),
-    [],
+    [target],
   );
   adapter.useScroller('vertical', autoScroll ? scroller : null);
 
@@ -331,6 +334,7 @@ export function StackedLayout() {
       {frame.height > 0 ? (
         <FlashList
           ref={listRef}
+          renderScrollComponent={renderScrollComponent}
           data={rows}
           keyExtractor={rowKey}
           getItemType={rowType}

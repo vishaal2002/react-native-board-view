@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_STEP_MS,
+  autoScrollOrigin,
   PAGE_DWELL_MS,
   edgeDirection,
   edgeZone,
@@ -116,5 +117,24 @@ describe('stepAutoScroll, paged', () => {
     const end = stepAutoScroll({ ...paged, offset: 2000, dwellMs: 5000 });
     expect(end.offset).toBe(2000);
     expect(end.flipped).toBe(false);
+  });
+});
+
+describe('autoScrollOrigin', () => {
+  it('starts from the live offset when there is no position yet', () => {
+    expect(autoScrollOrigin(Number.NaN, 340, [])).toBe(340);
+  });
+
+  it('keeps integrating while the live offset is one it wrote, even a few frames behind', () => {
+    expect(autoScrollOrigin(560, 500, [480, 500, 520, 540, 560])).toBe(560);
+  });
+
+  it('follows the list when something else moved it', () => {
+    // FlashList moved the content up by a 120-point row above the viewport.
+    expect(autoScrollOrigin(560, 400, [480, 500, 520, 540, 560])).toBe(400);
+  });
+
+  it('keeps its position before it has written anything', () => {
+    expect(autoScrollOrigin(200, 180, [])).toBe(200);
   });
 });

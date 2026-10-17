@@ -5,7 +5,12 @@ import { taskId, taskLabel } from '../ids';
 import { Screen, Segmented, TaskCard, Toggle, usePalette, type CardStyle } from '../ui';
 import { useTaskStore } from '../useTaskStore';
 
-const SWIPE_ON = { swipe: 'auto' } as const;
+const MODES = {
+  'auto-swipe': { swipe: 'auto' },
+  'auto-noswipe': {},
+  'handle-swipe': { drag: 'handle', swipe: 'auto' },
+  'handle-noswipe': { drag: 'handle' },
+} as const;
 
 const LAYOUTS = [
   { label: 'Auto', value: 'auto' },
@@ -30,6 +35,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
   const [autoScroll, setAutoScroll] = useState(true);
   const [swipe, setSwipe] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
+  const [dragFrom, setDragFrom] = useState<'auto' | 'handle'>('auto');
   const [columnId, setColumnId] = useState('backlog');
   const [loaded, setLoaded] = useState<string | null>(null);
   const store = useTaskStore(seed, kanbanGroupBy);
@@ -58,8 +64,8 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
     [setItems],
   );
   const renderCard = useCallback(
-    (info: CardRenderInfo<Task>) => <TaskCard info={info} variant={cardStyle} />,
-    [cardStyle],
+    (info: CardRenderInfo<Task>) => <TaskCard info={info} variant={cardStyle} handle={dragFrom === 'handle'} />,
+    [cardStyle, dragFrom],
   );
 
   return (
@@ -103,6 +109,15 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
             value={cardStyle}
             onChange={setCardStyle}
           />
+          <Segmented
+            label="Drag from"
+            options={[
+              { label: 'Long-press', value: 'auto' },
+              { label: 'Handle', value: 'handle' },
+            ]}
+            value={dragFrom}
+            onChange={setDragFrom}
+          />
           <Toggle label="Collapsible" value={collapsible} onChange={setCollapsible} />
           <Toggle label="Auto-scroll" value={autoScroll} onChange={setAutoScroll} />
           <Toggle label="Swipe (multi, fit)" value={swipe} onChange={setSwipe} />
@@ -128,7 +143,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
         density={density}
         collapsibleColumns={collapsible}
         autoScroll={autoScroll}
-        moveModes={swipe ? SWIPE_ON : undefined}
+        moveModes={MODES[`${dragFrom}-${swipe ? 'swipe' : 'noswipe'}`]}
         readOnly={readOnly}
         columnId={columnId}
         onColumnChange={setColumnId}

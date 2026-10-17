@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ScrollView } from 'react-native';
-import { useAnimatedScrollHandler } from 'react-native-reanimated';
+import type Animated from 'react-native-reanimated';
+import { useAnimatedRef, useAnimatedScrollHandler } from 'react-native-reanimated';
+import { useUiTargetId } from './uiScroll';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useBoard } from '../context';
 import type { ScrollerHandle } from '../engine/types';
@@ -15,7 +16,8 @@ export function useHorizontalScroller() {
   const board = useBoard();
   const { metrics, boardWidth, scrollX, page, adapter, autoScroll, rtl, reducedMotion, controller, props } = board;
   const columns = controller.model.columns;
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useAnimatedRef<Animated.ScrollView>();
+  const targetId = useUiTargetId();
   const live = useRef({ metrics, boardWidth, columns, onColumnChange: props.onColumnChange });
   live.current = { metrics, boardWidth, columns, onColumnChange: props.onColumnChange };
 
@@ -73,10 +75,13 @@ export function useHorizontalScroller() {
     [releasePending, sync],
   );
 
-  const scrollTo = useCallback((x: number, animated: boolean) => {
-    offset.current = x;
-    scrollRef.current?.scrollTo({ x, y: 0, animated });
-  }, []);
+  const scrollTo = useCallback(
+    (x: number, animated: boolean) => {
+      offset.current = x;
+      scrollRef.current?.scrollTo({ x, y: 0, animated });
+    },
+    [scrollRef],
+  );
 
   const toSlot = useCallback(
     (slot: number, animated: boolean) => {
@@ -96,8 +101,10 @@ export function useHorizontalScroller() {
       getViewport: () => ({ start: 0, size: live.current.boardWidth }),
       getPageSize: () => live.current.metrics.pageSize,
       scrollTo,
+      // Paged boards flip one page at a time from JS; free scrolling runs on the UI thread.
+      ui: metrics.mode === 'paged' ? undefined : { id: targetId, ref: scrollRef, offset: scrollX },
     };
-  }, [autoScroll, metrics.mode, metrics.scrollable, scrollTo]);
+  }, [autoScroll, metrics.mode, metrics.scrollable, scrollRef, scrollTo, scrollX, targetId]);
   adapter.useScroller('horizontal', handle);
 
   // Keep the same column in view across rotation, resize and collapsing.

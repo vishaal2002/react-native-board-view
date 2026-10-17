@@ -94,12 +94,19 @@ export function ThemeScreen({ onBack }: { onBack: () => void }) {
   const [cards, setCards] = useState<CardStyle>('rich');
   const [indicator, setIndicator] = useState<Indicator>('pill');
   const [layout, setLayout] = useState<BoardLayout>('auto');
+  const [lift, setLift] = useState<'default' | 'tilted'>('default');
   const store = useTaskStore(seed, kanbanGroupBy);
 
   const theme = useMemo<Partial<BoardTheme>>(() => {
     const colors = preset === 'default' ? {} : PRESETS[preset][palette.dark ? 'dark' : 'light'];
-    return { ...colors, radius, cardRadius: Math.max(0, radius - 4), columnWidth: width };
-  }, [palette.dark, preset, radius, width]);
+    return {
+      ...colors,
+      radius,
+      cardRadius: Math.max(0, radius - 4),
+      columnWidth: width,
+      ...(lift === 'tilted' ? { liftTilt: 3, liftScale: 1.06, dropDuration: 300 } : null),
+    };
+  }, [lift, palette.dark, preset, radius, width]);
 
   const accent = theme.accent ?? palette.accent;
   const renderDropIndicator = useMemo(() => {
@@ -167,6 +174,15 @@ export function ThemeScreen({ onBack }: { onBack: () => void }) {
             ]}
             value={width}
             onChange={setWidth}
+          />
+          <Segmented
+            label="Lift"
+            options={[
+              { label: 'Default', value: 'default' },
+              { label: 'Tilted', value: 'tilted' },
+            ]}
+            value={lift}
+            onChange={setLift}
           />
           <Segmented
             label="Layout"

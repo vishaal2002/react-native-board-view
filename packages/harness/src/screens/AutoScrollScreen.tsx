@@ -56,6 +56,7 @@ export function AutoScrollScreen({ onBack }: { onBack: () => void }) {
               { label: 'Auto', value: 'auto' },
               { label: 'Paged', value: 'paged' },
               { label: 'Multi', value: 'multi' },
+              { label: 'Fit', value: 'fit' },
             ]}
             value={layout}
             onChange={setLayout}

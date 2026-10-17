@@ -1,5 +1,7 @@
 export { Board } from './Board';
 export { CardView, useBoardTheme } from './CardView';
+export { DragHandle } from './layout/DragHandle';
+export type { DragHandleProps } from './layout/DragHandle';
 export type { CardTag, CardViewProps } from './CardView';
 export { compactMetrics, darkTheme, defaultLabels, lightTheme } from './theme';
 export type {

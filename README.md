@@ -230,13 +230,34 @@ Unknown or `null` values land in a No value column or lane. Rename it with `labe
 
 ## Ways to move a card
 
-| How             | On by default            | Turn it off or change it                                                                     |
-| --------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
-| Long-press drag | Yes                      | `moveModes={{ drag: false }}`. `longPressDelay` sets the hold, 200ms by default.             |
-| Move to… sheet  | Yes, from the "…" button | `sheet: 'manual'` keeps the sheet and leaves the button to you. `sheet: false` removes it.   |
-| Swipe sideways  | No                       | `swipe: 'auto'`, in `multi` and `fit` only. On paged phones a sideways swipe turns the page. |
-| Screen reader   | Always                   | Actions follow `canDrop`.                                                                    |
-| From your code  | Always                   | `ref.moveItem(id, { columnId })`. See [Moving cards from code](#moving-cards-from-code).     |
+| How             | On by default            | Turn it off or change it                                                                                                                     |
+| --------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Long-press drag | Yes                      | `moveModes={{ drag: false }}` turns it off. `drag: 'handle'` starts from a handle instead. `longPressDelay` sets the hold, 200ms by default. |
+| Drag handle     | No                       | `drag: 'handle'`, and render a `<DragHandle>`. See [Drag handles](#drag-handles).                                                            |
+| Move to… sheet  | Yes, from the "…" button | `sheet: 'manual'` keeps the sheet and leaves the button to you. `sheet: false` removes it. In handle mode a long-press does not open it.     |
+| Swipe sideways  | No. Experimental.        | `swipe: 'auto'`, in `multi` and `fit` only. Stays off until the usability study at 0.7. On paged phones a sideways swipe turns the page.     |
+| Screen reader   | Always                   | Actions follow `canDrop`.                                                                                                                    |
+| From your code  | Always                   | `ref.moveItem(id, { columnId })`. See [Moving cards from code](#moving-cards-from-code).                                                     |
+
+## Drag handles
+
+![New in 0.5](https://img.shields.io/badge/new%20in-0.5-2F6FEB)
+
+Long-press is the default. With `moveModes={{ drag: 'handle' }}`, a long press no longer starts a drag. A touch that starts on a `DragHandle` in the card starts it instead, as soon as the finger moves a few points, with no long press. Touching the rest of the card scrolls the list. A tap on the grip does not open the Move sheet. The "…" button and the screen-reader actions still do.
+
+```tsx
+import { Board, CardView, DragHandle } from 'react-native-board-view';
+
+<Board
+  moveModes={{ drag: 'handle' }}
+  renderCard={(info) => (
+    <CardView title={info.item.title} leading={<DragHandle />} dragging={info.dragging} pending={info.pending} />
+  )}
+  // …
+/>;
+```
+
+`DragHandle` draws a six-dot grip and is hidden from screen readers, because the card already exposes move actions. Pass children to draw your own grip. Outside handle mode the component only draws its children, and the board's long press still starts the drag.
 
 **Rules.** `canDrag(item)` locks cards. `canDrop(item, target)` refuses cells: while dragging they turn red, in the sheet they are disabled, and screen-reader actions leave them out. Your server must still enforce the same rules. WIP limits are a [recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#rules-locked-cards-allowed-transitions-wip-limits).
 
@@ -312,13 +333,15 @@ board.current?.scrollToItem(task.id, { highlight: true });
 
 ```tsx
 <Board
-  theme={{ accent: '#7C3AED', radius: 16, columnWidth: 280 }}
+  theme={{ accent: '#7C3AED', radius: 16, columnWidth: 280, liftTilt: 3, liftScale: 1.06, dropDuration: 300 }}
   labels={{ noValue: 'Unassigned', showMore: (n) => `${n} more` }}
   // …
 />
 ```
 
-`CardView` is a ready-made card. It takes `title`, `description`, `tags`, `meta`, `assignee`, `accentColor`, `pending`, `dragging`, `compact` and `onPress`. Use it, wrap it, or render your own. Headers, empty cells, footers and the drop indicator have render props too.
+`liftScale` (1.03), `liftTilt` (0 degrees), `liftShadowOpacity` (0.25 in light, 0.55 in dark) and `dropDuration` (200 ms) are how the lifted card looks and how long a drop takes. <sup>0.5</sup> Compact density does not change them. Reduced motion turns the scale and the tilt off. `liftShadowOpacity` is an iOS shadow added to your card's own. Android ignores it, so give your card an `elevation` while `dragging`, as `CardView` does.
+
+`CardView` is a ready-made card. It takes `title`, `description`, `tags`, `meta`, `assignee`, `accentColor`, `pending`, `dragging`, `compact`, `leading` and `onPress`. `leading` is the slot for a `DragHandle`. Use the card, wrap it, or render your own. Headers, empty cells, footers and the drop indicator have render props too.
 
 ## Accessibility
 
@@ -331,13 +354,18 @@ board.current?.scrollToItem(task.id, { highlight: true });
 
 ## Performance
 
-| 4 columns × 500 cards, release build, Pixel 9 Pro emulator | JS fps, median | UI fps, median |
-| ---------------------------------------------------------- | -------------- | -------------- |
-| Idle board                                                 | 60             | 60             |
-| Card lifted and held                                       | 60             | 60             |
-| Drag with vertical auto-scroll                             | 30             | 30             |
+Release build on a Pixel 9 Pro emulator (arm64, 60 Hz). The host Mac was on battery. These are not phone numbers.
 
-The drag engine costs about 0.15 ms per frame. During auto-scroll the frame rate follows FlashList rendering new cells, the same as a finger scroll. The method, the slow-card case and what is still unmeasured are in [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
+A 500-card column, card held at the bottom edge for 4 s, read with `dumpsys gfxinfo`. 0.4.0 issued each scroll from JS. 0.5.0 scrolls that list on the UI thread. The FPS meter read JS 29–31 and UI 60 on both; JS is FlashList rendering cells.
+
+| Build                  | Frames drawn | About  | Janky  |
+| ---------------------- | ------------ | ------ | ------ |
+| JS-driven, as in 0.4.0 | 170          | 42 fps | 42–45% |
+| UI thread, 0.5.0       | 245          | 61 fps | 0.4%   |
+
+On the same emulator, the 20 lane × 6 column board (1,200 cards) auto-scrolled its lane list for 4.01 s and drew 225 frames, about 56 fps, with 17 janky (7.56%). The meter read JS 31 / UI 60. A still board barely draws, so idle and a motionless hold are not frame rates there.
+
+The method, the 2026-10-10 meter table, and what is still unmeasured are in [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
 
 To keep it fast, memoize your card and filter `items` before they reach the board.
 
@@ -347,18 +375,18 @@ To keep it fast, memoize your card and filter `items` before they reach the boar
 
 **Data and moves**
 
-| Prop                                                    | Default          | Notes                                                                      |
-| ------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------- |
-| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                  |
-| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                      |
-| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                 |
-| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                          |
-| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                               |
-| `readOnly`                                              | `false`          | Display only.                                                              |
-| `moveModes`                                             | drag and sheet   | `{ drag, sheet, swipe }`. See [Ways to move a card](#ways-to-move-a-card). |
-| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                   |
-| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                         |
-| `rankStrategy`                                          | fractional index | Replace the rank math.                                                     |
+| Prop                                                    | Default          | Notes                                                                                                                 |
+| ------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                                                             |
+| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                                                                 |
+| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                                                            |
+| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                                                                     |
+| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                                                                          |
+| `readOnly`                                              | `false`          | Display only.                                                                                                         |
+| `moveModes`                                             | drag and sheet   | `{ drag, sheet, swipe }`. `drag` is `'auto'`, `'handle'` or `false`. See [Ways to move a card](#ways-to-move-a-card). |
+| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                                                              |
+| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                                                                    |
+| `rankStrategy`                                          | fractional index | Replace the rank math.                                                                                                |
 
 **Layout and navigation**
 
@@ -429,9 +457,9 @@ The API can still change before 1.0. Breaking changes are listed in the [changel
 
 These are still open before 1.0:
 
-- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md).
-- **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet.
-- **Usability study.** Five developers new to the package have not been timed yet.
+- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). 0.5.0's auto-scroll numbers are from the Pixel 9 Pro emulator, release build.
+- **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
+- **Usability study.** Five developers new to the package have not been timed yet. Swipe-to-move stays experimental, and off by default, until that study at 0.7.
 
 **Out of scope:** creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, column reorder, multi-select, and items in more than one cell. Reanimated 3, the old architecture, and web.
 
@@ -439,9 +467,9 @@ These are still open before 1.0:
 
 `apps/example` (Expo) and `apps/bare` (React Native CLI) run the same demo, with a screen per layout, rule and stress test. The captures above come from its Showcase, Live data, Optimistic moves, Rules and Swimlanes screens. Setup is in [CONTRIBUTING.md](https://github.com/vishaal2002/react-native-board-view/blob/main/CONTRIBUTING.md).
 
-| Package                   | What it is                                                             |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `react-native-board-view` | `Board`, `CardView`, and a re-export of the core. **0.4.0**            |
-| `board-view-core`         | Grouping, ranks, move planning and the move queue. No React. **0.1.0** |
+| Package                   | What it is                                                                |
+| ------------------------- | ------------------------------------------------------------------------- |
+| `react-native-board-view` | `Board`, `CardView`, `DragHandle`, and a re-export of the core. **0.5.0** |
+| `board-view-core`         | Grouping, ranks, move planning and the move queue. No React. **0.1.0**    |
 
 [MIT](https://github.com/vishaal2002/react-native-board-view/blob/main/LICENSE) © react-native-board-view contributors

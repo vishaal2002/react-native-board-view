@@ -26,6 +26,7 @@ import {
 import { PLACEHOLDER_ROW, cardIndexFromRaw, displayedRows, isPlaceholder, type DisplayedRow } from './displayed';
 import { showsCellFooter, visualSlot, type ColumnSlot } from './metrics';
 import { COMPACT_HEADER_WIDTH } from './ColumnsLayout';
+import { useFlashListUiScroll } from './uiScroll';
 import { useHorizontalScroller } from './useHorizontalScroller';
 
 const DEFAULT_CELL_LIMIT = 50;
@@ -108,6 +109,7 @@ export function SwimlaneLayout() {
     [verticalPadding],
   );
 
+  const { renderScrollComponent, target: laneTarget } = useFlashListUiScroll();
   const laneScroller = useMemo<ScrollerHandle>(
     () => ({
       axis: 'y',
@@ -118,8 +120,9 @@ export function SwimlaneLayout() {
         scrollY.current = offset;
         listRef.current?.scrollToOffset({ offset, animated: false });
       },
+      ui: laneTarget,
     }),
-    [],
+    [laneTarget],
   );
   adapter.useScroller('vertical', autoScroll ? laneScroller : null);
 
@@ -232,6 +235,7 @@ export function SwimlaneLayout() {
               {listBox.height > 0 ? (
                 <FlashList
                   ref={listRef}
+                  renderScrollComponent={renderScrollComponent}
                   data={lanes as GroupValue[]}
                   keyExtractor={laneKey}
                   renderItem={renderLane}
@@ -245,6 +249,7 @@ export function SwimlaneLayout() {
                   onRefresh={props.onRefresh}
                   refreshing={props.onRefresh ? props.refreshing === true : undefined}
                   contentContainerStyle={styles.lanesContent}
+                  maintainVisibleContentPosition={NO_ANCHORING}
                   showsVerticalScrollIndicator={false}
                 />
               ) : null}
@@ -257,6 +262,8 @@ export function SwimlaneLayout() {
 }
 
 const laneKey = (lane: GroupValue) => lane.id;
+// Lanes above the finger change height while a card is dragged: that must not scroll the list.
+const NO_ANCHORING = { disabled: true };
 
 /** Lanes scroll sideways with the board; the spinner stays in the middle of the screen. */
 function PinnedLoading() {

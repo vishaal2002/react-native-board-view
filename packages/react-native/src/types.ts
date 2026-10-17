@@ -14,11 +14,15 @@ import type { GroupBy, GroupValue, MoveContext, MoveOperation, RankStrategy } fr
 export type BoardLayout = 'auto' | 'paged' | 'multi' | 'fit' | 'stacked';
 
 export interface MoveModes {
-  /** Long-press drag. Default 'auto'. */
-  drag?: 'auto' | false;
   /**
-   * "Move to…" sheet, opened from the card's "…" button and by long-pressing
-   * then releasing without moving. 'manual' keeps the sheet but leaves the
+   * `'auto'`: long-press anywhere on a card. `'handle'`: drag only from a
+   * `<DragHandle>` in your card, with no long press, so the rest of the card
+   * keeps its own taps and scrolling. Default 'auto'.
+   */
+  drag?: 'auto' | 'handle' | false;
+  /**
+   * "Move to…" sheet, opened from the card's "…" button and, with long-press
+   * drag, by long-pressing then releasing without moving. 'manual' keeps the sheet but leaves the
    * button to you: call `openMoveSheet` from `renderCard`. Default 'auto'.
    * Screen-reader move actions stay available in every mode.
    */
@@ -161,6 +165,18 @@ export interface BoardTheme {
   cardGap: number;
   cellMinHeight: number;
   fontFamily?: string;
+  /** Scale of the lifted card. 1 keeps it flat. */
+  liftScale: number;
+  /** Tilt of the lifted card, in degrees. */
+  liftTilt: number;
+  /**
+   * iOS shadow under the lifted card, 0 to 1, drawn on top of the shadow your
+   * card draws itself (`CardView` has one while `dragging`). Android ignores it:
+   * there, give your card an `elevation` while `dragging`.
+   */
+  liftShadowOpacity: number;
+  /** Milliseconds a dropped card takes to land, or to fly home. */
+  dropDuration: number;
 }
 
 export interface CardAccessibilityContext {

@@ -2,7 +2,7 @@ import { createContext, memo, use, useEffect, useState, type ReactNode } from 'r
 import { Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { useFrameCallback, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CardView, type CardRenderInfo } from 'react-native-board-view';
+import { CardView, DragHandle, type CardRenderInfo } from 'react-native-board-view';
 import { PRIORITY_COLORS, TAG_COLORS, personName, type Task } from './data';
 import type { LogEntry } from './useTaskStore';
 
@@ -342,15 +342,20 @@ export type CardStyle = 'rich' | 'minimal' | 'compact';
 export const TaskCard = memo(function TaskCard({
   info,
   variant = 'rich',
+  handle = false,
 }: {
   info: CardRenderInfo<Task>;
   variant?: CardStyle;
+  /** Draw a drag handle, for `moveModes={{ drag: 'handle' }}`. */
+  handle?: boolean;
 }) {
   const { item, pending, dragging, compact } = info;
+  const leading = handle ? <DragHandle /> : undefined;
   const minHeight = item.height ? { minHeight: item.height } : undefined;
   if (variant === 'minimal' || compact) {
     return (
       <CardView
+        leading={leading}
         title={item.title}
         accentColor={compact ? PRIORITY_COLORS[item.priority] : undefined}
         pending={pending}
@@ -363,6 +368,7 @@ export const TaskCard = memo(function TaskCard({
   if (variant === 'compact') {
     return (
       <CardView
+        leading={leading}
         title={item.title}
         accentColor={PRIORITY_COLORS[item.priority]}
         assignee={personName(item.assignee)}
@@ -373,6 +379,7 @@ export const TaskCard = memo(function TaskCard({
   }
   return (
     <CardView
+      leading={leading}
       title={item.locked ? `🔒 ${item.title}` : item.title}
       description={item.description}
       tags={item.tags.map((tag) => ({ label: tag, color: TAG_COLORS[tag] }))}

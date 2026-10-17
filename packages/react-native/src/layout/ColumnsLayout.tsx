@@ -12,12 +12,13 @@ import Animated from 'react-native-reanimated';
 import { NO_LANE_ID, cellId as makeCellId, type BoardCell } from 'board-view-core';
 import { useBoard, useStoreValue, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type SlotSource } from '../engine/geometry';
-import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle } from '../engine/types';
+import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle, type UiScrollTarget } from '../engine/types';
 import { BoardCard } from './BoardCard';
 import { CollapsedColumnStrip, DefaultColumnHeader, DefaultEmptyCell, LoadingFooter } from './defaults';
 import { PLACEHOLDER_ROW, cardIndexFromRaw, displayedRows, isPlaceholder, type DisplayedRow } from './displayed';
 import type { ColumnSlot } from './metrics';
 import { showsCellFooter, visualSlot } from './metrics';
+import { useFlashListUiScroll } from './uiScroll';
 import { useHorizontalScroller } from './useHorizontalScroller';
 
 /** Columns narrower than this get the stacked header. */
@@ -245,6 +246,7 @@ function columnGeometry(
   listRef: RefObject<FlashListRef<unknown> | null>,
   scrollY: RefObject<number>,
   contentHeight: RefObject<number>,
+  ui: UiScrollTarget,
 ): CellGeometry {
   const firstOffset = () => listRef.current?.getFirstItemOffset() ?? live.current.board.theme.cellPadding;
   const slots: SlotSource = {
@@ -288,6 +290,7 @@ function columnGeometry(
       scrollY.current = offset;
       listRef.current?.scrollToOffset({ offset, animated: false });
     },
+    ui,
   };
 
   return {
@@ -353,7 +356,8 @@ function ColumnList({
     return index;
   });
 
-  const geometry = useMemo(() => columnGeometry(live, listRef, scrollY, contentHeight), []);
+  const { renderScrollComponent, target } = useFlashListUiScroll();
+  const geometry = useMemo(() => columnGeometry(live, listRef, scrollY, contentHeight, target), [target]);
 
   useEffect(() => {
     const registry = lists.current;
@@ -431,6 +435,7 @@ function ColumnList({
     <adapter.Cell cellId={cell.cellId} geometry={geometry} style={styles.fill}>
       <FlashList
         ref={listRef}
+        renderScrollComponent={renderScrollComponent}
         data={rows}
         keyExtractor={keyExtractor}
         getItemType={rowType}
