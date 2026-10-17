@@ -363,7 +363,7 @@ A 500-card column, card held at the bottom edge for 4 s, read with `dumpsys gfxi
 | JS-driven, as in 0.4.0 | 170          | 42 fps | 42–45% |
 | UI thread, 0.5.0       | 245          | 61 fps | 0.4%   |
 
-On the same emulator, the 20 lane × 6 column board (1,200 cards) auto-scrolled its lane list for 4.01 s and drew 225 frames, about 56 fps, with 17 janky (7.56%). The meter read JS 31 / UI 60. A still board barely draws, so idle and a motionless hold are not frame rates there.
+A re-run of the final 0.5.0 build, with the host on mains power, drew 245–246 frames with 0% janky for the column and the stacked list. The 20 lane × 6 column board (1,200 cards) drew 227–228 frames, about 57 fps, with about 8% janky. Sideways auto-scroll in `multi` drew 201 frames with 7% janky. A still board barely draws, so idle and a motionless hold are not frame rates there.
 
 The method, the 2026-10-10 meter table, and what is still unmeasured are in [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
 
@@ -457,7 +457,7 @@ The API can still change before 1.0. Breaking changes are listed in the [changel
 
 These are still open before 1.0:
 
-- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). 0.5.0's auto-scroll numbers are from the Pixel 9 Pro emulator, release build.
+- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). 0.5.0 has not run on iOS yet. Its numbers are from the Pixel 9 Pro emulator, release build.
 - **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
 - **Usability study.** Five developers new to the package have not been timed yet. Swipe-to-move stays experimental, and off by default, until that study at 0.7.
 
