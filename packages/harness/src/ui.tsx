@@ -2,7 +2,8 @@ import { createContext, memo, use, useEffect, useState, type ReactNode } from 'r
 import { Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { useFrameCallback, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CardView, DragHandle, type CardRenderInfo } from 'react-native-board-view';
+import { Check, Lock, X } from 'lucide-react-native';
+import { CardView, DragHandle, useBoardTheme, type CardRenderInfo } from 'react-native-board-view';
 import { PRIORITY_COLORS, TAG_COLORS, personName, type Task } from './data';
 import type { LogEntry } from './useTaskStore';
 
@@ -247,18 +248,18 @@ export function EventLog({
     <View style={[styles.log, { height, backgroundColor: palette.surface, borderColor: palette.border }]}>
       <ScrollView contentContainerStyle={styles.logContent}>
         {entries.length === 0 ? <Text style={[styles.logLine, { color: palette.muted }]}>{empty}</Text> : null}
-        {entries.map((entry) => (
-          <Text
-            key={entry.id}
-            numberOfLines={1}
-            style={[
-              styles.logLine,
-              { color: entry.tone === 'good' ? palette.good : entry.tone === 'bad' ? palette.bad : palette.muted },
-            ]}
-          >
-            {entry.text}
-          </Text>
-        ))}
+        {entries.map((entry) => {
+          const color = entry.tone === 'good' ? palette.good : entry.tone === 'bad' ? palette.bad : palette.muted;
+          const Icon = entry.icon ?? (entry.tone === 'good' ? Check : entry.tone === 'bad' ? X : null);
+          return (
+            <View key={entry.id} style={styles.logRow}>
+              {Icon ? <Icon color={color} size={14} strokeWidth={2.5} /> : null}
+              <Text numberOfLines={1} style={[styles.logLine, styles.logText, { color }]}>
+                {entry.text}
+              </Text>
+            </View>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -350,7 +351,19 @@ export const TaskCard = memo(function TaskCard({
   handle?: boolean;
 }) {
   const { item, pending, dragging, compact } = info;
-  const leading = handle ? <DragHandle /> : undefined;
+  const theme = useBoardTheme();
+  const lock = item.locked ? <Lock color={theme.mutedText} size={15} strokeWidth={2.4} /> : null;
+  const leading =
+    handle && lock ? (
+      <View style={styles.leading}>
+        <DragHandle />
+        {lock}
+      </View>
+    ) : handle ? (
+      <DragHandle />
+    ) : (
+      (lock ?? undefined)
+    );
   const minHeight = item.height ? { minHeight: item.height } : undefined;
   if (variant === 'minimal' || compact) {
     return (
@@ -380,7 +393,7 @@ export const TaskCard = memo(function TaskCard({
   return (
     <CardView
       leading={leading}
-      title={item.locked ? `🔒 ${item.title}` : item.title}
+      title={item.title}
       description={item.description}
       tags={item.tags.map((tag) => ({ label: tag, color: TAG_COLORS[tag] }))}
       meta={item.due ? `Due ${item.due}` : undefined}
@@ -436,6 +449,9 @@ const styles = StyleSheet.create({
   log: { marginHorizontal: 12, marginTop: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   logContent: { padding: 10, gap: 3 },
   logLine: { fontSize: 12, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  logRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  logText: { flex: 1 },
+  leading: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   fps: {
     position: 'absolute',
     top: 8,

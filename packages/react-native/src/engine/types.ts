@@ -68,6 +68,11 @@ export interface DragBoardProps {
   onDragEnd?(event: { itemId: string; cancelled: boolean }): void;
   /** Long-press released without moving: the phone "long-press menu". */
   onLongPressMenu?(event: { itemId: string; cellId: string }): void;
+  /**
+   * Released over a drop zone (`useZone`) that accepts the card. Returns false
+   * when the drop is refused; the card then goes home.
+   */
+  onZoneDrop?(event: { itemId: string; sourceCellId: string; zoneId: string }): boolean;
   canDrag?(itemId: string): boolean;
   canDrop?(itemId: string, toCellId: string): boolean;
   /**
@@ -152,6 +157,18 @@ export interface CellGeometry {
   accepts(): boolean;
 }
 
+/**
+ * A drop target outside the lists, such as a chip in the drop dock. It sits
+ * above the lists: while the pointer is over it, no cell is a target and
+ * nothing auto-scrolls.
+ */
+export interface ZoneGeometry {
+  /** In board coordinates, or null when not on screen. */
+  getRect(): Rect | null;
+  /** Called with the lifted card's id. */
+  accepts(itemId: string): boolean;
+}
+
 export interface DragCellProps {
   cellId: string;
   geometry: CellGeometry;
@@ -198,6 +215,16 @@ export interface DragAdapter {
   readonly usePlacement: (cellId: string) => CellPlacement;
   /** The lifted card and its source cell, or null. Changes twice per drag. */
   readonly useDragSource: () => { itemId: string; cellId: string } | null;
+  /**
+   * True once the finger has moved from where it lifted the card. A long press
+   * released before that opens the Move sheet, so drag-only UI such as the drop
+   * dock waits for this instead of flashing up before the sheet.
+   */
+  readonly useDragMoved: () => boolean;
   /** The whole placement, for layouts that render every cell in one list. */
   readonly usePlacementState: () => DragPlacement | null;
+  /** Registers a drop zone while `geometry` is set. */
+  readonly useZone: (zoneId: string, geometry: ZoneGeometry | null) => void;
+  /** Id of the zone under the pointer, or ''. On the UI thread, for highlights. */
+  readonly useActiveZone: () => SharedValue<string>;
 }

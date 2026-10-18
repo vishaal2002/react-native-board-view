@@ -340,6 +340,111 @@ describe('useBoardController', () => {
   });
 });
 
+describe('undo', () => {
+  it('puts a card back where it came from, with source undo, and does not undo the undo', async () => {
+    const onMove = vi.fn<(op: MoveOperation, context: MoveContext) => void>();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove }),
+    });
+
+    act(() => {
+      result.current.moveItem('b', done, 1, 'drag');
+    });
+    expect(idsIn(result.current.model, done)).toEqual(['c', 'b']);
+    expect(result.current.lastMove.get()).toMatchObject({
+      itemId: 'b',
+      fromCellId: todo,
+      fromIndex: 1,
+      toCellId: done,
+    });
+    expect(result.current.canUndo()).toBe(true);
+
+    let undone = false;
+    act(() => {
+      undone = result.current.undo();
+    });
+    expect(undone).toBe(true);
+    expect(idsIn(result.current.model, todo)).toEqual(['a', 'b']);
+    expect(result.current.lastMove.get()).toBeNull();
+    expect(result.current.canUndo()).toBe(false);
+    await act(async () => undefined);
+    expect(onMove.mock.calls.map(([op]) => op.source)).toEqual(['drag', 'undo']);
+    expect(onMove.mock.calls[1]?.[0]).toMatchObject({ id: 'b', changes: { status: 'todo' }, previousId: 'a' });
+  });
+
+  it('undoes moves newest first and reverts a reorder inside one cell', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), { initialProps: props() });
+    act(() => {
+      result.current.moveItem('a', todo, 1, 'drag');
+    });
+    act(() => {
+      result.current.moveItem('c', todo, 0, 'sheet');
+    });
+    expect(idsIn(result.current.model, todo)).toEqual(['c', 'b', 'a']);
+    act(() => {
+      result.current.undo();
+    });
+    expect(idsIn(result.current.model, todo)).toEqual(['b', 'a']);
+    expect(idsIn(result.current.model, done)).toEqual(['c']);
+    act(() => {
+      result.current.undo();
+    });
+    expect(idsIn(result.current.model, todo)).toEqual(['a', 'b']);
+  });
+
+  it('skips a move the data has since moved on from', async () => {
+    const { result, rerender } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props(),
+    });
+    let op: MoveOperation | undefined;
+    act(() => {
+      rerender(
+        props({
+          onMove: (next) => {
+            op = next;
+          },
+        }),
+      );
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    await act(async () => undefined);
+    const applied = apply(seed, op!);
+    await act(async () => {
+      rerender(props({ items: applied }));
+    });
+    // Later the app (or another user) moves the card somewhere else.
+    const moved = applied.map((task) => (task.id === 'a' ? { ...task, status: null } : task));
+    await act(async () => {
+      rerender(props({ items: moved }));
+    });
+    expect(idsIn(result.current.model, cellId('_', NO_VALUE_ID))).toEqual(['a']);
+    expect(result.current.canUndo()).toBe(false);
+    let undone = true;
+    act(() => {
+      undone = result.current.undo();
+    });
+    expect(undone).toBe(false);
+  });
+
+  it('forgets a move that was rolled back', async () => {
+    const pending = deferred();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove: () => pending.promise }),
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    await act(async () => {
+      pending.reject(new Error('no'));
+      await pending.promise.catch(() => undefined);
+    });
+    expect(result.current.lastMove.get()).toBeNull();
+    expect(result.current.canUndo()).toBe(false);
+  });
+});
+
 describe('resolveDestination', () => {
   const lanes: GroupBy<Task & { owner: string | null }> = {
     columns: groupBy.columns as GroupBy<Task & { owner: string | null }>['columns'],

@@ -21,6 +21,20 @@ import {
 import { createValueStore, type ValueStore } from './context';
 import type { BoardLabels, BoardProps, MoveDestination, MoveTarget } from './types';
 
+/** A move the board can revert: where the card came from and where it went. */
+export interface UndoEntry {
+  readonly opId: string;
+  readonly itemId: string;
+  readonly fromCellId: string;
+  /** Insertion index in the source cell, with the card left out. */
+  readonly fromIndex: number;
+  readonly toCellId: string;
+  readonly source: MoveSource;
+}
+
+/** Moves remembered for undo. Older ones are dropped. */
+const UNDO_DEPTH = 20;
+
 export interface BoardController<T> {
   readonly model: BoardModel<T>;
   readonly itemsById: ReadonlyMap<string, T>;
@@ -36,6 +50,11 @@ export interface BoardController<T> {
   itemLabel(itemId: string): string;
   /** The card that should take screen-reader focus once it renders in its new place. */
   readonly focusRequest: ValueStore<string | null>;
+  /** Reverts the newest move whose card is still where it landed. */
+  undo(): boolean;
+  canUndo(): boolean;
+  /** The newest undoable move, or null once it is undone, rolled back or cancelled. */
+  readonly lastMove: ValueStore<UndoEntry | null>;
 }
 
 const warned = new Set<string>();
@@ -125,6 +144,15 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   }, []);
 
   const [focusRequest] = useState(() => createValueStore<string | null>(null));
+  const history = useRef<UndoEntry[]>([]);
+  const [lastMove] = useState(() => createValueStore<UndoEntry | null>(null));
+  const forget = useCallback(
+    (opId: string) => {
+      history.current = history.current.filter((entry) => entry.opId !== opId);
+      if (lastMove.get()?.opId === opId) lastMove.set(null);
+    },
+    [lastMove],
+  );
 
   // "Moved" is announced once the app accepts the move, so it never reports a move that rolls back.
   const announcements = useRef(new Map<string, string>());
@@ -139,10 +167,12 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
       }
       if (event.type === 'cancelled') {
         announcements.current.delete(event.op.opId);
+        forget(event.op.opId);
         return;
       }
       if (event.type !== 'rejected') return;
       announcements.current.delete(event.op.opId);
+      forget(event.op.opId);
       const { props: current, labels: text } = latest.current;
       current.onMoveError?.(event.op, event.error);
       const item = itemsRef.current.get(event.op.id);
@@ -156,7 +186,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
         }),
       );
     },
-    [itemLabel],
+    [forget, itemLabel],
   );
 
   // The queue reads props through refs, so it always sees the latest ones,
@@ -264,13 +294,58 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
           count: target.items.length + (sameCell ? 0 : 1),
         }),
       );
+      const from = current.locations.get(itemId);
       queue.enqueue(op);
+      if (source !== 'undo' && from) {
+        const entry: UndoEntry = {
+          opId: op.opId,
+          itemId,
+          fromCellId: from.cellId,
+          fromIndex: from.index,
+          toCellId,
+          source,
+        };
+        history.current = [...history.current.slice(1 - UNDO_DEPTH), entry];
+        lastMove.set(entry);
+      }
       // Moves made without a finger on the card keep the screen reader on it.
-      if (source === 'sheet' || source === 'accessibility') focusRequest.set(itemId);
+      if (source === 'sheet' || source === 'accessibility' || source === 'undo') focusRequest.set(itemId);
       return true;
     },
-    [canDropTo, focusRequest, itemLabel, queue],
+    [canDropTo, focusRequest, itemLabel, lastMove, queue],
   );
+
+  /** The newest entry whose card is still in the cell it was moved to, dropping stale ones. */
+  const undoTarget = useCallback((): UndoEntry | null => {
+    const current = modelRef.current;
+    while (history.current.length > 0) {
+      const entry = history.current.at(-1);
+      if (
+        entry &&
+        current.locations.get(entry.itemId)?.cellId === entry.toCellId &&
+        current.cellById.has(entry.fromCellId)
+      )
+        return entry;
+      history.current = history.current.slice(0, -1);
+    }
+    return null;
+  }, []);
+
+  const undo = useCallback(() => {
+    for (let entry = undoTarget(); entry; entry = undoTarget()) {
+      history.current = history.current.slice(0, -1);
+      if (lastMove.get()?.opId === entry.opId) lastMove.set(null);
+      const current = modelRef.current;
+      const cell = current.cellById.get(entry.fromCellId);
+      const at = current.locations.get(entry.itemId);
+      if (!cell || !at) continue;
+      const size = cell.items.length - (at.cellId === entry.fromCellId ? 1 : 0);
+      if (moveItem(entry.itemId, entry.fromCellId, Math.min(entry.fromIndex, size), 'undo')) return true;
+    }
+    return false;
+  }, [lastMove, moveItem, undoTarget]);
+
+  const canUndo = useCallback(() => undoTarget() !== null, [undoTarget]);
 
   const moveTo = useCallback(
     (itemId: string, to: MoveDestination) => {
@@ -282,5 +357,17 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
 
   const isPending = useCallback((itemId: string) => pendingIds.has(itemId), [pendingIds]);
 
-  return { model, itemsById, isPending, moveItem, moveTo, canDropTo, itemLabel, focusRequest };
+  return {
+    model,
+    itemsById,
+    isPending,
+    moveItem,
+    moveTo,
+    canDropTo,
+    itemLabel,
+    focusRequest,
+    undo,
+    canUndo,
+    lastMove,
+  };
 }

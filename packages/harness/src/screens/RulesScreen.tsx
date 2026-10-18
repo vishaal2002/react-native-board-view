@@ -25,7 +25,7 @@ export function RulesScreen({ onBack }: { onBack: () => void }) {
   return (
     <Screen
       title="Rules"
-      subtitle="🔒 cards can't be dragged. Done only accepts cards from Review, and bugs can't go back to Backlog. Refused cells turn red and the card returns."
+      subtitle="Cards with a lock can't be dragged. Done only accepts cards from Review, and bugs can't go back to Backlog. Refused cells turn red and the card returns."
       onBack={onBack}
       footer={<EventLog entries={store.log} height={88} />}
     >

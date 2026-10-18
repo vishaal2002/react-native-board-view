@@ -42,8 +42,8 @@ export interface RankStrategy {
   compare(a: string, b: string): number;
 }
 
-/** What started a move. */
-export type MoveSource = 'drag' | 'sheet' | 'swipe' | 'accessibility' | 'api';
+/** What started a move. `undo` is the board reverting an earlier move. */
+export type MoveSource = 'drag' | 'sheet' | 'swipe' | 'accessibility' | 'api' | 'undo';
 
 /**
  * A single move. `opId` is unique so the app can dedupe retries.

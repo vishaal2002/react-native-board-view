@@ -103,7 +103,9 @@ const renderCard = useCallback(
 
 ## Undo
 
-The board shows your data, so undo is a data change. Keep what the card looked like before the move, and write it back.
+Since 0.6 the board has undo built in: pass `undo` for a banner, or call `ref.undo()`. It moves the card back through `onMove` with `source: 'undo'`, at its old position with a new rank.
+
+When your server must restore the exact old record (its old rank, or fields a move changed on the server), undo is a data change instead. Keep what the card looked like before the move, and write it back.
 
 ```tsx
 const before = useRef<Task | null>(null);
@@ -256,7 +258,9 @@ This is useful for a "move to top of Done" API, or for applying a move made from
 
 ## Haptics
 
-Haptics need no dependency in the library. Wire them to the drag events:
+Since 0.6 the board ticks when a card lifts, through `expo-haptics` or `react-native-haptic-feedback` if your app has one. It finds them at runtime and imports neither. Pass `haptics={false}` to turn that off, or a function to replace it.
+
+For more moments, wire your haptics to the drag events:
 
 ```tsx
 import * as Haptics from 'expo-haptics';

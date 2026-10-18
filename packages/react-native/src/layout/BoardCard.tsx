@@ -17,6 +17,7 @@ import { cellId as makeCellId, parseCellId, NO_LANE_ID } from 'board-view-core';
 import { useBoard, type BoardContextValue } from '../context';
 import { MenuButton } from './defaults';
 import { visualSlot } from './metrics';
+import { MiniCard } from './Overview';
 import { SwipeActions, type SwipeAction } from './SwipeActions';
 import type { CardRenderInfo } from '../types';
 
@@ -35,6 +36,7 @@ function cardWidth(board: BoardContextValue, columnKey: string): number {
 }
 const COLUMN_PREFIX = 'c:';
 const LANE_PREFIX = 'l:';
+const ACTION_PREFIX = 'a:';
 
 export interface BoardCardProps {
   itemId: string;
@@ -60,7 +62,8 @@ export const BoardCard = memo(function BoardCard({
   onSlotLayout,
 }: BoardCardProps) {
   const board = useBoard();
-  const { controller, props, theme, labels, adapter, openMoveSheet, sheetMode, rtl } = board;
+  const { controller, props, theme, labels, adapter, openMoveSheet, sheetMode, rtl, overview } = board;
+  const { allColumns, allLanes, cardActionsFor, runCardAction } = board;
   const item = controller.itemsById.get(itemId);
   const cell = controller.model.cellById.get(cellId);
   const { laneKey, columnKey } = parseCellId(cellId);
@@ -98,20 +101,21 @@ export const BoardCard = memo(function BoardCard({
   const actions = useMemo(() => {
     const list: { name: string; label: string }[] = [];
     if (sheetMode !== false) list.push({ name: MOVE_TO, label: labels.moveTo });
-    for (const column of controller.model.columns) {
+    for (const column of allColumns) {
       if (column.id === columnKey) continue;
       if (!controller.canDropTo(itemId, makeCellId(laneKey, column.id))) continue;
       list.push({ name: COLUMN_PREFIX + column.id, label: labels.moveToColumnAction(column.label) });
     }
     if (hasLanes) {
-      for (const lane of controller.model.lanes) {
+      for (const lane of allLanes) {
         if (lane.id === laneKey) continue;
         if (!controller.canDropTo(itemId, makeCellId(lane.id, columnKey))) continue;
         list.push({ name: LANE_PREFIX + lane.id, label: labels.moveToLaneAction(lane.label) });
       }
     }
+    for (const action of cardActionsFor(itemId)) list.push({ name: ACTION_PREFIX + action.key, label: action.label });
     return list;
-  }, [columnKey, controller, hasLanes, itemId, labels, laneKey, sheetMode]);
+  }, [allColumns, allLanes, cardActionsFor, columnKey, controller, hasLanes, itemId, labels, laneKey, sheetMode]);
 
   const onAccessibilityAction = useCallback(
     (event: AccessibilityActionEvent) => {
@@ -121,8 +125,9 @@ export const BoardCard = memo(function BoardCard({
         controller.moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0, 'accessibility');
       else if (name.startsWith(LANE_PREFIX))
         controller.moveItem(itemId, makeCellId(name.slice(2), columnKey), 0, 'accessibility');
+      else if (name.startsWith(ACTION_PREFIX)) runCardAction(itemId, name.slice(2), 'accessibility');
     },
-    [columnKey, controller, itemId, laneKey, openSheet],
+    [columnKey, controller, itemId, laneKey, openSheet, runCardAction],
   );
 
   const swipe = useMemo(() => {
@@ -179,8 +184,14 @@ export const BoardCard = memo(function BoardCard({
       accessibilityActions={actions}
       onAccessibilityAction={onAccessibilityAction}
     >
-      {props.renderCard(info)}
-      {sheetMode === 'auto' && !compact ? <MenuButton color={theme.mutedText} onPress={openSheet} /> : null}
+      {overview ? (
+        <MiniCard label={controller.itemLabel(itemId)} color={cell.column.color} theme={theme} />
+      ) : (
+        props.renderCard(info)
+      )}
+      {sheetMode === 'auto' && !compact && !overview ? (
+        <MenuButton color={theme.mutedText} onPress={openSheet} />
+      ) : null}
       {highlighted ? (
         <HighlightRing
           request={highlighted}
@@ -258,6 +269,13 @@ export function HoverCard({ itemId }: { itemId: string }) {
   const location = controller.model.locations.get(itemId);
   const cell = location ? controller.model.cellById.get(location.cellId) : undefined;
   if (item == null || !cell || !location) return null;
+  if (board.overview) {
+    return (
+      <View style={styles.hover} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <MiniCard label={controller.itemLabel(itemId)} color={cell.column.color} theme={board.theme} />
+      </View>
+    );
+  }
   return (
     <View style={styles.hover} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
       {props.renderCard({

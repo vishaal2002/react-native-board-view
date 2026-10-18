@@ -2,6 +2,35 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
+## 0.6.0
+
+`react-native-board-view` 0.6.0 and `board-view-core` 0.2.0. Publish core first: the board depends on it.
+
+- **Drop dock.** A tray slides up once a lifted card starts to move, so a long press released in place opens only the Move sheet. The lists end above it while it shows, so it never covers a card. On by default; `dock={false}` turns it off. Column chips move the card to the top of a column, in its lane, without scrolling there. Over the dock the lifted card shrinks toward the finger so the chip stays visible. `dock={{ columns, actions }}` picks the chips.
+- **`moveModes.longPressSheet`.** Default true. False keeps long press for dragging only; the "…" button and screen-reader actions still open the sheet.
+- **Haptics.** `haptics`, default true: a light tick when a card lifts, through your app's `expo-haptics` or `react-native-haptic-feedback`. The board imports neither and does nothing without them. `false` turns it off; a function replaces it.
+- **Card actions.** `cardActions`, `onCardAction` and `canPerformAction`. Your actions (Archive, Assign to me…) show in the dock, at the end of the Move sheet, and as screen-reader actions. The board reports them and never edits items.
+- **Undo.** `ref.undo()` and `ref.canUndo()` revert the newest move whose card is still where it landed. Undo goes through `onMove` with `source: 'undo'`, and is not undone again. `undo` adds a banner after each move a person makes, with an Undo button. It stays until dismissed while a screen reader runs.
+- **Matrix layout.** `layout="matrix"` draws a swimlane board as a grid: lanes are rows, every cell is on screen and scrolls on its own. For small grids such as a 2 × 2 priority matrix.
+- **Hidden empty columns and lanes.** `hideEmptyColumns` and `hideEmptyLanes`. The sheet, the dock and screen-reader actions still list them.
+- **Overview (experimental).** `overview` lets people pinch in to see every column at once with small cards that still drag. Tap a header, pinch out or press "Back to the board" to return to that column. `ref.setOverview(open, columnId?)` and `onOverviewChange`. Boards without lanes in `paged`, `multi` and `fit`. The pinch is untested on a device.
+- **A better Move sheet.**
+  - It shows where the card is now ("In To do · 3 of 8").
+  - It has one-tap moves: Up, Down, and the previous or next column that accepts the card.
+  - Boards with more than six columns get a column search.
+  - Your `cardActions` sit at the end.
+  - It slides in and out instead of fading, and dragging its top down closes it.
+- **Labels.** `actions`, `currentPlace`, `moveUp`, `moveDown`, `previousColumn`, `nextColumn`, `searchColumns`, `noColumnsMatch`, `undo`, `dismiss`, `undoBanner`, `overview` and `closeOverview`.
+- **`board-view-core` 0.2.0.** `MoveSource` gains `'undo'`.
+
+### Breaking
+
+- Drags now show the drop dock, and the lists get shorter while it shows. Pass `dock={false}` to keep 0.5's drag.
+- A card ticks when it lifts if your app has `expo-haptics` or `react-native-haptic-feedback`. If you already do this in `onDragStart`, pass `haptics={false}` so it does not tick twice.
+- `MoveSource` has a new member, `'undo'`. A `switch` over `op.source` that TypeScript checks for exhaustiveness needs a case for it.
+- `BoardLabels` has new required fields. Code that builds a whole labels object must add them. `labels` overrides are partial, so passing `labels` is unaffected.
+- `BoardHandle` has new methods. Code that implements the interface itself, for example a test mock, must add `undo`, `canUndo` and `setOverview`.
+
 ## 0.5.0
 
 `react-native-board-view` only. `board-view-core` stays 0.1.0.

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import type { LucideIcon } from 'lucide-react-native';
 import { applyMove, projectBoard, type GroupBy, type MoveOperation } from 'react-native-board-view';
 import type { Task } from './data';
 
@@ -11,6 +12,8 @@ export interface LogEntry {
   id: string;
   text: string;
   tone: 'info' | 'good' | 'bad';
+  /** Drawn before the text. Default: a check for good, a cross for bad, nothing for info. */
+  icon?: LucideIcon;
 }
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -41,9 +44,9 @@ export function useTaskStore(
   simulationRef.current = simulation;
   const counter = useRef(0);
 
-  const push = useCallback((text: string, tone: LogEntry['tone'] = 'info') => {
+  const push = useCallback((text: string, tone: LogEntry['tone'] = 'info', icon?: LucideIcon) => {
     counter.current += 1;
-    const entry = { id: String(counter.current), text, tone };
+    const entry = { id: String(counter.current), text, tone, icon };
     setLog((entries) => [entry, ...entries].slice(0, 40));
   }, []);
 
@@ -55,7 +58,7 @@ export function useTaskStore(
       if (latencyMs > 0) push(`… ${name}: ${describe(op)}`);
       if (latencyMs > 0) await wait(latencyMs);
       if (Math.random() < failureRate) {
-        push(`✕ Rejected ${name}`, 'bad');
+        push(`Rejected ${name}`, 'bad');
         throw new Error('The server rejected this move.');
       }
       const next = itemsRef.current.map((entry) =>
@@ -72,7 +75,7 @@ export function useTaskStore(
       const at = model.locations.get(op.id);
       const cell = at ? model.cellById.get(at.cellId) : undefined;
       push(
-        `✓ ${name} → ${cell ? `${cell.lane.label ? `${cell.lane.label} / ` : ''}${cell.column.label}` : '?'} #${(at?.index ?? 0) + 1}`,
+        `${name} → ${cell ? `${cell.lane.label ? `${cell.lane.label} / ` : ''}${cell.column.label}` : '?'} #${(at?.index ?? 0) + 1}`,
         'good',
       );
     },

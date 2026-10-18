@@ -7,7 +7,9 @@ const PAGED_PEEK = 28;
 const PAGED_GAP = 8;
 const MIN_PAGED_COLUMN = 220;
 
-export type ResolvedLayout = 'paged' | 'multi' | 'fit' | 'stacked';
+export type ResolvedLayout = 'paged' | 'multi' | 'fit' | 'stacked' | 'matrix';
+/** Width of the matrix layout's lane labels, down its left side. */
+export const MATRIX_GUTTER = 28;
 
 export interface ColumnSlot {
   /** Left edge in scroll-content coordinates. */
@@ -107,6 +109,27 @@ export function columnMetrics(
       gap,
       paddingStart: 0,
       paddingEnd: 0,
+      pageSize: boardWidth,
+      contentWidth: boardWidth,
+      scrollable: false,
+    };
+  }
+
+  if (mode === 'matrix') {
+    // Every column on screen, never scrolling: the matrix is for small grids.
+    const share = Math.max(0, (boardWidth - MATRIX_GUTTER - gap * count) / Math.max(1, count));
+    const slots = place(
+      new Array<number>(count).fill(share),
+      new Array<boolean>(count).fill(false),
+      MATRIX_GUTTER,
+      gap,
+    );
+    return {
+      mode,
+      slots,
+      gap,
+      paddingStart: MATRIX_GUTTER,
+      paddingEnd: gap,
       pageSize: boardWidth,
       contentWidth: boardWidth,
       scrollable: false,

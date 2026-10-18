@@ -48,7 +48,7 @@ export function HomeScreen({ host, onOpen }: { host: string; onOpen: (route: Rou
                   ]}
                 >
                   <View style={[styles.badge, { backgroundColor: palette.raised }]}>
-                    <Text style={[styles.badgeText, { color: palette.accent }]}>{entry.badge}</Text>
+                    <entry.badge color={palette.accent} size={22} strokeWidth={2.2} />
                   </View>
                   <View style={styles.tileText}>
                     <Text style={[styles.tileTitle, { color: palette.text }]}>{entry.title}</Text>

@@ -20,3 +20,23 @@ export function useReducedMotion(): boolean {
   }, []);
   return reduced;
 }
+
+/** Follows whether a screen reader (VoiceOver, TalkBack) is running. */
+export function useScreenReader(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    AccessibilityInfo.isScreenReaderEnabled().then(
+      (value) => {
+        if (alive) setEnabled(value);
+      },
+      () => undefined,
+    );
+    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', setEnabled);
+    return () => {
+      alive = false;
+      subscription.remove();
+    };
+  }, []);
+  return enabled;
+}

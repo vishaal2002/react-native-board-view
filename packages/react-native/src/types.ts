@@ -1,6 +1,7 @@
 import type { ReactNode, Ref } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import type { GroupBy, GroupValue, MoveContext, MoveOperation, RankStrategy } from 'board-view-core';
+import type { HapticHandler } from './haptics';
 
 /**
  * - `paged`: one column per page with snapping and a peek of the next one. Phones.
@@ -9,9 +10,12 @@ import type { GroupBy, GroupValue, MoveContext, MoveOperation, RankStrategy } fr
  * - `fit`: columns share the width, so nothing scrolls sideways while they stay at least
  *   `theme.minColumnWidth` wide; past that the board scrolls instead of squashing cards.
  * - `stacked`: one vertical list with a collapsible section per column. No sideways scrolling.
+ * - `matrix`: swimlane boards only. Lanes are rows and columns are columns, and
+ *   every cell is on screen at once, each scrolling on its own. For small grids
+ *   such as a 2 × 2 priority matrix. Boards without lanes use `fit` instead.
  * - `auto`: `paged` below 600pt of board width, else `multi`.
  */
-export type BoardLayout = 'auto' | 'paged' | 'multi' | 'fit' | 'stacked';
+export type BoardLayout = 'auto' | 'paged' | 'multi' | 'fit' | 'stacked' | 'matrix';
 
 export interface MoveModes {
   /**
@@ -28,6 +32,12 @@ export interface MoveModes {
    */
   sheet?: 'auto' | 'manual' | false;
   /**
+   * With long-press drag, a long press released without moving opens the Move
+   * sheet. False keeps long press for dragging only; the "…" button and
+   * screen-reader actions still open the sheet. Default true.
+   */
+  longPressSheet?: boolean;
+  /**
    * Swipe a card sideways to move it to the neighbouring column. Only in the
    * `multi` and `fit` layouts: on paged phone layouts a sideways swipe turns
    * the page. Off by default (experimental): it competes with sideways
@@ -41,6 +51,51 @@ export interface MoveTarget {
   readonly columnId: string;
   /** Null on boards without lanes. */
   readonly laneId: string | null;
+}
+
+/**
+ * Something the app can do with a card besides moving it, such as Archive or
+ * Assign to me. Offered in the drop dock, the Move sheet and the card's
+ * screen-reader actions. The board never edits items: it calls `onCardAction`.
+ */
+export interface CardAction {
+  readonly key: string;
+  readonly label: string;
+  /** Drawn before the label in the dock and the sheet. */
+  readonly icon?: ReactNode;
+  /** Label and icon tint, e.g. red for Delete. Default: the theme's text color. */
+  readonly color?: string;
+}
+
+export interface CardActionEvent<T> {
+  readonly action: string;
+  readonly itemId: string;
+  readonly item: T;
+  readonly from: MoveTarget;
+  readonly source: 'dock' | 'sheet' | 'accessibility';
+}
+
+/** What the drop dock shows while a card is lifted. */
+export interface DropDockOptions {
+  /**
+   * Column chips. Dropping a card on one moves it to the top of that column,
+   * in the card's lane. `true`: every column. A list of column ids: those
+   * columns, in that order. Default true.
+   */
+  columns?: boolean | readonly string[];
+  /** `cardActions` as drop targets. Default true. */
+  actions?: boolean;
+}
+
+export interface UndoOptions {
+  /** How long the banner stays, in ms. It stays until dismissed while a screen reader runs. Default 5000. */
+  timeoutMs?: number;
+}
+
+export interface UndoBannerContext {
+  item: string;
+  column: string;
+  lane: string | null;
 }
 
 export interface DragStartEvent {
@@ -221,6 +276,23 @@ export interface BoardLabels {
   columnTab: (column: string, count: number) => string;
   /** Screen-reader label of the spinner at the end of a loading column. */
   loadingMore: string;
+  /** Move sheet section with `cardActions`. */
+  actions: string;
+  /** Move sheet subtitle: where the card is now. */
+  currentPlace: (context: MoveAnnouncementContext) => string;
+  moveUp: string;
+  moveDown: string;
+  previousColumn: string;
+  nextColumn: string;
+  /** Placeholder of the Move sheet's column search. */
+  searchColumns: string;
+  noColumnsMatch: string;
+  undo: string;
+  dismiss: string;
+  undoBanner: (context: UndoBannerContext) => string;
+  /** Accessibility label of the overview, and of the button that leaves it. */
+  overview: string;
+  closeOverview: string;
 }
 
 /** Imperative controls, through the `ref` prop. */
@@ -236,6 +308,18 @@ export interface BoardHandle {
   moveItem(itemId: string, to: MoveDestination): boolean;
   openMoveSheet(itemId: string): void;
   closeMoveSheet(): void;
+  /**
+   * Reverts the last move that is still where it landed, through `onMove`
+   * with `source: 'undo'`. Moves made by undo are not undone again. Returns
+   * false when there is nothing to undo.
+   */
+  undo(): boolean;
+  canUndo(): boolean;
+  /**
+   * Experimental. Opens or closes the whole-board overview. Closing with a
+   * `columnId` scrolls to that column. Needs `overview`.
+   */
+  setOverview(open: boolean, columnId?: string): void;
 }
 
 export interface BoardProps<T> {
@@ -262,6 +346,29 @@ export interface BoardProps<T> {
   onDragEnd?: (event: DragEndEvent) => void;
   canDrag?: (item: T) => boolean;
   canDrop?: (item: T, target: MoveTarget) => boolean;
+  /** Actions offered in the drop dock, the Move sheet and screen-reader actions. */
+  cardActions?: readonly CardAction[];
+  /** Hide an action for one card. Default: every action for every card. */
+  canPerformAction?: (item: T, action: string) => boolean;
+  /** A card action was chosen. The board does not change the item. */
+  onCardAction?: (event: CardActionEvent<T>) => void;
+  /**
+   * A tray that slides up once a lifted card moves: column chips that move the
+   * card without scrolling, and your `cardActions`. The lists end above it.
+   * On by default; false turns it off.
+   */
+  dock?: boolean | DropDockOptions;
+  /**
+   * A light haptic when a card lifts. `true` uses your app's expo-haptics or
+   * react-native-haptic-feedback when one is installed, and does nothing
+   * otherwise. Pass a function to use your own. Default true.
+   */
+  haptics?: boolean | HapticHandler;
+  /**
+   * A banner after each move with an Undo button. `board.undo()` works
+   * without it. Off by default.
+   */
+  undo?: boolean | UndoOptions;
 
   renderCard: (info: CardRenderInfo<T>) => ReactNode;
   renderColumnHeader?: (info: ColumnHeaderRenderInfo) => ReactNode;
@@ -310,6 +417,17 @@ export interface BoardProps<T> {
   onRefresh?: () => void;
   /** Shows the pull-to-refresh spinner. Needs `onRefresh`. */
   refreshing?: boolean;
+  /** Hide columns with no cards in any lane, e.g. for a filtered "my cards" view. The dock and the Move sheet still list them. */
+  hideEmptyColumns?: boolean;
+  /** Swimlanes: hide lanes with no cards. The Move sheet still lists them. */
+  hideEmptyLanes?: boolean;
+  /**
+   * Experimental. Pinch in on the board to see every column at once, with
+   * small cards you can still drag. Pinch out, or tap a column's header, to
+   * go back. Boards without lanes, in the paged, multi and fit layouts.
+   */
+  overview?: boolean;
+  onOverviewChange?: (open: boolean) => void;
   /** Collapse toggles on column headers. Default: on in `stacked`, off elsewhere. Never in `paged`. */
   collapsibleColumns?: boolean;
   /** Controlled. Omit both to let the board keep this state itself. */

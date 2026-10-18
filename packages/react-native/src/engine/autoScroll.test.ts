@@ -92,6 +92,18 @@ describe('stepAutoScroll, continuous', () => {
   });
 });
 
+describe('stepAutoScroll, start delay', () => {
+  it('holds still until the pointer has stayed in the edge for delayMs, then ramps from the base speed', () => {
+    const edge = { ...base, pointer: 395, delayMs: 250 };
+    const waiting = stepAutoScroll({ ...edge, dwellMs: 200 });
+    expect(waiting.offset).toBe(0);
+    expect(waiting.dwellMs).toBe(216);
+    const started = stepAutoScroll({ ...edge, dwellMs: 250 });
+    const undelayed = stepAutoScroll({ ...edge, delayMs: 0, dwellMs: 0 });
+    expect(started.offset).toBeCloseTo(undelayed.offset, 5);
+  });
+});
+
 describe('stepAutoScroll, paged', () => {
   const paged: AutoScrollInput = { ...base, mode: 'paged', pointer: 390 };
 

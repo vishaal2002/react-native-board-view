@@ -1,4 +1,5 @@
 import { memo, useCallback } from 'react';
+import { Cloud } from 'lucide-react-native';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   Board,
@@ -85,7 +86,7 @@ function Empty({ column }: EmptyCellRenderInfo) {
   const theme = useBoardTheme();
   return (
     <View style={[styles.empty, { borderColor: theme.emptyCellBorder }]}>
-      <Text style={styles.emptyArt}>☁︎</Text>
+      <Cloud color={theme.mutedText} size={30} strokeWidth={1.8} />
       <Text style={[styles.emptyText, { color: theme.mutedText }]}>Nothing in {column.label.toLowerCase()} yet</Text>
     </View>
   );
@@ -175,7 +176,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  emptyArt: { fontSize: 26, opacity: 0.6 },
   emptyText: { fontSize: 13, fontWeight: '600' },
   footer: { paddingVertical: 12, alignItems: 'center' },
   footerText: { fontSize: 14, fontWeight: '700' },

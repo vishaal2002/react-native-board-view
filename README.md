@@ -47,14 +47,14 @@ Most React Native drag-and-drop libraries reorder one list. A board needs cards 
 
 <table>
   <tr>
-    <td width="33%" valign="top"><h4>🗂️ Your data</h4>Pass a flat array and say which field makes the columns. The board never creates, edits, fetches, or stores items.</td>
-    <td width="33%" valign="top"><h4>⚡ Optimistic moves</h4>A move shows at once. It stays until your items show it, and it rolls back if <code>onMove</code> throws or times out.</td>
-    <td width="33%" valign="top"><h4>🚀 Virtualized</h4>Columns are FlashLists, and swimlanes virtualize by lane. 4 × 500 cards held 60 fps median with a card lifted.</td>
+    <td width="33%" valign="top"><h4><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/icons/database.svg" width="18" height="18" alt="" align="top" /> Your data</h4>Pass a flat array and say which field makes the columns. The board never creates, edits, fetches, or stores items.</td>
+    <td width="33%" valign="top"><h4><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/icons/zap.svg" width="18" height="18" alt="" align="top" /> Optimistic moves</h4>A move shows at once. It stays until your items show it, and it rolls back if <code>onMove</code> throws or times out.</td>
+    <td width="33%" valign="top"><h4><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/icons/rocket.svg" width="18" height="18" alt="" align="top" /> Virtualized</h4>Columns are FlashLists, and swimlanes virtualize by lane. 4 × 500 cards held 60 fps median with a card lifted.</td>
   </tr>
   <tr>
-    <td valign="top"><h4>📱 Five layouts</h4>Paged for phones, multi and fit for tablets, stacked for lists, and swimlanes on a second axis.</td>
-    <td valign="top"><h4>♿ Accessible</h4>Every move works without a drag. Moves are announced, focus follows the card, and reduced motion is honored.</td>
-    <td valign="top"><h4>🎨 Yours to style</h4>Light and dark themes, compact density, token overrides, every string, and your own card and chrome.</td>
+    <td valign="top"><h4><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/icons/layout-grid.svg" width="18" height="18" alt="" align="top" /> Five layouts</h4>Paged for phones, multi and fit for tablets, stacked for lists, and swimlanes on a second axis.</td>
+    <td valign="top"><h4><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/icons/accessibility.svg" width="18" height="18" alt="" align="top" /> Accessible</h4>Every move works without a drag. Moves are announced, focus follows the card, and reduced motion is honored.</td>
+    <td valign="top"><h4><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/icons/palette.svg" width="18" height="18" alt="" align="top" /> Yours to style</h4>Light and dark themes, compact density, token overrides, every string, and your own card and chrome.</td>
   </tr>
 </table>
 
@@ -177,7 +177,7 @@ You do not need your own optimistic layer. The board's overlay is that layer.
 | `changes`, `from`      | Only the grouped fields that change, new and old. `null` is the No value bucket. A cross-lane drop has two. |
 | `rank`                 | The card's new fractional rank.                                                                             |
 | `previousId`, `nextId` | The visible neighbors it lands between. Servers with integer positions or LexoRank can place from these.    |
-| `source`               | `drag`, `sheet`, `swipe`, `accessibility` or `api`.                                                         |
+| `source`               | `drag`, `sheet`, `swipe`, `accessibility`, `api` or `undo` <sup>0.6</sup>.                                  |
 
 </details>
 
@@ -198,13 +198,18 @@ Pass one `layout`. The board renders that mode and no switcher.
   </tr>
 </table>
 
-| `layout`  | What it does                                                                                        |
-| --------- | --------------------------------------------------------------------------------------------------- |
-| `auto`    | `paged` below `autoBreakpoint` (600pt by default), `multi` above it. The default.                   |
-| `paged`   | One column per page with snapping, a peek of the next one, and tabs or dots. Edge drags flip pages. |
-| `multi`   | Fixed-width columns side by side that scroll sideways. Set the width with `theme.columnWidth`.      |
-| `fit`     | Columns share the width down to `theme.minColumnWidth`, then the board scrolls.                     |
-| `stacked` | One vertical list with a collapsible section per column.                                            |
+| `layout`  | What it does                                                                                             |
+| --------- | -------------------------------------------------------------------------------------------------------- |
+| `auto`    | `paged` below `autoBreakpoint` (600pt by default), `multi` above it. The default.                        |
+| `paged`   | One column per page with snapping, a peek of the next one, and tabs or dots. Edge drags flip pages.      |
+| `multi`   | Fixed-width columns side by side that scroll sideways. Set the width with `theme.columnWidth`.           |
+| `fit`     | Columns share the width down to `theme.minColumnWidth`, then the board scrolls.                          |
+| `stacked` | One vertical list with a collapsible section per column.                                                 |
+| `matrix`  | Swimlane boards as a grid: lanes are rows, every cell on screen and scrolling on its own. <sup>0.6</sup> |
+
+**Matrix.** For small grids such as a 2 × 2 of urgency and importance. It needs `groupBy.lanes`; without lanes it is `fit`. It never scrolls as a whole, so keep it to a few lanes and columns.
+
+**Hidden empty columns.** `hideEmptyColumns` and `hideEmptyLanes` leave out columns and lanes with no cards, for filtered views such as "my cards". <sup>0.6</sup> The Move sheet, the dock and screen-reader actions still list them, and a card moved into one brings it back.
 
 **Swimlanes are a second axis, not a layout.** Add `groupBy.lanes` to any layout. Lanes virtualize and collapse. A cell shows `cellLimit` cards (50 by default), then Show more. A drop across lanes changes both fields in one operation.
 
@@ -230,14 +235,15 @@ Unknown or `null` values land in a No value column or lane. Rename it with `labe
 
 ## Ways to move a card
 
-| How             | On by default            | Turn it off or change it                                                                                                                     |
-| --------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Long-press drag | Yes                      | `moveModes={{ drag: false }}` turns it off. `drag: 'handle'` starts from a handle instead. `longPressDelay` sets the hold, 200ms by default. |
-| Drag handle     | No                       | `drag: 'handle'`, and render a `<DragHandle>`. See [Drag handles](#drag-handles).                                                            |
-| Move to… sheet  | Yes, from the "…" button | `sheet: 'manual'` keeps the sheet and leaves the button to you. `sheet: false` removes it. In handle mode a long-press does not open it.     |
-| Swipe sideways  | No. Experimental.        | `swipe: 'auto'`, in `multi` and `fit` only. Stays off until the usability study at 0.7. On paged phones a sideways swipe turns the page.     |
-| Screen reader   | Always                   | Actions follow `canDrop`.                                                                                                                    |
-| From your code  | Always                   | `ref.moveItem(id, { columnId })`. See [Moving cards from code](#moving-cards-from-code).                                                     |
+| How             | On by default                                               | Turn it off or change it                                                                                                                                                                             |
+| --------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Long-press drag | Yes                                                         | `moveModes={{ drag: false }}` turns it off. `drag: 'handle'` starts from a handle instead. `longPressDelay` sets the hold, 200ms by default.                                                         |
+| Drag handle     | No                                                          | `drag: 'handle'`, and render a `<DragHandle>`. See [Drag handles](#drag-handles).                                                                                                                    |
+| Move to… sheet  | Yes, from the "…" button and a long press released in place | `sheet: 'manual'` keeps the sheet and leaves the button to you. `sheet: false` removes it. `longPressSheet: false` keeps long press for dragging only. In handle mode a long-press does not open it. |
+| Swipe sideways  | No. Experimental.                                           | `swipe: 'auto'`, in `multi` and `fit` only. Stays off until the usability study at 0.7. On paged phones a sideways swipe turns the page.                                                             |
+| Drop dock       | Yes                                                         | `dock={false}` turns it off. Column chips and your `cardActions` slide up once a lifted card moves. See [Drop dock and undo](#drop-dock-and-undo).                                                   |
+| Screen reader   | Always                                                      | Actions follow `canDrop`.                                                                                                                                                                            |
+| From your code  | Always                                                      | `ref.moveItem(id, { columnId })`. See [Moving cards from code](#moving-cards-from-code).                                                                                                             |
 
 ## Drag handles
 
@@ -263,7 +269,59 @@ import { Board, CardView, DragHandle } from 'react-native-board-view';
 
 **Read only.** `readOnly` keeps scrolling, paging, collapsing and Show more, and turns every way of moving off. `onMove` stays required, so the same board can leave read-only mode without a remount.
 
-**Haptics.** `onDragStart`, `onDragOver` and `onDragEnd` are the hooks. The [recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#haptics) wires them to `expo-haptics`.
+**Haptics.** <sup>0.6</sup> A card gives a light tick when it lifts, through your app's `expo-haptics` or `react-native-haptic-feedback` when one is installed. The board imports neither and does nothing without them. `haptics={false}` turns it off, and `haptics={(event) => …}` uses your own. For more moments, `onDragOver` and `onDragEnd` are the hooks: see the [recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#haptics).
+
+## Drop dock and undo
+
+![New in 0.6](https://img.shields.io/badge/new%20in-0.6-2F6FEB)
+
+<img align="right" src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/dock.webp" alt="A Backlog card is long-pressed. A tray slides up with Archive, Assign to me and a chip per column. The card shrinks over the Done chip, which lights up, and is dropped there. A banner says Moved Test login with SSO to Done, with Undo. Undo puts the card back at the top of Backlog." width="230" />
+
+Moving a card three columns over on a phone means riding the edge scroll past every column in between. A tray slides up from the bottom once a lifted card starts to move, and the lists end above it so it never covers a card. `dock={false}` turns it off. A long press released in place still opens the Move sheet, and the dock never shows for it. Drop the card on a column chip and it goes to the top of that column, in its own lane, without scrolling there. Drop it on one of your `cardActions` and the board calls `onCardAction`. Over the dock the card shrinks toward your finger so you can see the chip it is on.
+
+```tsx
+const actions: CardAction[] = [
+  { key: 'archive', label: 'Archive', color: '#D93F3F' },
+  { key: 'mine', label: 'Assign to me' },
+];
+
+<Board
+  undo
+  cardActions={actions}
+  canPerformAction={(task, action) => action !== 'mine' || task.assignee !== me}
+  onCardAction={({ action, item }) => {
+    if (action === 'archive') archive(item.id);
+    if (action === 'mine') assign(item.id, me);
+  }}
+  // …
+/>;
+```
+
+- **Actions are yours.** The board never deletes or edits an item. `onCardAction` gets the action, the item, where it was, and `source`: `'dock'`, `'sheet'` or `'accessibility'`.
+- **Not only for drags.** The same actions appear at the end of the Move sheet and as screen-reader actions on the card.
+- **Choosing chips.** `dock={{ columns: ['todo', 'done'] }}` shows only those columns, in that order. `dock={{ actions: false }}` keeps actions out of the dock.
+- **Edges.** While the dock shows, a list's bottom edge starts above it and waits 250 ms before scrolling, so passing through on the way to the dock does not move the list.
+
+<br clear="right" />
+
+**Undo.** `undo` shows a banner after each move a person makes: "Moved “Fix login” to Done · Undo". `board.undo()` works without the banner. Undo goes through `onMove` like any move, with `source: 'undo'`, and puts the card back at its old position. A move the data has since changed, or one that was rolled back, is skipped. The banner hides after `undo.timeoutMs` (5000), or stays until dismissed while a screen reader runs.
+
+## Overview
+
+![Experimental](https://img.shields.io/badge/experimental-0.6-8B95A7)
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/overview.png" alt="Board overview on a phone. All five columns fit side by side, each card reduced to a small label with its column's color, and a Back to the board button." width="230" /></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/matrix.png" alt="Matrix layout on a phone. Important and Not important across the top, Urgent and Not urgent down the side, four cells each with their own cards." width="230" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>overview</b><br /><sub>Every column at once. Cards still drag.</sub></td>
+    <td align="center"><b>layout="matrix"</b><br /><sub>Lanes are rows; every cell on screen.</sub></td>
+  </tr>
+</table>
+
+`overview` lets people pinch in on the board to see every column at once, with small cards that still drag. Pinch out, tap a column's header, or press "Back to the board" to return, and the board opens at that column. `ref.setOverview(true)` opens it from your own button. It works on boards without lanes in the `paged`, `multi` and `fit` layouts. The pinch has not been tested on a device yet, so it may change.
 
 ## Loading data
 
@@ -346,7 +404,8 @@ board.current?.scrollToItem(task.id, { highlight: true });
 ## Accessibility
 
 - **One element per card.** The label gives the item, its column and lane, and its position, for example "Fix login, To do, 2 of 5".
-- **Moves without a drag.** Actions are Move to…, Move to a column, and Move to a lane. The sheet lists only allowed destinations.
+- **Moves without a drag.** Actions are Move to…, Move to a column, Move to a lane, and your `cardActions`. The sheet lists only allowed destinations, and has Up, Down, Previous column and Next column for one-tap moves.
+- **Undo.** The banner's Undo button names the move. With a screen reader running, the banner stays until dismissed.
 - **Announcements.** A move is announced when `onMove` resolves, never before. A rollback is announced with where the card went back to.
 - **Focus.** It follows a card moved from the sheet or by a screen-reader action.
 - **Motion and layout.** Reduced motion is honored, RTL layouts mirror, and text can grow without clipping.
@@ -375,24 +434,30 @@ To keep it fast, memoize your card and filter `items` before they reach the boar
 
 **Data and moves**
 
-| Prop                                                    | Default          | Notes                                                                                                                 |
-| ------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                                                             |
-| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                                                                 |
-| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                                                            |
-| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                                                                     |
-| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                                                                          |
-| `readOnly`                                              | `false`          | Display only.                                                                                                         |
-| `moveModes`                                             | drag and sheet   | `{ drag, sheet, swipe }`. `drag` is `'auto'`, `'handle'` or `false`. See [Ways to move a card](#ways-to-move-a-card). |
-| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                                                              |
-| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                                                                    |
-| `rankStrategy`                                          | fractional index | Replace the rank math.                                                                                                |
+| Prop                                                    | Default          | Notes                                                                                                                                 |
+| ------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                                                                             |
+| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                                                                                 |
+| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                                                                            |
+| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                                                                                     |
+| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                                                                                          |
+| `cardActions`, `onCardAction`, `canPerformAction`       |                  | App actions in the dock, the sheet and screen-reader actions. <sup>0.6</sup>                                                          |
+| `dock`                                                  | `true`           | The drop dock. `false`, or `{ columns, actions }`. <sup>0.6</sup>                                                                     |
+| `haptics`                                               | `true`           | A tick on lift through your app's haptics module, `false`, or your own function. <sup>0.6</sup>                                       |
+| `undo`                                                  | `false`          | The undo banner. `true` or `{ timeoutMs }`. <sup>0.6</sup>                                                                            |
+| `readOnly`                                              | `false`          | Display only.                                                                                                                         |
+| `moveModes`                                             | drag and sheet   | `{ drag, sheet, longPressSheet, swipe }`. `drag` is `'auto'`, `'handle'` or `false`. See [Ways to move a card](#ways-to-move-a-card). |
+| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                                                                              |
+| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                                                                                    |
+| `rankStrategy`                                          | fractional index | Replace the rank math.                                                                                                                |
 
 **Layout and navigation**
 
 | Prop                                 | Default         | Notes                                                                           |
 | ------------------------------------ | --------------- | ------------------------------------------------------------------------------- |
-| `layout`                             | `auto`          | `paged`, `multi`, `fit`, `stacked`.                                             |
+| `layout`                             | `auto`          | `paged`, `multi`, `fit`, `stacked`, `matrix` <sup>0.6</sup>.                    |
+| `hideEmptyColumns`, `hideEmptyLanes` | `false`         | Leave out columns and lanes with no cards. <sup>0.6</sup>                       |
+| `overview`, `onOverviewChange`       | `false`         | Experimental. Pinch in for the whole board. <sup>0.6</sup>                      |
 | `autoBreakpoint`                     | `600`           | Under `auto`, boards narrower than this are paged. <sup>0.4</sup>               |
 | `pagerIndicator`                     | `tabs`          | Paged only. `dots` or `none`.                                                   |
 | `columnId`, `onColumnChange`         |                 | The column on screen. Update `columnId` from the callback.                      |
@@ -430,6 +495,8 @@ To keep it fast, memoize your card and filter `items` before they reach the boar
 | `scrollToItem(id, { animated?, highlight? })` | Scrolls a card into view. `highlight` flashes an outline on it. <sup>0.4</sup>                                  |
 | `scrollToColumn(id, { animated? })`           | Scrolls a column into view.                                                                                     |
 | `openMoveSheet(id)`, `closeMoveSheet()`       | Opens or closes the Move sheet.                                                                                 |
+| `undo()`, `canUndo()`                         | Reverts the newest move that is still where it landed. <sup>0.6</sup>                                           |
+| `setOverview(open, columnId?)`                | Experimental. Opens or closes the overview. <sup>0.6</sup>                                                      |
 
 ### `renderCard` info
 
@@ -457,11 +524,11 @@ The API can still change before 1.0. Breaking changes are listed in the [changel
 
 These are still open before 1.0:
 
-- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). 0.5.0 has not run on iOS yet. Its numbers are from the Pixel 9 Pro emulator, release build.
+- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). 0.5.0 and 0.6.0 have not run on iOS yet. Their numbers are from the Pixel 9 Pro emulator, release build. The overview's pinch has not run on any device: the emulator drives one finger.
 - **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
 - **Usability study.** Five developers new to the package have not been timed yet. Swipe-to-move stays experimental, and off by default, until that study at 0.7.
 
-**Out of scope:** creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, column reorder, multi-select, and items in more than one cell. Reanimated 3, the old architecture, and web.
+**Out of scope:** creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, items in more than one cell, and any action that edits items itself. Column reorder and multi-select are planned, see the [roadmap](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/roadmap.md). Reanimated 3, the old architecture, and web.
 
 ## Try the demo
 

@@ -15,6 +15,7 @@ import { rawInsertionIndex, slotIndexAt, type Rect, type SlotSource } from '../e
 import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle, type UiScrollTarget } from '../engine/types';
 import { BoardCard } from './BoardCard';
 import { CollapsedColumnStrip, DefaultColumnHeader, DefaultEmptyCell, LoadingFooter } from './defaults';
+import { OverviewHeader } from './Overview';
 import { PLACEHOLDER_ROW, cardIndexFromRaw, displayedRows, isPlaceholder, type DisplayedRow } from './displayed';
 import type { ColumnSlot } from './metrics';
 import { showsCellFooter, visualSlot } from './metrics';
@@ -28,7 +29,7 @@ export interface ListApi {
   scrollToIndex(index: number, animated: boolean): void;
 }
 
-type ListRegistry = RefObject<Map<string, ListApi>>;
+export type ListRegistry = RefObject<Map<string, ListApi>>;
 
 /** Boards without lanes in the paged, multi and fit layouts: a sideways row of FlashList columns. */
 export function ColumnsLayout() {
@@ -186,7 +187,9 @@ const BoardColumn = memo(function BoardColumn({
   };
   return (
     <View style={frame}>
-      {props.renderColumnHeader ? (
+      {board.overview ? (
+        <OverviewHeader column={cell.column} count={total} />
+      ) : props.renderColumnHeader ? (
         props.renderColumnHeader(headerInfo)
       ) : (
         <DefaultColumnHeader info={headerInfo} theme={theme} labels={labels} />
@@ -328,7 +331,8 @@ function columnGeometry(
   };
 }
 
-function ColumnList({
+/** One cell's FlashList and its drag geometry. Also the cell list of the matrix layout. */
+export function ColumnList({
   cell,
   slot,
   listTop,
@@ -424,7 +428,7 @@ function ColumnList({
   const empty = (
     <View>
       {props.renderEmptyCell ? (
-        props.renderEmptyCell({ column: cell.column, lane: null })
+        props.renderEmptyCell({ column: cell.column, lane: cell.laneKey === NO_LANE_ID ? null : cell.lane })
       ) : (
         <DefaultEmptyCell theme={theme} labels={labels} />
       )}

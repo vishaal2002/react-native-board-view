@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MATRIX_GUTTER,
   columnMetrics,
   offsetForSlot,
   pageAt,
@@ -130,5 +131,16 @@ describe('slot lookups', () => {
   it('mirrors visual order right to left', () => {
     expect(visualSlot(0, 4, false)).toBe(0);
     expect(visualSlot(0, 4, true)).toBe(3);
+  });
+});
+
+describe('matrix metrics', () => {
+  it('shares the width after the lane gutter and never scrolls', () => {
+    const metrics = columnMetrics('matrix', 400, [false, false], theme);
+    expect(metrics.scrollable).toBe(false);
+    expect(metrics.slots[0]?.x).toBe(MATRIX_GUTTER);
+    const width = (400 - MATRIX_GUTTER - theme.columnGap * 2) / 2;
+    expect(metrics.slots.map((slot) => slot.width)).toEqual([width, width]);
+    expect(metrics.slots[1]?.x).toBe(MATRIX_GUTTER + width + theme.columnGap);
   });
 });

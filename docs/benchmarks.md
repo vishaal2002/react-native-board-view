@@ -97,6 +97,21 @@ Same AVD and release build method, host on mains power. Each row is `dumpsys gfx
 
 The `fit` row draws fewer frames because the board reached column 12 and stopped partway through the 4 s. Every drop above landed at the index shown. Frame-by-frame captures of a lift and a drop showed no empty slot.
 
+## 2026-10-18: 0.6.0 against 0.5.0
+
+Same AVD, release builds of both versions installed in turn, measured by one script. The host was on battery, which throttles the emulator: every number here is far below the 2026-10-17 mains-power run, plain scrolling included. Read this table only as a comparison between the two builds.
+
+| Build | Column auto-scroll, 4 s | Janky     | Plain list scrolling | Janky  |
+| ----- | ----------------------- | --------- | -------------------- | ------ |
+| 0.5.0 | 121 and 119 frames      | 98%, 94%  | 91 frames            | 88%    |
+| 0.6.0 | 120 and 118 frames      | 96%, 100% | 89–91 frames         | 82–89% |
+
+No regression from 0.6.0. Its drop zones cost a lookup over an empty map when the dock is off, and a few rect reads when it shows.
+
+**Method change.** In 0.6.0 the drop dock covers the bottom of the board while a card is held, and the lists end above it. Hold the card at the lists' new bottom edge, just above the dock. Holding at the bottom of the screen puts the finger on a dock chip, where auto-scroll correctly stops: two early 0.6.0 runs drew 1 and 2 frames that way.
+
+A mains-power run of 0.6.0 is still to do.
+
 ## Still to measure (release gates)
 
 | Device                                        | Build   | Workload                |

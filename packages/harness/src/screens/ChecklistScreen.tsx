@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { CircleCheck, CircleX } from 'lucide-react-native';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { runS1Cases } from '../s1';
 import type { Route } from '../routes';
@@ -60,9 +61,16 @@ export function ChecklistScreen({ onBack, onOpen }: { onBack: () => void; onOpen
             <Text style={{ color: passed ? palette.good : palette.bad }}>{passed ? 'pass' : 'fail'}</Text>
           </Text>
           {s1.map((check) => (
-            <Text key={check.id} style={[styles.line, { color: check.pass ? palette.good : palette.bad }]}>
-              {check.pass ? '✓' : '✕'} {check.name}
-            </Text>
+            <View key={check.id} style={styles.check}>
+              {check.pass ? (
+                <CircleCheck color={palette.good} size={16} strokeWidth={2.4} />
+              ) : (
+                <CircleX color={palette.bad} size={16} strokeWidth={2.4} />
+              )}
+              <Text style={[styles.line, styles.checkText, { color: check.pass ? palette.good : palette.bad }]}>
+                {check.name}
+              </Text>
+            </View>
           ))}
         </View>
         {GATES.map((gate) => (
@@ -93,6 +101,8 @@ const styles = StyleSheet.create({
   card: { borderRadius: 14, padding: 14, borderWidth: StyleSheet.hairlineWidth, gap: 4 },
   cardTitle: { fontSize: 16, fontWeight: '700' },
   line: { fontSize: 13, fontWeight: '500' },
+  check: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  checkText: { flex: 1 },
   gate: { flexDirection: 'row', gap: 12 },
   code: { fontSize: 15, fontWeight: '800', width: 28 },
   gateText: { flex: 1, gap: 2 },

@@ -14,6 +14,12 @@ export interface AutoScrollInput {
   mode: AutoScrollMode;
   pageSize: number;
   reducedMotion: boolean;
+  /**
+   * Continuous mode: how long the pointer must stay in the edge before
+   * scrolling starts, so a finger passing through (on its way to a drop dock)
+   * does not move the list. Default 0.
+   */
+  delayMs?: number;
 }
 
 export interface AutoScrollStep {
@@ -85,6 +91,8 @@ export function stepAutoScroll(input: AutoScrollInput): AutoScrollStep {
     return { offset: next, dwellMs: 0, flipped: next !== input.offset };
   }
 
+  const delay = input.delayMs ?? 0;
+  if (dwellMs < delay) return { offset: input.offset, dwellMs, flipped: false };
   const zone = Math.min(input.edgeZone, input.frameSize / 3);
   const depth =
     direction > 0
@@ -94,7 +102,7 @@ export function stepAutoScroll(input: AutoScrollInput): AutoScrollStep {
   const intensity = 0.4 + 0.6 * clamp(depth / Math.max(1, zone), 0, 1);
   const speed = input.reducedMotion
     ? REDUCED_PX_PER_SEC
-    : Math.min(MAX_PX_PER_SEC, BASE_PX_PER_SEC + (RAMP_PX_PER_SEC2 * dwellMs) / 1000) * intensity;
+    : Math.min(MAX_PX_PER_SEC, BASE_PX_PER_SEC + (RAMP_PX_PER_SEC2 * (dwellMs - delay)) / 1000) * intensity;
   const next = clamp(input.offset + direction * speed * (dt / 1000), 0, maxOffset);
   return { offset: next, dwellMs, flipped: false };
 }

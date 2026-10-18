@@ -15,6 +15,8 @@ interface DragAdapter {
   usePlacement(cellId: string): CellPlacement; // what this cell must render right now
   useDragSource(): { itemId: string; cellId: string } | null;
   usePlacementState(): DragPlacement | null;
+  useZone(zoneId: string, geometry: ZoneGeometry | null): void; // a drop target outside the lists
+  useActiveZone(): SharedValue<string>; // the zone under the finger, for highlights
 }
 ```
 
@@ -67,13 +69,24 @@ While a card is lifted, the engine publishes a `DragPlacement`: the lifted item,
    | ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
    | Over a cell that accepts the card         | `onTransfer` or `onReorder` runs. If it returns `false`, the move was refused and the card flies home. |
    | Anywhere else                             | The drag is cancelled.                                                                                 |
-   | Without having moved (a long-press "tap") | `onLongPressMenu` runs, which opens the Move sheet.                                                    |
+   | Without having moved (a long-press "tap") | `onLongPressMenu` runs, which opens the Move sheet. A drag that moved and came back never does.        |
 
    On release the UI thread stops auto-scroll in the same frame (`armed` is cleared in `onFinalize`), so the list cannot move under a landing that JS has already computed.
 
    The drop then shows the real card under the copy, and hides the copy two frames later. A list that draws the card a frame late shows the copy for that frame, never an empty slot.
 
 4. **Data changes:** the `revision` and `isDragValid` props abort the drag when app data removes the card or moves it somewhere else.
+
+## Drop zones
+
+A zone is a drop target that is not a list, such as a chip in the drop dock. It registers `ZoneGeometry`: `getRect()` in board coordinates and `accepts(itemId)`.
+
+- **Above the lists.** A zone under the finger hides the cell beneath it. The placeholder goes back to the card's source, the outline hides, and nothing auto-scrolls.
+- **Edges.** While zones exist, a vertical scroller's viewport ends at the top of the highest zone, and its edge waits 250 ms (`delayMs` in `stepAutoScroll`) before scrolling. The finger crosses that edge on its way to the dock. The drop outline is also clipped there.
+- **Release.** `onZoneDrop({ itemId, sourceCellId, zoneId })` runs when the zone accepts the card. True means it was taken: the copy flies to the zone's middle and fades. False sends the card home. A refused zone is never a drop on the cell beneath it.
+- **Feedback.** `useActiveZone()` is a shared value, so chips highlight on the UI thread. The lifted copy shrinks to 40% toward the grab point and fades while over a zone.
+
+The board's dock (`layout/DropDock.tsx`) is the only user. While it shows, it reports its height through `setDockInset`, and `Board` takes that off the height the layouts get, so lists end above it. It renders only after `useDragMoved()` turns true, the same moment auto-scroll arms, so a long press released in place shows the Move sheet alone. It is a direct child of the drag board, so its frames from `onLayout` are already in board coordinates. Zone ids are `dock-column:<id>` and `dock-action:<key>`.
 
 ## Handle
 

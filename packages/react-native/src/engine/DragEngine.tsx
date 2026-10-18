@@ -43,6 +43,7 @@ import {
   type PlaceholderProps,
   type ScrollerHandle,
   type UiScrollTarget,
+  type ZoneGeometry,
 } from './types';
 
 /** Long-press released within this distance (px) opens the menu instead of dropping. */
@@ -52,6 +53,10 @@ const HANDLE_SLOP = 3;
 const AUTO_SCROLL_QUIET_MS = 150;
 /** How the lifted card looks and how long a drop takes, unless the board passes its own. */
 const DEFAULT_LIFT: LiftStyle = { scale: 1.03, tilt: 0, shadowOpacity: 0.25, dropMs: 200 };
+/** With a drop dock showing, a list's edge waits this long before scrolling: the finger crosses it to reach the dock. */
+const DOCK_EDGE_DELAY_MS = 250;
+/** How much the lifted copy shrinks over a drop zone, so the zone under the finger stays visible. */
+const ZONE_SHRINK = 0.6;
 /** Offsets the UI thread wrote recently. An offset outside them was moved by someone else. */
 const OFFSET_HISTORY = 6;
 /** A new drop slot must hold for this many frames before the placeholder moves. */
@@ -94,9 +99,11 @@ interface AxisConfig {
   zone: number;
   max: number;
   reduced: boolean;
+  /** `stepAutoScroll`'s `delayMs`. */
+  delay: number;
 }
 
-const AXIS_OFF: AxisConfig = { on: false, target: -1, start: 0, size: 0, zone: 0, max: 0, reduced: false };
+const AXIS_OFF: AxisConfig = { on: false, target: -1, start: 0, size: 0, zone: 0, max: 0, reduced: false, delay: 0 };
 
 interface UiTargets {
   x: UiScrollTarget | null;
@@ -146,9 +153,14 @@ interface EngineStore {
   handleDown: SharedValue<boolean>;
   /** Where the current touch went down, in window coordinates. A handle drag starts from here. */
   touchStart: SharedValue<Point>;
+  /** The drop zone under the pointer, or ''. */
+  activeZone: SharedValue<string>;
   cells: Map<string, CellGeometry>;
+  zones: Map<string, ZoneGeometry>;
   scrollers: { horizontal: ScrollerHandle | null; vertical: ScrollerHandle | null };
   placement: { current: Placement | null };
+  /** The finger has moved past the menu slop in the current drag. */
+  moved: { current: boolean };
   listeners: Set<() => void>;
 }
 
@@ -184,6 +196,7 @@ function DragProvider({ children }: { children: ReactNode }) {
   const uiScrollTick = useSharedValue(0);
   const handleDown = useSharedValue(false);
   const touchStart = useSharedValue<Point>({ x: 0, y: 0 });
+  const activeZone = useSharedValue('');
   const [store] = useState<EngineStore>(() => ({
     activeId,
     phase,
@@ -205,9 +218,12 @@ function DragProvider({ children }: { children: ReactNode }) {
     uiScrollTick,
     handleDown,
     touchStart,
+    activeZone,
     cells: new Map(),
+    zones: new Map(),
     scrollers: { horizontal: null, vertical: null },
     placement: { current: null },
+    moved: { current: false },
     listeners: new Set(),
   }));
   return <EngineContext value={store}>{children}</EngineContext>;
@@ -224,6 +240,18 @@ function setPlacement(store: EngineStore, next: Placement | null, animate: boole
   if (animate) LayoutAnimation.configureNext(PLACEHOLDER_ANIMATION);
   store.placement.current = next;
   for (const listener of store.listeners) listener();
+}
+
+function setMoved(store: EngineStore, moved: boolean): void {
+  if (store.moved.current === moved) return;
+  store.moved.current = moved;
+  for (const listener of store.listeners) listener();
+}
+
+function useDragMoved(): boolean {
+  const store = useEngine();
+  const subscribe = useSubscribe(store);
+  return useSyncExternalStore(subscribe, () => store.moved.current);
 }
 
 function useSubscribe(store: EngineStore) {
@@ -292,6 +320,21 @@ function useScroller(key: 'horizontal' | 'vertical', handle: ScrollerHandle | nu
   }, [store, key, handle]);
 }
 
+function useZone(zoneId: string, geometry: ZoneGeometry | null): void {
+  const store = useEngine();
+  useLayoutEffect(() => {
+    if (!geometry) return;
+    store.zones.set(zoneId, geometry);
+    return () => {
+      if (store.zones.get(zoneId) === geometry) store.zones.delete(zoneId);
+    };
+  }, [store, zoneId, geometry]);
+}
+
+function useActiveZone(): SharedValue<string> {
+  return useEngine().activeZone;
+}
+
 function DragCell({ cellId, geometry, style, onLayout, children }: DragCellProps) {
   const store = useEngine();
   useLayoutEffect(() => {
@@ -358,6 +401,8 @@ interface ActiveDrag {
   outlineKey: string;
   /** The pointer is over a cell that accepts the card. */
   overAllowed: boolean;
+  /** The drop zone under the pointer, or ''. */
+  zoneId: string;
 }
 
 function findCell(cells: Map<string, CellGeometry>, x: number, y: number): [string, CellGeometry, Rect] | null {
@@ -366,6 +411,24 @@ function findCell(cells: Map<string, CellGeometry>, x: number, y: number): [stri
     if (rect && containsPoint(rect, x, y)) return [cellId, geometry, rect];
   }
   return null;
+}
+
+function findZone(zones: Map<string, ZoneGeometry>, x: number, y: number): [string, ZoneGeometry, Rect] | null {
+  for (const [zoneId, geometry] of zones) {
+    const rect = geometry.getRect();
+    if (rect && containsPoint(rect, x, y)) return [zoneId, geometry, rect];
+  }
+  return null;
+}
+
+/** Top of the highest zone, so auto-scroll edges sit above a dock instead of under it. */
+function zonesTop(zones: Map<string, ZoneGeometry>): number {
+  let top = Infinity;
+  for (const geometry of zones.values()) {
+    const rect = geometry.getRect();
+    if (rect) top = Math.min(top, rect.y);
+  }
+  return top;
 }
 
 function DragBoard(props: DragBoardProps) {
@@ -396,6 +459,7 @@ function DragBoard(props: DragBoardProps) {
     autoX,
     autoY,
     uiScrollTick,
+    activeZone,
   } = store;
   const [uiTargets, setUiTargets] = useState<UiTargets>(NO_UI_TARGETS);
   const uiTargetsRef = useRef<UiTargets>(NO_UI_TARGETS);
@@ -425,6 +489,7 @@ function DragBoard(props: DragBoardProps) {
    */
   const reveal = useCallback(() => {
     setPlacement(store, null, false);
+    setMoved(store, false);
     const nextFrames = (frames: number, run: () => void) => {
       if (frames <= 0) run();
       else requestAnimationFrame(() => nextFrames(frames - 1, run));
@@ -443,22 +508,25 @@ function DragBoard(props: DragBoardProps) {
     });
   }, [activeId, hoverOpacity, hoverReady, outline, phase, store, tracking]);
 
-  /** Flies the lifted copy to `to` (or fades it when there is nowhere to go), then reveals. */
+  /**
+   * Flies the lifted copy to `to` (or fades it when there is nowhere to go), then
+   * reveals. `fade` also fades it on the way, for a card absorbed by a drop zone.
+   */
   const settle = useCallback(
-    (to: Rect | null) => {
+    (to: Rect | null, fade = false) => {
       phase.value = PHASE_SETTLING;
       outline.value = HIDDEN_OUTLINE;
+      activeZone.value = '';
       const duration = propsRef.current.reducedMotion ? 0 : (propsRef.current.lift?.dropMs ?? DEFAULT_LIFT.dropMs);
       const timing = { duration, easing: Easing.out(Easing.cubic) };
       if (to) {
         hoverX.value = withTiming(to.x, timing);
         hoverY.value = withTiming(to.y, timing);
-      } else {
-        hoverOpacity.value = withTiming(0, timing);
       }
+      if (!to || fade) hoverOpacity.value = withTiming(0, timing);
       later(duration + 16, reveal);
     },
-    [hoverOpacity, hoverX, hoverY, later, outline, phase, reveal],
+    [activeZone, hoverOpacity, hoverX, hoverY, later, outline, phase, reveal],
   );
 
   const allowedIn = useCallback((geometry: CellGeometry, cellId: string, itemId: string) => {
@@ -477,16 +545,29 @@ function DragBoard(props: DragBoardProps) {
     if (!active || !placement) return;
     active.framesSinceMove += 1;
     const { x, y } = active.pointer;
-    const hit = findCell(store.cells, x, y);
+    // Zones sit above the lists, so a zone under the pointer hides the cell beneath it.
+    const zone = findZone(store.zones, x, y);
+    const zoneId = zone ? zone[0] : '';
+    if (zoneId !== active.zoneId) {
+      active.zoneId = zoneId;
+      activeZone.value = zoneId;
+    }
+    const hit = zone ? null : findCell(store.cells, x, y);
     // Crossing a gap keeps the placeholder where it is; a cell that refuses the card sends it home.
     let desired = { cellId: placement.cellId, index: placement.index };
     active.overAllowed = false;
 
+    if (zone) {
+      // Over a zone the card is leaving the lists: close the gap at its source.
+      desired = { cellId: active.sourceCellId, index: active.sourceIndex };
+    }
     if (hit) {
       const [cellId, geometry, rect] = hit;
       const allowed = allowedIn(geometry, cellId, active.itemId);
       active.overAllowed = allowed;
-      const key = `${cellId}|${allowed}|${Math.round(rect.x)}|${Math.round(rect.y)}|${Math.round(rect.width)}|${Math.round(rect.height)}`;
+      // A drop dock is drawn over the lists: the outline stops at its top.
+      const floor = store.zones.size > 0 ? zonesTop(store.zones) : Infinity;
+      const key = `${cellId}|${allowed}|${Math.round(rect.x)}|${Math.round(rect.y)}|${Math.round(rect.width)}|${Math.round(rect.height)}|${Math.round(floor)}`;
       if (key !== active.outlineKey) {
         active.outlineKey = key;
         // Store content x so the overlay can subtract the live UI-thread offset.
@@ -495,7 +576,10 @@ function DragBoard(props: DragBoardProps) {
         // A tall swimlane cell can reach past its list: keep the outline inside what the list shows.
         const viewport = geometry.scroller?.getViewport();
         const top = viewport ? Math.max(rect.y, viewport.start) : rect.y;
-        const bottom = viewport ? Math.min(rect.y + rect.height, viewport.start + viewport.size) : rect.y + rect.height;
+        const bottom = Math.min(
+          viewport ? Math.min(rect.y + rect.height, viewport.start + viewport.size) : rect.y + rect.height,
+          floor,
+        );
         outline.value = {
           visible: bottom > top,
           allowed,
@@ -539,7 +623,7 @@ function DragBoard(props: DragBoardProps) {
       !propsRef.current.reducedMotion && !scrolling,
     );
     propsRef.current.onDragOver?.({ itemId: active.itemId, cellId: desired.cellId, index: desired.index });
-  }, [allowedIn, outline, store]);
+  }, [activeZone, allowedIn, outline, store]);
 
   /** The last cell's scroller while the pointer is beyond that cell's top or bottom, within its width. */
   const outerScroller = useCallback(
@@ -565,6 +649,7 @@ function DragBoard(props: DragBoardProps) {
         const travelled = Math.hypot(active.pointer.x - active.start.x, active.pointer.y - active.start.y);
         if (travelled < MENU_SLOP) return;
         active.armed = true;
+        setMoved(store, true);
         armed.value = true;
       }
       // Content the UI thread scrolled since the last frame counts as auto-scroll, like our own.
@@ -575,8 +660,17 @@ function DragBoard(props: DragBoardProps) {
         active.lastScrollAt = active.lastTime;
       }
       const { reducedMotion = false, compact = true } = propsRef.current;
+      // Nothing scrolls under a finger resting on a drop zone.
+      const overZone = active.zoneId !== '';
+      const dockTop = store.zones.size > 0 ? zonesTop(store.zones) : Infinity;
       const run = (axis: 'x' | 'y', scroller: ScrollerHandle | null, pointer: number, dwell: number): number => {
-        const viewport = scroller?.getViewport();
+        const delay = axis === 'y' && dockTop < Infinity ? DOCK_EDGE_DELAY_MS : 0;
+        const full = overZone ? null : scroller?.getViewport();
+        // A dock covers the bottom of the lists: their bottom edge zone starts above it.
+        const viewport =
+          full && axis === 'y' && dockTop > full.start && dockTop < full.start + full.size
+            ? { start: full.start, size: dockTop - full.start }
+            : full;
         const config = axis === 'x' ? autoX : autoY;
         // One synchronous read per axis and frame: each read crosses to the UI runtime.
         const current = config.value;
@@ -596,6 +690,7 @@ function DragBoard(props: DragBoardProps) {
             zone: edgeZone(viewport.size, compact),
             max: scroller.getMaxOffset(),
             reduced: reducedMotion,
+            delay,
           };
           if (
             !current.on ||
@@ -604,7 +699,8 @@ function DragBoard(props: DragBoardProps) {
             current.size !== next.size ||
             current.zone !== next.zone ||
             Math.abs(current.max - next.max) >= 0.5 ||
-            current.reduced !== next.reduced
+            current.reduced !== next.reduced ||
+            current.delay !== next.delay
           ) {
             config.value = next;
           }
@@ -626,6 +722,7 @@ function DragBoard(props: DragBoardProps) {
           mode,
           pageSize: scroller.getPageSize?.() ?? viewport.size,
           reducedMotion,
+          delayMs: delay,
         });
         if (Math.abs(step.offset - offset) >= 0.5) {
           scroller.scrollTo(step.offset, step.flipped && !reducedMotion);
@@ -686,7 +783,9 @@ function DragBoard(props: DragBoardProps) {
         framesSinceMove: 0,
         outlineKey: '',
         overAllowed: true,
+        zoneId: '',
       };
+      setMoved(store, false);
       grab.value = { x: x - card.rect.x, y: y - card.rect.y };
       hoverWidth.value = card.rect.width;
       hoverHeight.value = card.rect.height;
@@ -757,7 +856,8 @@ function DragBoard(props: DragBoardProps) {
       const current = propsRef.current;
       const placement = store.placement.current;
       const travelled = Math.hypot(active.pointer.x - active.start.x, active.pointer.y - active.start.y);
-      const menu = !cancelled && travelled < MENU_SLOP && !active.scrolled;
+      // Once the finger has moved, this is a drag: coming back to the start and letting go never opens the menu.
+      const menu = !cancelled && travelled < MENU_SLOP && !active.scrolled && !active.armed;
       if (!placement) {
         // Released before the placeholder appeared: nothing moved, so the copy settles onto the card.
         settle(active.home);
@@ -765,8 +865,28 @@ function DragBoard(props: DragBoardProps) {
         if (menu) current.onLongPressMenu?.({ itemId: active.itemId, cellId: active.sourceCellId });
         return;
       }
+      const zone = findZone(store.zones, active.pointer.x, active.pointer.y);
+      if (zone && !cancelled && !menu) {
+        const [zoneId, geometry, rect] = zone;
+        const taken =
+          geometry.accepts(active.itemId) &&
+          current.onZoneDrop?.({ itemId: active.itemId, sourceCellId: active.sourceCellId, zoneId }) === true;
+        if (taken) {
+          setPlacement(store, null, false);
+          // Shrink toward the zone's middle while fading, so the card reads as dropped into it.
+          const width = store.hoverWidth.value;
+          const height = store.hoverHeight.value;
+          settle(
+            { x: rect.x + rect.width / 2 - width / 2, y: rect.y + rect.height / 2 - height / 2, width, height },
+            true,
+          );
+          current.onDragEnd?.({ itemId: active.itemId, cancelled: false });
+          return;
+        }
+      }
       const atHome = placement.cellId === active.sourceCellId && placement.index === active.sourceIndex;
-      const released = findCell(store.cells, active.pointer.x, active.pointer.y);
+      // A zone covers the cells beneath it: a refused zone drop is not a drop on those cells.
+      const released = zone ? null : findCell(store.cells, active.pointer.x, active.pointer.y);
       // Released outside every cell that takes the card: the move is cancelled.
       const onTarget = released != null && allowedIn(released[1], released[0], active.itemId);
 
@@ -1005,6 +1125,7 @@ function UiAutoScroll({ targets }: { targets: UiTargets }) {
           mode: 'continuous',
           pageSize: config.size,
           reducedMotion: config.reduced,
+          delayMs: config.delay,
         });
         axis.dwell.value = step.dwellMs;
         // Sub-pixel steps wait and add up, so the position never runs ahead of the screen.
@@ -1075,8 +1196,18 @@ function DragOverlay({
   lift: LiftStyle;
   onLaidOut: () => void;
 }) {
-  const { hoverX, hoverY, hoverWidth, hoverHeight, hoverOpacity, hoverReady, phase, outline } = useEngine();
+  const { hoverX, hoverY, hoverWidth, hoverHeight, hoverOpacity, hoverReady, phase, outline, activeZone, grab } =
+    useEngine();
   const { scale, tilt } = lift;
+  // 1 while the finger is on a drop zone: the copy shrinks toward the finger so the zone stays visible.
+  const zoneProgress = useSharedValue(0);
+  useAnimatedReaction(
+    () => activeZone.value !== '',
+    (over, previous) => {
+      if (over !== previous) zoneProgress.value = withTiming(over ? 1 : 0, { duration: reducedMotion ? 0 : 140 });
+    },
+    [reducedMotion],
+  );
   // 0 at rest, 1 lifted. Scale and tilt are read from it, so both stay plain numbers in the style.
   const liftProgress = useSharedValue(0);
   useAnimatedReaction(
@@ -1089,14 +1220,16 @@ function DragOverlay({
 
   const hoverStyle = useAnimatedStyle(() => {
     const progress = liftProgress.value;
+    const shrink = 1 - ZONE_SHRINK * zoneProgress.value;
     return {
       width: hoverWidth.value,
       height: hoverHeight.value,
-      opacity: hoverReady.value ? hoverOpacity.value : 0,
+      opacity: hoverReady.value ? hoverOpacity.value * (1 - 0.45 * zoneProgress.value) : 0,
+      transformOrigin: [grab.value.x, grab.value.y, 0],
       transform: [
         { translateX: hoverX.value },
         { translateY: hoverY.value },
-        { scale: 1 + (scale - 1) * progress },
+        { scale: (1 + (scale - 1) * progress) * shrink },
         { rotate: `${tilt * progress}deg` },
       ],
     };
@@ -1207,5 +1340,8 @@ export const gestureAdapter: DragAdapter = {
   useScroller,
   usePlacement,
   useDragSource,
+  useDragMoved,
   usePlacementState,
+  useZone,
+  useActiveZone,
 };
