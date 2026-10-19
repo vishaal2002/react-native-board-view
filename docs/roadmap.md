@@ -1,15 +1,16 @@
 # Roadmap
 
-Draft, updated 2026-10-18. 0.6.0 is built: everything in its table shipped, with the overview behind its experimental flag. Each minor release has one theme. Features marked _experimental_ ship off by default and can change before 1.0.
+Draft, updated 2026-10-19. 0.6.0 shipped on 2026-10-18 with `board-view-core` 0.2.0. 0.7.0 is built, front end only. Each minor release has one theme. Features marked _experimental_ ship off by default and can change before 1.0.
 
-| Version | Theme                           | Headline                                    |
-| ------- | ------------------------------- | ------------------------------------------- |
-| 0.6.0   | Phone-first moves               | Drop dock, undo, pinch-to-zoom overview     |
-| 0.7.0   | Live and batch                  | Live moves from other users, multi-select   |
-| 0.8.0   | Structure, input and API freeze | Column and lane reorder, keyboard, test kit |
-| 1.0.0   | Stable                          | Device gates, no new features               |
+| Version | Theme                           | Headline                                              |
+| ------- | ------------------------------- | ----------------------------------------------------- |
+| 0.6.0   | Phone-first moves (shipped)     | Drop dock, undo, matrix, a better Move sheet          |
+| 0.7.0   | Living board                    | Live moves, multi-select, week planner, layout morphs |
+| 0.7.1   | Performance                     | JS thread near 60 fps while scrolling, jank near 0%   |
+| 0.8.0   | Structure, input and API freeze | Column and lane reorder, keyboard, test kit           |
+| 1.0.0   | Stable                          | Device gates, no new features                         |
 
-## 0.6.0: phone-first moves
+## 0.6.0: phone-first moves (shipped)
 
 Moving a card far across a phone board is the slowest thing the board does today: the card rides an edge scroll across every column in between. 0.6.0 gives the user two shortcuts and a safety net.
 
@@ -41,22 +42,50 @@ As shipped:
 
 Dock chip drops reach `onMove` as `source: 'drag'`, and undo as `source: 'undo'` (core 0.2.0).
 
-## 0.7.0: live and batch
+## 0.7.0: your data at a glance (built)
 
-Both features change the core move queue, so they ship together and core goes to 0.2.0.
+Front end only: nothing here changes the core or reaches a server. `board-view-core` stays 0.2.0.
 
-- **Live moves.** The app passes moves it hears from its server (any backend). The board animates the card to its new place with a badge for who moved it, and shows cards another user is dragging as locked. Remote moves merge with pending local ones. The convergence property test covers the mix.
-- **Multi-select and batch moves.** The app controls the selected ids. A batch moves as one operation and rolls back as one. The lifted copy shows a count.
-- **Spring-loaded collapsed columns.** Hovering a collapsed column during a drag opens it.
-- **Usability study.** Five developers new to the package, on 0.7, so findings reach 0.8 while breaking changes are still allowed. It also decides whether swipe-to-move becomes stable.
+| Priority | Feature                    | Status                                                                                          |
+| -------- | -------------------------- | ----------------------------------------------------------------------------------------------- |
+| P0       | Week planner               | Built. `layout="planner"`, `dayColumns`, today disc, weekends set back, Today button.           |
+| P0       | Columns that load sideways | Built. `onColumnsEndReached`, with the same column kept on screen when days are added in front. |
+| P0       | WIP limits                 | Built. Count against limit, a meter, warning and reject colors, and `limitBehavior="block"`.    |
+| P0       | Column sums                | Built. `getItemValue`, `formatValue`.                                                           |
+| P0       | Spotlight                  | Built. Faded cards keep their place and still move.                                             |
+| P0       | Layout motion              | Built. Columns glide between frames; a new layout fades in.                                     |
+| P0       | Release gates              | Emulator only. iOS, real phones, TalkBack and VoiceOver are still open, as for 0.5 and 0.6.     |
+| P1       | Sticky headers             | Built. Stacked uses FlashList sticky headers; swimlanes pin a copy of the top lane's header.    |
+| P1       | Card ageing                | Built. `getItemAge`, `staleAfterDays`, and the `CardView` age chip.                             |
+| P1       | Lane distribution          | Built. A bar in each lane header.                                                               |
+| P1       | Theme presets              | Built. `paper`, `slate`, `aurora`, each AA in light and dark.                                   |
+| P1       | Motion presets             | Built. `calm`, `snappy`, `playful`.                                                             |
+
+**Moved out of 0.7.0** when the release became front-end only, to be planned again after 0.7.1:
+
+- Live moves and presence, and multi-select with batch moves. Both change the core move queue.
+- Smart dock, move history, gallery cells, pipeline chevrons, spring-loaded collapsed columns and landing effects.
+- The Expo Go demo.
+
+The five-developer usability study still belongs before the 0.8 API freeze.
+
+## 0.7.1: performance
+
+No new features and no API changes. Profile a release build on mains power, then fix what dominates. The likely causes, from reading the code:
+
+- Every card rebuilds its screen-reader actions (a `canDrop` call per column) whenever the board's shared state changes, and that state is rebuilt on every board update.
+- Every card mounts its own UI-thread animated style, only to hide itself during a drag.
+- One move re-renders every mounted card, not only the two cells it touched.
+- Hit-testing runs in JS once per frame. Move it to a worklet if devices need it.
+- The dock reshapes the lists twice per drag.
+
+Targets: the JS thread at 55 fps or more during auto-scroll, and 0–3% janky frames on every board, measured against 0.5.0, 0.6.0 and 0.7.0 on the emulator, a mid-tier Android phone and an iPhone. Keep only the changes that measurably help.
 
 ## 0.8.0: structure, input and API freeze
 
 - **Column and lane reorder.** Drag a header, or use a screen-reader action. The board reports the order, and the app updates its list.
-- **Sticky headers.** Lane headers in swimlanes, section headers in stacked.
 - **Hardware keyboard and pointer.** Arrows, space to lift, enter to drop, escape to cancel. Hover states and mouse drag without a long press.
 - **Test helpers.** A testing export that simulates moves and checks `onMove` calls in Jest.
-- **Animated layout changes.** Cards glide to their new place when the board switches between columns, swimlanes and stacked.
 - **API review.** Every export marked stable or experimental. Dev warnings on anything 1.0 removes.
 
 The last release that can break the API. After it come release candidates, not a 0.9.
@@ -71,15 +100,16 @@ The last release that can break the API. After it come release candidates, not a
 ## After 1.0
 
 - **Flick to move.** Flick a lifted card toward a column and it flies there. Off by default; accidental flicks need a study.
-- **Week planner.** Columns are days, and the board loads more days as it scrolls sideways.
+- **Docs site.** A guide with a video per feature, recipes and the API reference, once the API is frozen.
 
 ## Board types
 
 | Type                  | Verdict      | Why                                                                                                                                     |
 | --------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Matrix (2 × 2, 3 × 3) | 0.6.0, P2    | Cells are already `lane::column`. A fit-to-screen grid with no scrolling needs no virtualization. Popular for priority and triage apps. |
-| Week planner          | After 1.0    | Needs columns that load sideways, which the board does not do yet.                                                                      |
-| Sales pipeline        | Recipe       | Columns plus `columnTotals` and a custom header already do it.                                                                          |
+| Matrix (2 × 2, 3 × 3) | 0.6.0        | Cells are already `lane::column`. A fit-to-screen grid with no scrolling needs no virtualization. Popular for priority and triage apps. |
+| Week planner          | 0.7.0        | Shipped with columns that load sideways in every layout.                                                                                |
+| Gallery cells         | 0.7.0, P2    | Masonry inside a cell. Two-dimensional drop slots are the risk.                                                                         |
+| Sales pipeline        | 0.7.0, P2    | Pipeline headers with totals and conversion. Before that, `columnTotals` and a custom header.                                           |
 | Gantt or timeline     | Out of scope | Cards with start and end dates are a scheduling product, not a board.                                                                   |
 | Free-form canvas      | Out of scope | No order or index, so none of the move model applies.                                                                                   |
 | Nested or sub-columns | Out of scope | Stays out, as in the README.                                                                                                            |
@@ -88,4 +118,4 @@ The last release that can break the API. After it come release candidates, not a
 
 Creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, items in more than one cell, Reanimated 3, the old architecture, and web.
 
-Column reorder (0.8) and multi-select (0.7) leave the README's out-of-scope list when they ship.
+Multi-select and column reorder leave the README's out-of-scope list when they ship.

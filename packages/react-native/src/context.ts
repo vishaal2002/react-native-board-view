@@ -5,6 +5,7 @@ import type { DragAdapter } from './engine/types';
 import type { ColumnMetrics } from './layout/metrics';
 import type { BoardController } from './useBoardController';
 import type { GroupValue } from 'board-view-core';
+import type { LimitState, PlannerDay } from './insights';
 import type { BoardLabels, BoardProps, BoardTheme, CardAction, CardActionEvent } from './types';
 
 /** Minimal observable value, so a few components can follow it without re-rendering the board. */
@@ -87,6 +88,28 @@ export interface BoardContextValue<T = unknown> {
   readonly setOverview: (open: boolean, columnId?: string) => void;
   /** The drop dock's height while it shows, so the lists end above it instead of under it. */
   readonly setDockInset: (height: number) => void;
+  /** Limit, value and planner day for a column header. `items` sums a part of the column, such as one lane's cell. */
+  readonly describeColumn: (columnId: string, total: number, items?: readonly unknown[]) => ColumnDescription;
+  /** Spotlight and age of a card. */
+  readonly describeCard: (item: unknown) => CardDescription;
+  /** `layout="planner"`. */
+  readonly planner: boolean;
+  /** From `motion`: how much slower (above 1) or faster the dock, banner and sheet animate. */
+  readonly durationScale: number;
+}
+
+export interface ColumnDescription {
+  readonly limit?: number;
+  readonly limitState: LimitState;
+  readonly value: number | null;
+  readonly valueLabel: string | null;
+  readonly day: PlannerDay | null;
+}
+
+export interface CardDescription {
+  readonly dimmed: boolean;
+  readonly age: number | null;
+  readonly stale: boolean;
 }
 
 export const BoardContext = createContext<BoardContextValue | null>(null);

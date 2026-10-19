@@ -51,8 +51,8 @@ export function UndoBanner() {
 
   return (
     <Animated.View
-      entering={reducedMotion ? undefined : SlideInDown.duration(200)}
-      exiting={reducedMotion ? undefined : FadeOut.duration(150)}
+      entering={reducedMotion ? undefined : SlideInDown.duration(Math.round(200 * board.durationScale))}
+      exiting={reducedMotion ? undefined : FadeOut.duration(Math.round(150 * board.durationScale))}
       style={styles.wrap}
       pointerEvents="box-none"
     >

@@ -350,7 +350,7 @@ export const TaskCard = memo(function TaskCard({
   /** Draw a drag handle, for `moveModes={{ drag: 'handle' }}`. */
   handle?: boolean;
 }) {
-  const { item, pending, dragging, compact } = info;
+  const { item, pending, dragging, compact, age, stale } = info;
   const theme = useBoardTheme();
   const lock = item.locked ? <Lock color={theme.mutedText} size={15} strokeWidth={2.4} /> : null;
   const leading =
@@ -387,6 +387,8 @@ export const TaskCard = memo(function TaskCard({
         assignee={personName(item.assignee)}
         pending={pending}
         dragging={dragging}
+        age={age}
+        stale={stale}
       />
     );
   }
@@ -401,6 +403,8 @@ export const TaskCard = memo(function TaskCard({
       accentColor={PRIORITY_COLORS[item.priority]}
       pending={pending}
       dragging={dragging}
+      age={age}
+      stale={stale}
       style={minHeight}
     />
   );

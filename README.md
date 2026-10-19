@@ -198,14 +198,15 @@ Pass one `layout`. The board renders that mode and no switcher.
   </tr>
 </table>
 
-| `layout`  | What it does                                                                                             |
-| --------- | -------------------------------------------------------------------------------------------------------- |
-| `auto`    | `paged` below `autoBreakpoint` (600pt by default), `multi` above it. The default.                        |
-| `paged`   | One column per page with snapping, a peek of the next one, and tabs or dots. Edge drags flip pages.      |
-| `multi`   | Fixed-width columns side by side that scroll sideways. Set the width with `theme.columnWidth`.           |
-| `fit`     | Columns share the width down to `theme.minColumnWidth`, then the board scrolls.                          |
-| `stacked` | One vertical list with a collapsible section per column.                                                 |
-| `matrix`  | Swimlane boards as a grid: lanes are rows, every cell on screen and scrolling on its own. <sup>0.6</sup> |
+| `layout`  | What it does                                                                                                                  |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `auto`    | `paged` below `autoBreakpoint` (600pt by default), `multi` above it. The default.                                             |
+| `paged`   | One column per page with snapping, a peek of the next one, and tabs or dots. Edge drags flip pages.                           |
+| `multi`   | Fixed-width columns side by side that scroll sideways. Set the width with `theme.columnWidth`.                                |
+| `fit`     | Columns share the width down to `theme.minColumnWidth`, then the board scrolls.                                               |
+| `stacked` | One vertical list with a collapsible section per column.                                                                      |
+| `matrix`  | Swimlane boards as a grid: lanes are rows, every cell on screen and scrolling on its own. <sup>0.6</sup>                      |
+| `planner` | A column per day, today marked, weekends set back, more days at either end. <sup>0.7</sup> See [Week planner](#week-planner). |
 
 **Matrix.** For small grids such as a 2 × 2 of urgency and importance. It needs `groupBy.lanes`; without lanes it is `fit`. It never scrolls as a whole, so keep it to a few lanes and columns.
 
@@ -323,6 +324,67 @@ const actions: CardAction[] = [
 
 `overview` lets people pinch in on the board to see every column at once, with small cards that still drag. Pinch out, tap a column's header, or press "Back to the board" to return, and the board opens at that column. `ref.setOverview(true)` opens it from your own button. It works on boards without lanes in the `paged`, `multi` and `fit` layouts. The pinch has not been tested on a device yet, so it may change.
 
+## Your data at a glance
+
+![New in 0.7](https://img.shields.io/badge/new%20in-0.7-2F6FEB)
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/insights.png" alt="In progress, with a 13 of 13 count in the warning color and a full meter under its header, and a sum of 61k. Cards show their age, and a 12 day old card has an amber age chip." width="230" /></td>
+    <td align="center" width="50%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/planner.png" alt="The week planner. Monday 19 October has the date in an accent disc for today, Tuesday 20 sits next to it, each with its count." width="230" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Limits, sums and ageing</b><br /><sub>13/13 is full, so it turns amber.</sub></td>
+    <td align="center"><b>layout="planner"</b><br /><sub>A column per day.</sub></td>
+  </tr>
+</table>
+
+```tsx
+<Board
+  columnLimits={{ doing: 5, review: 3 }}
+  limitBehavior="block"
+  getItemValue={(deal) => deal.amount}
+  formatValue={(sum) => `$${Math.round(sum / 1000)}k`}
+  spotlight={(deal) => deal.owner === me}
+  getItemAge={(deal) => daysSince(deal.updatedAt)}
+  // …
+/>
+```
+
+- **Limits.** `columnLimits` puts the count against the limit in each header ("4/5"), with a thin meter that fills as the column does. It turns the warning color when full and the reject color when over. With `limitBehavior="block"`, a full column refuses cards everywhere: drag, dock, Move sheet and screen-reader actions. The count is your `columnTotals` when you pass them.
+- **Sums.** `getItemValue` adds up a number per card, such as a deal amount, and shows it in each header. `formatValue` decides how it reads; the default is compact ("12.4k").
+- **Spotlight.** `spotlight` keeps matching cards bright and fades the rest without moving them, so a search shows its results in context. Faded cards still move, and screen readers hear "outside the filter".
+- **Ageing.** `getItemAge` returns a card's age in days. `renderCard` gets `age` and `stale` (from `staleAfterDays`, 14 by default), and `CardView` shows them as a small chip that turns amber when stale.
+- **Lanes.** Each lane header has a thin bar showing how its cards spread across the columns, in the columns' colors.
+- **Sticky headers.** Lane headers in swimlanes and section headers in stacked stay pinned while their cards scroll. `stickyHeaders={false}` turns it off.
+
+Every header's screen-reader label carries the same facts, for example "In progress, 13 of 13 cards, full, total $61k". Your `renderColumnHeader` and `renderLaneHeader` get them too: `limit`, `limitState`, `value`, `valueLabel`, `day` and `distribution`.
+
+## Week planner
+
+![New in 0.7](https://img.shields.io/badge/new%20in-0.7-2F6FEB)
+
+`layout="planner"` is a column per day. Today's date sits in an accent disc, weekends sit back, and a Today button appears when today is off screen. Build the columns with `dayColumns`, whose ids are `YYYY-MM-DD` dates, and add days from `onColumnsEndReached`. When days are added in front, the board keeps the same day on screen.
+
+```tsx
+const [range, setRange] = useState({ start: addDays(new Date(), -3), count: 14 });
+const groupBy = useMemo(() => ({ columns: { key: 'day', values: dayColumns(range.start, range.count) } }), [range]);
+
+<Board
+  layout="planner"
+  groupBy={groupBy}
+  initialColumnId={toDayId(new Date())}
+  onColumnsEndReached={(edge) =>
+    setRange((r) =>
+      edge === 'start' ? { start: addDays(r.start, -7), count: r.count + 7 } : { ...r, count: r.count + 7 },
+    )
+  }
+  // …
+/>;
+```
+
+`onColumnsEndReached` works in `multi` and `fit` too, for any board whose columns load in pages.
+
 ## Loading data
 
 ![New in 0.4](https://img.shields.io/badge/new%20in-0.4-2F6FEB)
@@ -397,9 +459,11 @@ board.current?.scrollToItem(task.id, { highlight: true });
 />
 ```
 
+**Presets.** <sup>0.7</sup> `themePreset` picks a built-in palette with a light and a dark variant: `paper` (warm), `slate` (cool, high contrast) or `aurora` (violet). Each passes WCAG AA for text and muted text, and `theme` overrides still win. `motion` sets how the board moves: `calm`, `snappy` or `playful` (a little tilt and a springy landing). Reduced motion still turns it all off.
+
 `liftScale` (1.03), `liftTilt` (0 degrees), `liftShadowOpacity` (0.25 in light, 0.55 in dark) and `dropDuration` (200 ms) are how the lifted card looks and how long a drop takes. <sup>0.5</sup> Compact density does not change them. Reduced motion turns the scale and the tilt off. `liftShadowOpacity` is an iOS shadow added to your card's own. Android ignores it, so give your card an `elevation` while `dragging`, as `CardView` does.
 
-`CardView` is a ready-made card. It takes `title`, `description`, `tags`, `meta`, `assignee`, `accentColor`, `pending`, `dragging`, `compact`, `leading` and `onPress`. `leading` is the slot for a `DragHandle`. Use the card, wrap it, or render your own. Headers, empty cells, footers and the drop indicator have render props too.
+`CardView` is a ready-made card. It takes `title`, `description`, `tags`, `meta`, `assignee`, `accentColor`, `pending`, `dragging`, `compact`, `leading`, `age`, `stale` and `onPress`. `leading` is the slot for a `DragHandle`. Use the card, wrap it, or render your own. Headers, empty cells, footers and the drop indicator have render props too.
 
 ## Accessibility
 
@@ -453,19 +517,29 @@ To keep it fast, memoize your card and filter `items` before they reach the boar
 
 **Layout and navigation**
 
-| Prop                                 | Default         | Notes                                                                           |
-| ------------------------------------ | --------------- | ------------------------------------------------------------------------------- |
-| `layout`                             | `auto`          | `paged`, `multi`, `fit`, `stacked`, `matrix` <sup>0.6</sup>.                    |
-| `hideEmptyColumns`, `hideEmptyLanes` | `false`         | Leave out columns and lanes with no cards. <sup>0.6</sup>                       |
-| `overview`, `onOverviewChange`       | `false`         | Experimental. Pinch in for the whole board. <sup>0.6</sup>                      |
-| `autoBreakpoint`                     | `600`           | Under `auto`, boards narrower than this are paged. <sup>0.4</sup>               |
-| `pagerIndicator`                     | `tabs`          | Paged only. `dots` or `none`.                                                   |
-| `columnId`, `onColumnChange`         |                 | The column on screen. Update `columnId` from the callback.                      |
-| `initialColumnId`                    |                 | The first column on screen when `columnId` is not set.                          |
-| `collapsibleColumns`                 | on in `stacked` | Never in `paged`.                                                               |
-| `collapsedColumns`, `collapsedLanes` | board-managed   | Controlled lists, with `onCollapsedColumnsChange` and `onCollapsedLanesChange`. |
-| `cellLimit`                          | `50`            | Swimlane cards per cell before Show more.                                       |
-| `autoScroll`, `longPressDelay`       | `true`, `200`   | Edge scrolling while dragging, and the hold before a drag.                      |
+| Prop                                 | Default         | Notes                                                                                  |
+| ------------------------------------ | --------------- | -------------------------------------------------------------------------------------- |
+| `layout`                             | `auto`          | `paged`, `multi`, `fit`, `stacked`, `matrix` <sup>0.6</sup>, `planner` <sup>0.7</sup>. |
+| `hideEmptyColumns`, `hideEmptyLanes` | `false`         | Leave out columns and lanes with no cards. <sup>0.6</sup>                              |
+| `overview`, `onOverviewChange`       | `false`         | Experimental. Pinch in for the whole board. <sup>0.6</sup>                             |
+| `autoBreakpoint`                     | `600`           | Under `auto`, boards narrower than this are paged. <sup>0.4</sup>                      |
+| `pagerIndicator`                     | `tabs`          | Paged only. `dots` or `none`.                                                          |
+| `columnId`, `onColumnChange`         |                 | The column on screen. Update `columnId` from the callback.                             |
+| `initialColumnId`                    |                 | The first column on screen when `columnId` is not set.                                 |
+| `collapsibleColumns`                 | on in `stacked` | Never in `paged`.                                                                      |
+| `collapsedColumns`, `collapsedLanes` | board-managed   | Controlled lists, with `onCollapsedColumnsChange` and `onCollapsedLanesChange`.        |
+| `cellLimit`                          | `50`            | Swimlane cards per cell before Show more.                                              |
+| `autoScroll`, `longPressDelay`       | `true`, `200`   | Edge scrolling while dragging, and the hold before a drag.                             |
+
+**Showing data** <sup>0.7</sup>
+
+| Prop                            | Default | Notes                                                                       |
+| ------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `columnLimits`, `limitBehavior` | `warn`  | Limits by column id. `block` refuses drops into a full column.              |
+| `getItemValue`, `formatValue`   | compact | A number per card, summed in each header.                                   |
+| `spotlight`                     |         | Cards it returns false for fade back and keep their place.                  |
+| `getItemAge`, `staleAfterDays`  | `14`    | Age in days, passed to `renderCard` and shown by `CardView`.                |
+| `onColumnsEndReached`           |         | The board reached its first or last column: add more, such as planner days. |
 
 **Loading** <sup>0.4</sup>
 
@@ -478,14 +552,17 @@ To keep it fast, memoize your card and filter `items` before they reach the boar
 
 **Appearance and rendering**
 
-| Prop                                                           | Default       | Notes                                               |
-| -------------------------------------------------------------- | ------------- | --------------------------------------------------- |
-| `appearance`                                                   | `auto`        | `light` or `dark`.                                  |
-| `density`                                                      | `comfortable` | `compact`.                                          |
-| `theme`, `labels`                                              | built in      | Partial overrides.                                  |
-| `renderColumnHeader`, `renderLaneHeader`                       |               | Headers get counts, `total`, and a collapse toggle. |
-| `renderEmptyCell`, `renderColumnFooter`, `renderDropIndicator` |               | Footers get `loading`.                              |
-| `style`, `testID`, `ref`                                       |               |                                                     |
+| Prop                                                           | Default       | Notes                                                                                                    |
+| -------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------- |
+| `appearance`                                                   | `auto`        | `light` or `dark`.                                                                                       |
+| `density`                                                      | `comfortable` | `compact`.                                                                                               |
+| `theme`, `labels`                                              | built in      | Partial overrides.                                                                                       |
+| `themePreset`                                                  | `standard`    | `paper`, `slate` or `aurora`. <sup>0.7</sup>                                                             |
+| `motion`                                                       | `standard`    | `calm`, `snappy` or `playful`. <sup>0.7</sup>                                                            |
+| `stickyHeaders`                                                | `true`        | Pinned lane and section headers. <sup>0.7</sup>                                                          |
+| `renderColumnHeader`, `renderLaneHeader`                       |               | Headers get counts, `total`, limits, sums, the planner day, a lane's distribution and a collapse toggle. |
+| `renderEmptyCell`, `renderColumnFooter`, `renderDropIndicator` |               | Footers get `loading`.                                                                                   |
+| `style`, `testID`, `ref`                                       |               |                                                                                                          |
 
 ### Ref handle
 
@@ -500,7 +577,7 @@ To keep it fast, memoize your card and filter `items` before they reach the boar
 
 ### `renderCard` info
 
-`item`, `cellId`, `index`, `count`, `column`, `lane`, `pending`, `dragging` (true for the lifted copy), `compact` (the column is narrow), and `openMoveSheet()`.
+`item`, `cellId`, `index`, `count`, `column`, `lane`, `pending`, `dragging` (true for the lifted copy), `compact` (the column is narrow), `dimmed` (outside the `spotlight`), `age` and `stale` <sup>0.7</sup>, and `openMoveSheet()`.
 
 ### The core, on your server too
 
@@ -524,7 +601,7 @@ The API can still change before 1.0. Breaking changes are listed in the [changel
 
 These are still open before 1.0:
 
-- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). 0.5.0 and 0.6.0 have not run on iOS yet. Their numbers are from the Pixel 9 Pro emulator, release build. The overview's pinch has not run on any device: the emulator drives one finger.
+- **Real devices.** The drag gates have run on an Android emulator and the iOS simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). 0.5.0, 0.6.0 and 0.7.0 have not run on iOS yet. Their numbers are from the Pixel 9 Pro emulator, release build. The overview's pinch has not run on any device: the emulator drives one finger.
 - **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
 - **Usability study.** Five developers new to the package have not been timed yet. Swipe-to-move stays experimental, and off by default, until that study at 0.7.
 

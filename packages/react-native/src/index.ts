@@ -4,7 +4,9 @@ export { DragHandle } from './layout/DragHandle';
 export type { HapticEvent, HapticHandler } from './haptics';
 export type { DragHandleProps } from './layout/DragHandle';
 export type { CardTag, CardViewProps } from './CardView';
-export { compactMetrics, darkTheme, defaultLabels, lightTheme } from './theme';
+export { compactMetrics, darkTheme, defaultLabels, lightTheme, motionPresets, themePresets } from './theme';
+export { addDays, dayColumns, formatCompact, parseDayId, toDayId } from './insights';
+export type { DayColumnsOptions, LaneShare, LimitState, PlannerDay } from './insights';
 export type {
   BoardHandle,
   BoardLabels,
@@ -14,6 +16,10 @@ export type {
   CardAccessibilityContext,
   CardAction,
   CardActionEvent,
+  ColumnSummaryContext,
+  LimitBehavior,
+  MotionPreset,
+  ThemePresetName,
   DropDockOptions,
   UndoBannerContext,
   UndoOptions,

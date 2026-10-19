@@ -15,6 +15,12 @@ export interface Task {
   locked?: boolean;
   /** Fixed card height for the scale test. */
   height?: number;
+  /** Deal size, for the insights demo's column sums. */
+  amount?: number;
+  /** Days since the card last changed, for ageing. */
+  ageDays?: number;
+  /** `YYYY-MM-DD`, for the week planner. */
+  day?: string | null;
 }
 
 export const STATUSES: GroupValue[] = [
@@ -132,6 +138,8 @@ export function makeTasks(count: number, options: MakeTasksOptions = {}): Task[]
       due: next() > 0.45 ? `${pick(next, MONTHS)} ${1 + Math.floor(next() * 28)}` : undefined,
       locked: options.lockedEvery ? index % options.lockedEvery === 0 : undefined,
       height: heights ? heights.min + Math.floor(next() * (heights.max - heights.min + 1)) : undefined,
+      amount: 500 + Math.round(next() * 40) * 250,
+      ageDays: Math.floor(next() * next() * 30),
     };
   });
 }

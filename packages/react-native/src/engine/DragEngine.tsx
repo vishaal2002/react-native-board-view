@@ -518,7 +518,8 @@ function DragBoard(props: DragBoardProps) {
       outline.value = HIDDEN_OUTLINE;
       activeZone.value = '';
       const duration = propsRef.current.reducedMotion ? 0 : (propsRef.current.lift?.dropMs ?? DEFAULT_LIFT.dropMs);
-      const timing = { duration, easing: Easing.out(Easing.cubic) };
+      const overshoot = propsRef.current.lift?.overshoot === true && !fade && to != null;
+      const timing = { duration, easing: overshoot ? Easing.out(Easing.back(1.6)) : Easing.out(Easing.cubic) };
       if (to) {
         hoverX.value = withTiming(to.x, timing);
         hoverY.value = withTiming(to.y, timing);

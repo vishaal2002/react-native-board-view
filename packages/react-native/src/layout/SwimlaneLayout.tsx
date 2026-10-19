@@ -10,6 +10,7 @@ import {
 import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { cellId as makeCellId, type BoardCell, type GroupValue } from 'board-view-core';
+import { laneDistribution } from '../insights';
 import { useBoard, useStoreValue, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type Slot, type SlotSource } from '../engine/geometry';
 import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle } from '../engine/types';
@@ -190,9 +191,39 @@ export function SwimlaneLayout() {
     ),
     [cellLimit, limits],
   );
-  const onScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollY.current = event.nativeEvent.contentOffset.y;
-  }, []);
+  // The lane whose header has scrolled off the top: a copy of it stays pinned there.
+  const sticky = props.stickyHeaders !== false;
+  const [pinnedLane, setPinnedLane] = useState<GroupValue | null>(null);
+  const lanesRef = useRef(lanes);
+  lanesRef.current = lanes;
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = event.nativeEvent.contentOffset.y;
+      scrollY.current = y;
+      if (!sticky) return;
+      const list = listRef.current;
+      const current = lanesRef.current;
+      const first = list?.getFirstItemOffset() ?? 0;
+      let found: GroupValue | null = null;
+      // Binary search: lane rows are laid out top to bottom.
+      let low = 0;
+      let high = current.length - 1;
+      while (list && low <= high) {
+        const mid = (low + high) >> 1;
+        const layout = list.getLayout(mid);
+        if (!layout) break;
+        const top = first + layout.y;
+        if (y < top) high = mid - 1;
+        else if (y >= top + layout.height) low = mid + 1;
+        else {
+          found = y > top + 1 ? (current[mid] ?? null) : null;
+          break;
+        }
+      }
+      setPinnedLane((previous) => (previous?.id === found?.id ? previous : found));
+    },
+    [sticky],
+  );
   const onContentSizeChange = useCallback((_width: number, height: number) => {
     contentHeight.current = height;
   }, []);
@@ -253,6 +284,11 @@ export function SwimlaneLayout() {
                   showsVerticalScrollIndicator={false}
                 />
               ) : null}
+              {sticky && pinnedLane ? (
+                <View style={[styles.pinnedLane, { backgroundColor: board.theme.background }]} pointerEvents="box-none">
+                  <LaneHeaderBar lane={pinnedLane} />
+                </View>
+              ) : null}
             </View>
           </View>
         </Animated.ScrollView>
@@ -280,7 +316,8 @@ function PinnedLoading() {
 }
 
 function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSlot }) {
-  const { controller, props, theme, labels, canCollapseColumns, toggleColumn, columnTotal } = useBoard();
+  const { controller, props, theme, labels, canCollapseColumns, toggleColumn, columnTotal, describeColumn } =
+    useBoard();
   const loaded = useMemo(
     () =>
       controller.model.cells.reduce((sum, cell) => (cell.columnKey === column.id ? sum + cell.items.length : sum), 0),
@@ -303,6 +340,7 @@ function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSl
     collapsed: false,
     compact: slot.width < COMPACT_HEADER_WIDTH,
     toggleCollapsed: canCollapseColumns ? toggle : undefined,
+    ...describeColumn(column.id, count),
   };
   return (
     <View style={{ width: slot.width }}>
@@ -314,6 +352,37 @@ function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSl
     </View>
   );
 }
+
+/** A lane's header, held still while the board scrolls sideways. Also the pinned copy at the top of the list. */
+const LaneHeaderBar = memo(function LaneHeaderBar({ lane }: { lane: GroupValue }) {
+  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth } = useBoard();
+  const collapsed = collapsedLanes.has(lane.id);
+  const count = useMemo(
+    () => controller.model.cells.reduce((sum, cell) => (cell.laneKey === lane.id ? sum + cell.items.length : sum), 0),
+    [controller.model, lane.id],
+  );
+  const toggle = useCallback(() => toggleLane(lane.id), [lane.id, toggleLane]);
+  const maxShift = Math.max(0, metrics.contentWidth - boardWidth);
+  const pinned = useAnimatedStyle(() => ({
+    transform: [{ translateX: Math.min(Math.max(scrollX.value, 0), maxShift) }],
+  }));
+  const distribution = useMemo(() => laneDistribution(controller.model, lane.id), [controller.model, lane.id]);
+  const info = { lane, count, collapsed, toggleCollapsed: toggle, distribution };
+  return (
+    <Animated.View
+      style={[
+        { width: boardWidth - metrics.paddingStart - metrics.paddingEnd, marginLeft: metrics.paddingStart },
+        pinned,
+      ]}
+    >
+      {props.renderLaneHeader ? (
+        props.renderLaneHeader(info)
+      ) : (
+        <DefaultLaneHeader info={info} theme={theme} labels={labels} />
+      )}
+    </Animated.View>
+  );
+});
 
 const LaneRow = memo(function LaneRow({
   lane,
@@ -327,38 +396,16 @@ const LaneRow = memo(function LaneRow({
   cellLimit: number;
 }) {
   const board = useBoard();
-  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth, rtl, page } =
-    board;
+  const { controller, metrics, collapsedLanes, rtl, page } = board;
   const currentPage = useStoreValue(page);
   const collapsed = collapsedLanes.has(lane.id);
   const columns = controller.model.columns;
   const [rowY, setRowY] = useState(0);
-  const count = useMemo(
-    () => controller.model.cells.reduce((sum, cell) => (cell.laneKey === lane.id ? sum + cell.items.length : sum), 0),
-    [controller.model, lane.id],
-  );
-  const toggle = useCallback(() => toggleLane(lane.id), [lane.id, toggleLane]);
-  const maxShift = Math.max(0, metrics.contentWidth - boardWidth);
-  const pinned = useAnimatedStyle(() => ({
-    transform: [{ translateX: Math.min(Math.max(scrollX.value, 0), maxShift) }],
-  }));
   const onRowLayout = useCallback((event: LayoutChangeEvent) => setRowY(event.nativeEvent.layout.y), []);
-  const info = { lane, count, collapsed, toggleCollapsed: toggle };
 
   return (
     <View style={styles.lane}>
-      <Animated.View
-        style={[
-          { width: boardWidth - metrics.paddingStart - metrics.paddingEnd, marginLeft: metrics.paddingStart },
-          pinned,
-        ]}
-      >
-        {props.renderLaneHeader ? (
-          props.renderLaneHeader(info)
-        ) : (
-          <DefaultLaneHeader info={info} theme={theme} labels={labels} />
-        )}
-      </Animated.View>
+      <LaneHeaderBar lane={lane} />
       {collapsed ? null : (
         <View
           style={[styles.cellRow, { paddingLeft: metrics.paddingStart, gap: metrics.gap, direction: 'ltr' }]}
@@ -609,6 +656,7 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', paddingBottom: 6 },
   collapsedHeader: { alignItems: 'center', gap: 6, paddingVertical: 10 },
   lanesContent: { paddingBottom: 32 },
+  pinnedLane: { position: 'absolute', left: 0, right: 0, top: 0, paddingBottom: 4, zIndex: 20 },
   lane: { paddingBottom: LANE_SPACING },
   cellRow: { flexDirection: 'row', alignItems: 'stretch', paddingTop: ROW_SPACING },
   cell: { borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },

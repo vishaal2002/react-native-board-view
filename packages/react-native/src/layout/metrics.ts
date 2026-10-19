@@ -40,7 +40,12 @@ export function showsCellFooter(mode: ResolvedLayout, visualIndex: number, page:
   return mode !== 'paged' || visualIndex === page;
 }
 
-export function resolveLayout(layout: BoardLayout, boardWidth: number, breakpoint = COMPACT_WIDTH): ResolvedLayout {
+/** `planner` is drawn as `multi` with day headers, so it never reaches here. */
+export function resolveLayout(
+  layout: Exclude<BoardLayout, 'planner'>,
+  boardWidth: number,
+  breakpoint = COMPACT_WIDTH,
+): ResolvedLayout {
   if (layout !== 'auto') return layout;
   return boardWidth < breakpoint ? 'paged' : 'multi';
 }

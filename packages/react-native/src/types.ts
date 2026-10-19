@@ -2,6 +2,7 @@ import type { ReactNode, Ref } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 import type { GroupBy, GroupValue, MoveContext, MoveOperation, RankStrategy } from 'board-view-core';
 import type { HapticHandler } from './haptics';
+import type { LaneShare, LimitState, PlannerDay } from './insights';
 
 /**
  * - `paged`: one column per page with snapping and a peek of the next one. Phones.
@@ -13,9 +14,19 @@ import type { HapticHandler } from './haptics';
  * - `matrix`: swimlane boards only. Lanes are rows and columns are columns, and
  *   every cell is on screen at once, each scrolling on its own. For small grids
  *   such as a 2 × 2 priority matrix. Boards without lanes use `fit` instead.
+ * - `planner`: a column per day, side by side like `multi`, with day headers,
+ *   today marked, weekends dimmed and a Today button. Column ids are
+ *   `YYYY-MM-DD` dates: build them with `dayColumns`, and add more days from
+ *   `onColumnsEndReached`.
  * - `auto`: `paged` below 600pt of board width, else `multi`.
  */
-export type BoardLayout = 'auto' | 'paged' | 'multi' | 'fit' | 'stacked' | 'matrix';
+export type BoardLayout = 'auto' | 'paged' | 'multi' | 'fit' | 'stacked' | 'matrix' | 'planner';
+
+/** How `columnLimits` are enforced. */
+export type LimitBehavior = 'warn' | 'block';
+
+/** Timing and feel of lift, landing, the dock and the banner. Reduced motion still wins. */
+export type MotionPreset = 'standard' | 'calm' | 'snappy' | 'playful';
 
 export interface MoveModes {
   /**
@@ -131,6 +142,12 @@ export interface CardRenderInfo<T> {
   readonly dragging: boolean;
   /** The column is narrow (cards under 200pt wide): show less. */
   readonly compact: boolean;
+  /** `spotlight` is set and this card is outside it: draw it quietly. The board already fades it. */
+  readonly dimmed: boolean;
+  /** `getItemAge` for this card, in days, or null. */
+  readonly age: number | null;
+  /** `age` has reached `staleAfterDays`. */
+  readonly stale: boolean;
   readonly openMoveSheet: () => void;
 }
 
@@ -145,6 +162,16 @@ export interface ColumnHeaderRenderInfo {
   readonly compact: boolean;
   /** Present when the column can collapse in this layout. */
   readonly toggleCollapsed?: () => void;
+  /** `columnLimits` for this column. */
+  readonly limit?: number;
+  /** `total` against `limit`. `none` without a limit. */
+  readonly limitState: LimitState;
+  /** Sum of `getItemValue` over the column's cards, or null without it. */
+  readonly value: number | null;
+  /** `value` through `formatValue`, or null. */
+  readonly valueLabel: string | null;
+  /** In the planner, the day this column is. Null elsewhere and for non-date columns. */
+  readonly day: PlannerDay | null;
 }
 
 export interface LaneHeaderRenderInfo {
@@ -152,6 +179,8 @@ export interface LaneHeaderRenderInfo {
   readonly count: number;
   readonly collapsed: boolean;
   readonly toggleCollapsed: () => void;
+  /** The lane's cards per column, in column order: the default header draws it as a bar. */
+  readonly distribution: readonly LaneShare[];
 }
 
 export interface EmptyCellRenderInfo {
@@ -186,6 +215,9 @@ export interface ScrollToItemOptions {
   /** Flash an outline on the card once it is on screen. Default false. */
   highlight?: boolean;
 }
+
+/** Built-in palettes, each with a light and a dark variant. */
+export type ThemePresetName = 'standard' | 'paper' | 'slate' | 'aurora';
 
 export interface BoardTheme {
   background: string;
@@ -232,6 +264,8 @@ export interface BoardTheme {
   liftShadowOpacity: number;
   /** Milliseconds a dropped card takes to land, or to fly home. */
   dropDuration: number;
+  /** A column at its limit, and stale cards. */
+  warning: string;
 }
 
 export interface CardAccessibilityContext {
@@ -241,6 +275,21 @@ export interface CardAccessibilityContext {
   position: number;
   count: number;
   pending: boolean;
+  /** Outside the `spotlight`. */
+  dimmed: boolean;
+  /** Days old, when `getItemAge` is given and the card is stale. */
+  staleDays: number | null;
+}
+
+export interface ColumnSummaryContext {
+  column: string;
+  total: number;
+  limit: number | null;
+  limitState: LimitState;
+  valueLabel: string | null;
+  /** Planner columns: the full date, such as "Monday 19 October". */
+  date: string | null;
+  today: boolean;
 }
 
 export interface MoveAnnouncementContext {
@@ -293,6 +342,12 @@ export interface BoardLabels {
   /** Accessibility label of the overview, and of the button that leaves it. */
   overview: string;
   closeOverview: string;
+  /** What a screen reader says for a column header. */
+  columnSummary: (context: ColumnSummaryContext) => string;
+  /** Next to a column the Move sheet cannot use because it is full. */
+  full: string;
+  /** The planner's button back to today. */
+  today: string;
 }
 
 /** Imperative controls, through the `ref` prop. */
@@ -417,6 +472,35 @@ export interface BoardProps<T> {
   onRefresh?: () => void;
   /** Shows the pull-to-refresh spinner. Needs `onRefresh`. */
   refreshing?: boolean;
+  /**
+   * Work-in-progress limits by column id. Headers show the count against the
+   * limit with a meter, in the warning color when full and the reject color
+   * when over.
+   */
+  columnLimits?: Readonly<Record<string, number>>;
+  /** `block` refuses drops into a full column, everywhere: drag, dock, sheet and screen reader. Default `warn`. */
+  limitBehavior?: LimitBehavior;
+  /** A number per card, such as a deal amount. Headers show each column's sum. */
+  getItemValue?: (item: T) => number | null | undefined;
+  /** How header sums read. Default: compact, such as "12.4k". */
+  formatValue?: (value: number) => string;
+  /**
+   * Cards for which this returns false fade back, and keep their place, so a
+   * search or filter shows its matches in context. Moving still works.
+   */
+  spotlight?: (item: T) => boolean;
+  /** How old a card is, in days. Passed to `renderCard`, and `CardView` shows it. */
+  getItemAge?: (item: T) => number | null | undefined;
+  /** Cards at least this many days old are `stale`. Default 14. */
+  staleAfterDays?: number;
+  /** The planner reached its first or last day: add more days to `groupBy.columns`. Also fires in `multi` and `fit`. */
+  onColumnsEndReached?: (edge: 'start' | 'end') => void;
+  /** Lane headers in swimlanes and section headers in stacked stay pinned while their cards scroll. Default true. */
+  stickyHeaders?: boolean;
+  /** Feel of lift, landing, the dock and the banner. `theme` lift tokens still win. Default `standard`. */
+  motion?: MotionPreset;
+  /** A built-in palette for light and dark. `theme` overrides still win. Default `standard`. */
+  themePreset?: ThemePresetName;
   /** Hide columns with no cards in any lane, e.g. for a filtered "my cards" view. The dock and the Move sheet still list them. */
   hideEmptyColumns?: boolean;
   /** Swimlanes: hide lanes with no cards. The Move sheet still lists them. */

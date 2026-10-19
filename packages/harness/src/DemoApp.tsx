@@ -10,7 +10,9 @@ import { EmptyCellsScreen } from './screens/EmptyCellsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { KanbanScreen } from './screens/KanbanScreen';
 import { LiveDataScreen } from './screens/LiveDataScreen';
+import { InsightsScreen } from './screens/InsightsScreen';
 import { MatrixScreen } from './screens/MatrixScreen';
+import { PlannerScreen } from './screens/PlannerScreen';
 import { PhoneMovesScreen } from './screens/PhoneMovesScreen';
 import { RollbackScreen } from './screens/RollbackScreen';
 import { RulesScreen } from './screens/RulesScreen';
@@ -61,6 +63,12 @@ function Router({ host }: { host: string }) {
       break;
     case 'swimlanes-stacked':
       screen = <SwimlaneScreen onBack={back} initialLayout="stacked" />;
+      break;
+    case 'insights':
+      screen = <InsightsScreen onBack={back} />;
+      break;
+    case 'planner':
+      screen = <PlannerScreen onBack={back} />;
       break;
     case 'matrix':
       screen = <MatrixScreen onBack={back} />;

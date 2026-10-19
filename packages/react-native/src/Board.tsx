@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
 import { I18nManager, StyleSheet, View, useColorScheme, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { useSharedValue } from 'react-native-reanimated';
+import Animated, { FadeIn, useSharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { cellId as makeCellId, parseCellId } from 'board-view-core';
-import { BoardContext, createValueStore, type BoardContextValue, type ScrollApi } from './context';
+import { BoardContext, createValueStore, useBoard, type BoardContextValue, type ScrollApi } from './context';
 import { gestureAdapter } from './engine/DragEngine';
 import type { ReorderIntent, TransferIntent } from './engine/types';
 import { HoverCard } from './layout/BoardCard';
@@ -14,13 +14,15 @@ import { DOCK_ACTION, DOCK_COLUMN, DropDock } from './layout/DropDock';
 import { columnMetrics, resolveLayout, visualSlot } from './layout/metrics';
 import { OverviewBar, overviewTheme } from './layout/Overview';
 import { PagerDots, PagerTabs } from './layout/Pager';
+import { PlannerToday } from './layout/PlannerToday';
 import { StackedLayout } from './layout/StackedLayout';
 import { SwimlaneLayout } from './layout/SwimlaneLayout';
 import { UndoBanner } from './layout/UndoBanner';
 import { visibleModel } from './layout/visible';
 import { MoveSheet } from './sheet/MoveSheet';
 import { hapticsFor } from './haptics';
-import { defaultLabels, resolveTheme } from './theme';
+import { columnStats, formatCompact, limitState, plannerDay, sumValues } from './insights';
+import { defaultLabels, motionPresets, resolveTheme } from './theme';
 import { moveTargetOf, useBoardController } from './useBoardController';
 import { useReducedMotion } from './useReducedMotion';
 import type { BoardLabels, BoardProps, CardAction, CardActionEvent } from './types';
@@ -62,7 +64,11 @@ export function Board<T>(props: BoardProps<T>) {
   const scheme = useColorScheme();
   const appearance = props.appearance ?? 'auto';
   const dark = appearance === 'dark' || (appearance === 'auto' && scheme === 'dark');
-  const baseTheme = useMemo(() => resolveTheme(dark, props.density, props.theme), [dark, props.density, props.theme]);
+  const motion = props.motion ?? 'standard';
+  const baseTheme = useMemo(
+    () => resolveTheme(dark, props.density, props.theme, props.themePreset, motion),
+    [dark, motion, props.density, props.theme, props.themePreset],
+  );
   const labels = useMemo<BoardLabels>(() => ({ ...defaultLabels, ...props.labels }), [props.labels]);
   const fullController = useBoardController(props, labels);
   const hasLanes = props.groupBy.lanes != null;
@@ -88,9 +94,11 @@ export function Board<T>(props: BoardProps<T>) {
   }, []);
 
   const requested = props.layout ?? 'auto';
+  // The planner is the multi layout with day headers, a Today button and sideways loading.
+  const planner = requested === 'planner';
   // A matrix needs lanes for its rows; without them it is a fit board.
   const baseMode = resolveLayout(
-    requested === 'matrix' && !hasLanes ? 'fit' : requested,
+    requested === 'matrix' && !hasLanes ? 'fit' : planner ? 'multi' : requested,
     root.width,
     props.autoBreakpoint,
   );
@@ -241,6 +249,38 @@ export function Board<T>(props: BoardProps<T>) {
     [columnTotals],
   );
 
+  const { getItemValue, formatValue, columnLimits, spotlight, getItemAge } = props;
+  const stats = useMemo(
+    () => columnStats(fullModel, getItemValue as ((item: unknown) => number | null | undefined) | undefined),
+    [fullModel, getItemValue],
+  );
+  const describeColumn = useCallback(
+    (columnId: string, total: number, items?: readonly unknown[]) => {
+      const limit = columnLimits?.[columnId];
+      const read = getItemValue as ((item: unknown) => number | null | undefined) | undefined;
+      const value = items ? sumValues(items, read) : (stats.get(columnId)?.value ?? null);
+      return {
+        limit,
+        limitState: limitState(total, limit),
+        value,
+        valueLabel: value == null ? null : (formatValue ?? formatCompact)(value),
+        day: planner ? plannerDay(columnId) : null,
+      };
+    },
+    [columnLimits, formatValue, getItemValue, planner, stats],
+  );
+  const staleAfter = props.staleAfterDays ?? 14;
+  const describeCard = useCallback(
+    (item: unknown) => {
+      const dimmed = spotlight ? !(spotlight as (entry: unknown) => boolean)(item) : false;
+      const raw = getItemAge ? (getItemAge as (entry: unknown) => number | null | undefined)(item) : null;
+      const age = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, raw) : null;
+      return { dimmed, age, stale: age != null && age >= staleAfter };
+    },
+    [getItemAge, spotlight, staleAfter],
+  );
+  const durationScale = motionPresets[motion].durationScale;
+
   const swipeEnabled = !readOnly && props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
   const autoScroll = props.autoScroll ?? true;
   const value = useMemo<BoardContextValue<T>>(
@@ -278,8 +318,16 @@ export function Board<T>(props: BoardProps<T>) {
       overview,
       setOverview,
       setDockInset,
+      describeColumn,
+      describeCard,
+      planner,
+      durationScale,
     }),
     [
+      describeColumn,
+      describeCard,
+      planner,
+      durationScale,
       cardActionsFor,
       fullModel.columns,
       fullModel.lanes,
@@ -365,8 +413,9 @@ export function Board<T>(props: BoardProps<T>) {
       tilt: theme.liftTilt,
       shadowOpacity: theme.liftShadowOpacity,
       dropMs: theme.dropDuration,
+      overshoot: motionPresets[motion].overshoot,
     }),
-    [theme.dropDuration, theme.liftScale, theme.liftShadowOpacity, theme.liftTilt],
+    [motion, theme.dropDuration, theme.liftScale, theme.liftShadowOpacity, theme.liftTilt],
   );
 
   const pinch = useMemo(
@@ -427,17 +476,20 @@ export function Board<T>(props: BoardProps<T>) {
                   lift={lift}
                   horizontalOffset={mode === 'stacked' || mode === 'matrix' ? undefined : scrollX}
                 >
-                  {mode === 'stacked' ? (
-                    <StackedLayout />
-                  ) : mode === 'matrix' ? (
-                    <MatrixLayout />
-                  ) : hasLanes ? (
-                    <SwimlaneLayout />
-                  ) : (
-                    // The overview is another board with other metrics: remount, so nothing carries over.
-                    <ColumnsLayout key={overview ? 'overview' : 'board'} />
-                  )}
+                  <LayoutFade layoutKey={`${mode}:${overview}`}>
+                    {mode === 'stacked' ? (
+                      <StackedLayout />
+                    ) : mode === 'matrix' ? (
+                      <MatrixLayout />
+                    ) : hasLanes ? (
+                      <SwimlaneLayout />
+                    ) : (
+                      // The overview is another board with other metrics: remount, so nothing carries over.
+                      <ColumnsLayout key={overview ? 'overview' : 'board'} />
+                    )}
+                  </LayoutFade>
                   {dockOn ? <DropDock /> : null}
+                  {planner && !overview ? <PlannerToday /> : null}
                 </DragBoard>
               ) : null}
             </View>
@@ -452,6 +504,29 @@ export function Board<T>(props: BoardProps<T>) {
         <MoveSheet itemId={sheetItem} onClose={closeMoveSheet} />
       </BoardContext>
     </GestureHandlerRootView>
+  );
+}
+
+/**
+ * A new layout fades in over a few frames instead of snapping, when the
+ * board changes layout or opens the overview. Not on the first render.
+ */
+function LayoutFade({ layoutKey, children }: { layoutKey: string; children: ReactNode }) {
+  const { reducedMotion, durationScale } = useBoard();
+  // Only layouts that replace an earlier one fade in; the first render shows at once.
+  const shown = useRef(false);
+  useEffect(() => {
+    shown.current = true;
+  }, []);
+  const animate = !reducedMotion && shown.current;
+  return (
+    <Animated.View
+      key={layoutKey}
+      entering={animate ? FadeIn.duration(Math.round(220 * durationScale)) : undefined}
+      style={styles.fill}
+    >
+      {children}
+    </Animated.View>
   );
 }
 

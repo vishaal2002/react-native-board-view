@@ -340,6 +340,32 @@ describe('useBoardController', () => {
   });
 });
 
+describe('columnLimits', () => {
+  it('blocks a full column from other columns in block mode, never a reorder inside it', () => {
+    const { result, rerender } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ columnLimits: { done: 1 }, limitBehavior: 'block' }),
+    });
+    expect(result.current.canDropTo('a', done)).toBe(false);
+    expect(result.current.canDropTo('c', done)).toBe(true);
+    let moved = true;
+    act(() => {
+      moved = result.current.moveItem('a', done, 0, 'sheet');
+    });
+    expect(moved).toBe(false);
+
+    // Warn mode, the default, only shows the limit.
+    rerender(props({ columnLimits: { done: 1 } }));
+    expect(result.current.canDropTo('a', done)).toBe(true);
+  });
+
+  it('counts the server total when the app passes one', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ columnLimits: { todo: 5 }, limitBehavior: 'block', columnTotals: { todo: 5 } }),
+    });
+    expect(result.current.canDropTo('c', todo)).toBe(false);
+  });
+});
+
 describe('undo', () => {
   it('puts a card back where it came from, with source undo, and does not undo the undo', async () => {
     const onMove = vi.fn<(op: MoveOperation, context: MoveContext) => void>();

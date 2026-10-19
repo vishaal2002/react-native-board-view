@@ -107,6 +107,21 @@ export function resolveDestination<T>(
   return { cellId, index: Math.min(size, Math.max(0, Number.isFinite(wanted) ? wanted : size)) };
 }
 
+/**
+ * A full column refuses a card from elsewhere. The count is the column's
+ * server total when the app passes one, else its loaded cards, in every lane.
+ */
+function isFull<T>(model: BoardModel<T>, props: BoardProps<T>, itemId: string, cellId: string): boolean {
+  const { columnKey } = parseCellId(cellId);
+  const limit = props.columnLimits?.[columnKey];
+  if (limit == null || !Number.isFinite(limit) || limit <= 0) return false;
+  const from = model.locations.get(itemId);
+  if (from && parseCellId(from.cellId).columnKey === columnKey) return false;
+  let loaded = 0;
+  for (const cell of model.cells) if (cell.columnKey === columnKey) loaded += cell.items.length;
+  return (props.columnTotals?.[columnKey] ?? loaded) >= limit;
+}
+
 function announce(message: string): void {
   AccessibilityInfo.announceForAccessibility(message);
 }
@@ -249,11 +264,12 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   const pendingIds = useMemo(() => new Set(snapshot.overlays.map((op) => op.id)), [snapshot.overlays]);
 
   const canDropTo = useCallback((itemId: string, cellId: string) => {
-    if (latest.current.props.readOnly) return false;
+    const current = latest.current.props;
+    if (current.readOnly) return false;
     const item = itemsRef.current.get(itemId);
-    const canDrop = latest.current.props.canDrop;
     if (item == null) return false;
-    return canDrop ? canDrop(item, moveTargetOf(cellId)) : true;
+    if (current.limitBehavior === 'block' && isFull(modelRef.current, current, itemId, cellId)) return false;
+    return current.canDrop ? current.canDrop(item, moveTargetOf(cellId)) : true;
   }, []);
 
   const moveItem = useCallback(

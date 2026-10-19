@@ -60,17 +60,18 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
       setLaneId(null);
       setPosition('top');
       setQuery('');
-      offset.value = withTiming(0, { duration: reducedMotion ? 0 : OPEN_MS, easing: Easing.out(Easing.cubic) });
-      backdrop.value = withTiming(1, { duration: reducedMotion ? 0 : OPEN_MS });
+      const open = reducedMotion ? 0 : Math.round(OPEN_MS * board.durationScale);
+      offset.value = withTiming(0, { duration: open, easing: Easing.out(Easing.cubic) });
+      backdrop.value = withTiming(1, { duration: open });
       return;
     }
-    const duration = reducedMotion ? 0 : CLOSE_MS;
+    const duration = reducedMotion ? 0 : Math.round(CLOSE_MS * board.durationScale);
     backdrop.value = withTiming(0, { duration });
     offset.value = withTiming(OFFSCREEN, { duration, easing: Easing.in(Easing.cubic) }, (done) => {
       'worklet';
       if (done) scheduleOnRN(finishClose);
     });
-  }, [backdrop, finishClose, itemId, offset, reducedMotion]);
+  }, [backdrop, board.durationScale, finishClose, itemId, offset, reducedMotion]);
 
   const dismiss = useMemo(
     () =>

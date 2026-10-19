@@ -29,6 +29,10 @@ export interface CardViewProps {
   style?: StyleProp<ViewStyle>;
   /** Drawn before the content, after the accent bar. For example a `<DragHandle />`. */
   leading?: ReactNode;
+  /** Pass `info.age`: a small "12d" chip in the footer. */
+  age?: number | null;
+  /** Pass `info.stale`: the age chip turns the warning color. */
+  stale?: boolean;
   children?: ReactNode;
 }
 
@@ -68,6 +72,8 @@ export const CardView = memo(function CardView({
   onPress,
   style,
   leading,
+  age,
+  stale = false,
   children,
 }: CardViewProps) {
   const theme = useBoardTheme();
@@ -117,9 +123,21 @@ export const CardView = memo(function CardView({
             </View>
           ) : null}
           {children}
-          {meta || assignee || pending ? (
+          {meta || assignee || pending || age != null ? (
             <View style={styles.footer}>
               {pending ? <View style={[styles.saving, { backgroundColor: theme.accent }]} /> : null}
+              {age != null ? (
+                <View
+                  style={[
+                    styles.age,
+                    { backgroundColor: tint(stale ? theme.warning : theme.mutedText, stale ? 0.16 : 0.12) },
+                  ]}
+                >
+                  <Text style={[styles.ageText, { color: stale ? theme.warning : theme.mutedText }, fontFamily]}>
+                    {Math.round(age)}d
+                  </Text>
+                </View>
+              ) : null}
               <Text style={[styles.meta, { color: theme.mutedText }, fontFamily]} numberOfLines={1}>
                 {meta ?? ''}
               </Text>
@@ -173,5 +191,7 @@ const styles = StyleSheet.create({
   meta: { flex: 1, fontSize: 12, fontWeight: '500' },
   avatar: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 11, fontWeight: '700' },
+  age: { paddingHorizontal: 6, minHeight: 18, borderRadius: 9, justifyContent: 'center' },
+  ageText: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
   pressed: { opacity: 0.85 },
 });

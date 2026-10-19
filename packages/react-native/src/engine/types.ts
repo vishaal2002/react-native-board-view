@@ -109,6 +109,8 @@ export interface LiftStyle {
   readonly tilt: number;
   readonly shadowOpacity: number;
   readonly dropMs: number;
+  /** The drop overshoots its spot slightly and springs back. */
+  readonly overshoot?: boolean;
 }
 
 /** A scroll view the engine can move from the UI thread. */

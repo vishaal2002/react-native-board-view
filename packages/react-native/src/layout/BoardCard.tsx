@@ -156,6 +156,7 @@ export const BoardCard = memo(function BoardCard({
   if (item == null || !cell) return null;
   const lane = laneKey === NO_LANE_ID ? null : cell.lane;
   const compact = cardWidth(board, columnKey) < COMPACT_CARD_WIDTH;
+  const described = board.describeCard(item);
   const info: CardRenderInfo<unknown> = {
     item,
     cellId,
@@ -166,6 +167,7 @@ export const BoardCard = memo(function BoardCard({
     pending,
     dragging: false,
     compact,
+    ...described,
     openMoveSheet: openSheet,
   };
 
@@ -180,6 +182,8 @@ export const BoardCard = memo(function BoardCard({
         position: index + 1,
         count,
         pending,
+        dimmed: described.dimmed,
+        staleDays: described.stale ? Math.round(described.age ?? 0) : null,
       })}
       accessibilityActions={actions}
       onAccessibilityAction={onAccessibilityAction}
@@ -191,6 +195,13 @@ export const BoardCard = memo(function BoardCard({
       )}
       {sheetMode === 'auto' && !compact && !overview ? (
         <MenuButton color={theme.mutedText} onPress={openSheet} />
+      ) : null}
+      {described.dimmed ? (
+        // A veil in the column's color, not opacity: opacity on a card with an Android elevation shadow draws a grey halo.
+        <View
+          pointerEvents="none"
+          style={[styles.veil, { backgroundColor: theme.columnBackground, borderRadius: theme.cardRadius }]}
+        />
       ) : null}
       {highlighted ? (
         <HighlightRing
@@ -288,6 +299,8 @@ export function HoverCard({ itemId }: { itemId: string }) {
         pending: controller.isPending(itemId),
         dragging: true,
         compact: cardWidth(board, cell.columnKey) < COMPACT_CARD_WIDTH,
+        ...board.describeCard(item),
+        dimmed: false,
         openMoveSheet: () => undefined,
       })}
     </View>
@@ -296,6 +309,8 @@ export function HoverCard({ itemId }: { itemId: string }) {
 
 const styles = StyleSheet.create({
   hover: { width: '100%' },
+  // Out of the spotlight: still there, still movable, but quiet.
+  veil: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.68 },
   ring: {
     position: 'absolute',
     top: -RING_OUTSET,

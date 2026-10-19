@@ -71,8 +71,8 @@ export function DropDock() {
 
   return (
     <Animated.View
-      entering={reduced ? undefined : SlideInDown.duration(180)}
-      exiting={reduced ? undefined : FadeOut.duration(120)}
+      entering={reduced ? undefined : SlideInDown.duration(Math.round(180 * board.durationScale))}
+      exiting={reduced ? undefined : FadeOut.duration(Math.round(120 * board.durationScale))}
       pointerEvents="none"
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden

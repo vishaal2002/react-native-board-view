@@ -2,6 +2,30 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
+## 0.7.0
+
+`react-native-board-view` only. `board-view-core` stays 0.2.0. Every feature here is in the board: nothing reaches your server.
+
+- **Week planner.** `layout="planner"` draws a column per day: today's date in an accent disc, weekends set back, and a Today button while today is off screen. `dayColumns(start, count)` builds the columns with `YYYY-MM-DD` ids; `toDayId`, `parseDayId` and `addDays` help with the rest.
+- **Columns that load sideways.** `onColumnsEndReached('start' | 'end')` fires near either end of the board in the planner, `multi`, `fit` and `paged`. When columns are added in front, the board keeps the same column on screen.
+- **WIP limits.** `columnLimits` shows each column's count against its limit ("4/5") with a meter under the header, in the warning color when full and the reject color when over. `limitBehavior="block"` refuses drops into a full column from drag, the dock, the Move sheet and screen-reader actions.
+- **Column sums.** `getItemValue` and `formatValue` add a number per card, such as a deal amount, to each header. The default format is compact ("12.4k"), written out so it works on every Hermes build.
+- **Spotlight.** `spotlight` fades the cards it rejects, under a veil in the column's color, and keeps them in place and movable.
+- **Card ageing.** `getItemAge` and `staleAfterDays` (14). `renderCard` gets `age` and `stale`, and `CardView` takes `age` and `stale` to show a small chip that turns amber when stale.
+- **Lane distribution.** Lane headers draw a bar of how the lane's cards spread across the columns.
+- **Sticky headers.** On by default: lane headers in swimlanes and section headers in stacked stay pinned. `stickyHeaders={false}` turns them off.
+- **Theme presets.** `themePreset`: `paper`, `slate` and `aurora`, each with a light and a dark variant that pass WCAG AA for text and muted text (`theme.test.ts` checks them). `themePresets` is exported.
+- **Motion presets.** `motion`: `calm`, `snappy` or `playful`. They set the lift and drop tokens and scale the dock, banner and sheet animations. `playful` tilts the lifted card and springs it into place. `motionPresets` is exported.
+- **Smoother layout changes.** Columns glide to a new width or place (collapsing, hiding empty columns, rotating), never during a drag. A new layout fades in when the board switches layout or opens the overview.
+- **Header facts for everyone.** `ColumnHeaderRenderInfo` gains `limit`, `limitState`, `value`, `valueLabel` and `day`; `LaneHeaderRenderInfo` gains `distribution`; `CardRenderInfo` gains `dimmed`, `age` and `stale`. Each header's screen-reader label says the same, through the new `labels.columnSummary`.
+- **Labels.** `columnSummary`, `full` and `today`. `labels.card` now gets `dimmed` and `staleDays`.
+
+### Breaking
+
+- `BoardTheme` has a new required token, `warning`, for full columns and stale cards. Code that builds a whole theme object must add it. `theme` overrides are partial, so passing `theme` is unaffected.
+- `ColumnHeaderRenderInfo`, `LaneHeaderRenderInfo`, `CardRenderInfo`, `CardAccessibilityContext` and `BoardLabels` have new required fields. Code that builds them itself, for example in tests, must add them.
+- Sticky headers are on by default. Pass `stickyHeaders={false}` for 0.6's scrolling headers.
+
 ## 0.6.0
 
 `react-native-board-view` 0.6.0 and `board-view-core` 0.2.0. Publish core first: the board depends on it.

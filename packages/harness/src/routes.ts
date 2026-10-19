@@ -1,5 +1,7 @@
 import {
   Accessibility,
+  CalendarDays,
+  ChartColumn,
   Ban,
   Columns3,
   Grid2x2,
@@ -33,6 +35,8 @@ export type Route =
   | 'swimlanes-stacked'
   | 'matrix'
   | 'phone-moves'
+  | 'insights'
+  | 'planner'
   | 'live'
   | 'showcase'
   | 'rollback'
@@ -98,6 +102,12 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
         detail: 'layout="matrix": a 2 × 2 of urgency and importance, every cell on screen.',
         badge: Grid2x2,
       },
+      {
+        route: 'planner',
+        title: 'Week planner',
+        detail: 'layout="planner": a column per day, today marked, more days at either end.',
+        badge: CalendarDays,
+      },
     ],
   },
   {
@@ -108,6 +118,12 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
         title: 'Showcase',
         detail: 'A plain board as an app would ship it. Most README captures come from here.',
         badge: Star,
+      },
+      {
+        route: 'insights',
+        title: 'Insights',
+        detail: 'WIP limits, value sums, spotlight, card ageing, theme and motion presets.',
+        badge: ChartColumn,
       },
       {
         route: 'phone-moves',

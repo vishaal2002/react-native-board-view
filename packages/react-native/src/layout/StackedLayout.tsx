@@ -8,6 +8,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { NO_LANE_ID, type BoardCell, type BoardModel, type GroupValue } from 'board-view-core';
+import { laneDistribution } from '../insights';
 import { useBoard, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type SlotSource } from '../engine/geometry';
 import { PLACEHOLDER_ID, type CellGeometry, type DragPlacement, type ScrollerHandle } from '../engine/types';
@@ -235,6 +236,9 @@ export function StackedLayout() {
   const contentHeight = useRef(0);
   const [frame, setFrame] = useState({ top: 0, height: 0 });
   const hasLanes = props.groupBy.lanes != null;
+  // Lane headers pin on boards with lanes, section headers on boards without.
+  const sticky = props.stickyHeaders !== false;
+  const stickyKind = hasLanes ? 'lane' : 'section';
   const { rows, ranges } = useMemo(
     () =>
       buildRows(controller.model as BoardModel<unknown>, hasLanes, collapsedLanes, collapsedColumns, {
@@ -251,6 +255,10 @@ export function StackedLayout() {
       props.getItemId,
       props.renderColumnFooter,
     ],
+  );
+  const stickyIndices = useMemo(
+    () => (sticky ? rows.flatMap((row, index) => (row.kind === stickyKind ? [index] : [])) : undefined),
+    [rows, sticky, stickyKind],
   );
   const live = useRef<StackedLive>({ board, rows, ranges, top: frame.top, height: frame.height });
   live.current = { board, rows, ranges, top: frame.top, height: frame.height };
@@ -353,6 +361,7 @@ export function StackedLayout() {
           contentContainerStyle={{ paddingTop: board.theme.columnGap, paddingBottom: 48 }}
           maintainVisibleContentPosition={NO_ANCHORING}
           showsVerticalScrollIndicator={false}
+          stickyHeaderIndices={stickyIndices}
         />
       ) : null}
     </View>
@@ -370,12 +379,13 @@ const StackedRow = memo(function StackedRow({ row }: { row: Row }) {
 });
 
 function LaneHeaderRow({ row }: { row: Extract<Row, { kind: 'lane' }> }) {
-  const { theme, labels, props, toggleLane } = useBoard();
+  const { theme, labels, props, toggleLane, controller } = useBoard();
   const info = {
     lane: row.lane,
     count: row.count,
     collapsed: row.collapsed,
     toggleCollapsed: () => toggleLane(row.lane.id),
+    distribution: laneDistribution(controller.model, row.lane.id),
   };
   return (
     <View style={[styles.laneRow, { marginHorizontal: theme.columnGap }]}>
@@ -406,18 +416,24 @@ function closingStyle(theme: BoardContextValue['theme']) {
 }
 
 function SectionHeaderRow({ row }: { row: Extract<Row, { kind: 'section' }> }) {
-  const { theme, labels, props, controller, toggleColumn, canCollapseColumns, columnTotal } = useBoard();
+  const { theme, labels, props, controller, toggleColumn, canCollapseColumns, columnTotal, describeColumn } =
+    useBoard();
   const cell = controller.model.cellById.get(row.cellId);
   if (!cell) return null;
   const hasLanes = props.groupBy.lanes != null;
+  // A lane section holds part of a column, so the column total belongs to boards without lanes.
+  const total = hasLanes ? cell.items.length : columnTotal(cell.columnKey, cell.items.length);
   const info = {
     column: cell.column,
     count: cell.items.length,
-    // A lane section holds part of a column, so the column total belongs to boards without lanes.
-    total: hasLanes ? cell.items.length : columnTotal(cell.columnKey, cell.items.length),
+    total,
     collapsed: row.collapsed,
     compact: false,
     toggleCollapsed: canCollapseColumns ? () => toggleColumn(cell.columnKey) : undefined,
+    // A lane section sums its own cards; its limit is the whole column's, so it is left out.
+    ...(hasLanes
+      ? { ...describeColumn(cell.columnKey, total, cell.items), limit: undefined, limitState: 'none' as const }
+      : describeColumn(cell.columnKey, total)),
   };
   return (
     <View

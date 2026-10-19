@@ -8,7 +8,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
-import Animated from 'react-native-reanimated';
+import Animated, { LinearTransition } from 'react-native-reanimated';
 import { NO_LANE_ID, cellId as makeCellId, type BoardCell } from 'board-view-core';
 import { useBoard, useStoreValue, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type SlotSource } from '../engine/geometry';
@@ -138,6 +138,7 @@ const BoardColumn = memo(function BoardColumn({
   const board = useBoard();
   const { theme, labels, props, canCollapseColumns, toggleColumn, columnTotal, loadingColumns } = board;
   const [listFrame, setListFrame] = useState({ y: 0, height: 0 });
+  const glide = useColumnGlide();
   const count = cell.items.length;
   const total = columnTotal(cell.columnKey, count);
   const loading = loadingColumns.has(cell.columnKey);
@@ -147,6 +148,8 @@ const BoardColumn = memo(function BoardColumn({
     setListFrame((previous) => (previous.y === y && previous.height === next ? previous : { y, height: next }));
   }, []);
 
+  // Planner weekends sit back: the board's own background, with a hairline edge.
+  const weekend = board.planner && board.describeColumn(cell.columnKey, total).day?.weekend === true;
   const frame = [
     styles.column,
     {
@@ -154,8 +157,8 @@ const BoardColumn = memo(function BoardColumn({
       top,
       width: slot.width,
       height,
-      backgroundColor: theme.columnBackground,
-      borderColor: theme.columnBorder,
+      backgroundColor: weekend ? theme.background : theme.columnBackground,
+      borderColor: weekend ? theme.emptyCellBorder : theme.columnBorder,
       borderRadius: theme.radius,
       direction: board.rtl ? ('rtl' as const) : ('ltr' as const),
     },
@@ -163,7 +166,7 @@ const BoardColumn = memo(function BoardColumn({
 
   if (slot.collapsed) {
     return (
-      <View style={frame}>
+      <Animated.View layout={glide} style={frame}>
         <CollapsedColumnStrip
           label={cell.column.label}
           count={total}
@@ -173,7 +176,7 @@ const BoardColumn = memo(function BoardColumn({
           onExpand={toggle}
           height={height}
         />
-      </View>
+      </Animated.View>
     );
   }
 
@@ -184,9 +187,10 @@ const BoardColumn = memo(function BoardColumn({
     collapsed: false,
     compact: slot.width < COMPACT_HEADER_WIDTH,
     toggleCollapsed: canCollapseColumns ? toggle : undefined,
+    ...board.describeColumn(cell.columnKey, total),
   };
   return (
-    <View style={frame}>
+    <Animated.View layout={glide} style={frame}>
       {board.overview ? (
         <OverviewHeader column={cell.column} count={total} />
       ) : props.renderColumnHeader ? (
@@ -212,9 +216,23 @@ const BoardColumn = memo(function BoardColumn({
       {onScreen && props.renderColumnFooter
         ? props.renderColumnFooter({ column: cell.column, lane: null, count, loading })
         : null}
-    </View>
+    </Animated.View>
   );
 });
+
+/**
+ * Columns glide to a new place or width: collapsing, hiding empty columns,
+ * rotating. Never during a drag, when column heights change under the finger
+ * and hit-testing reads the final frames.
+ */
+function useColumnGlide() {
+  const { adapter, reducedMotion, durationScale } = useBoard();
+  const dragging = adapter.useDragSource() !== null;
+  return useMemo(
+    () => (reducedMotion || dragging ? undefined : LinearTransition.duration(Math.round(240 * durationScale))),
+    [dragging, durationScale, reducedMotion],
+  );
+}
 
 interface ColumnListProps {
   cell: BoardCell<unknown>;
