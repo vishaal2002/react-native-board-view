@@ -269,6 +269,8 @@ export const SwimlaneLayout = memo(function SwimlaneLayout() {
           snapToInterval={metrics.mode === 'paged' ? metrics.pageSize : undefined}
           decelerationRate={metrics.mode === 'paged' ? 'fast' : 'normal'}
           disableIntervalMomentum={metrics.mode === 'paged'}
+          // Android's stretch at the first page can stay stuck after a fling, and the list then swallows taps.
+          overScrollMode={metrics.mode === 'paged' ? 'never' : 'auto'}
           contentOffset={{ x: scroller.initialOffset, y: 0 }}
           onScroll={scroller.onScroll}
           scrollEventThrottle={16}

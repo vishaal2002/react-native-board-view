@@ -145,6 +145,8 @@ export interface CardContextValue<T = unknown> {
   readonly reducedMotion: boolean;
   readonly overview: boolean;
   readonly sheetMode: 'auto' | 'manual' | false;
+  /** 'manual': the board draws nothing over the card. */
+  readonly cardMarks: 'auto' | 'manual';
   readonly selectable: boolean;
   /** Swipe-to-move is on (`multi` and `fit` layouts). */
   readonly swipeEnabled: boolean;

@@ -151,16 +151,22 @@ export interface CardRenderInfo<T> {
   readonly dragging: boolean;
   /** The column is narrow (cards under 200pt wide): show less. */
   readonly compact: boolean;
-  /** `spotlight` is set and this card is outside it: draw it quietly. The board already fades it. */
+  /** `spotlight` is set and this card is outside it: draw it quietly. The board fades it unless `cardMarks` is 'manual'. */
   readonly dimmed: boolean;
   /** `getItemAge` for this card, in days, or null. */
   readonly age: number | null;
   /** `age` has reached `staleAfterDays`. */
   readonly stale: boolean;
-  /** The card is in the selection. The board already draws a check and an outline. */
+  /** The card is in the selection. The board draws a check and an outline unless `cardMarks` is 'manual'. */
   readonly selected: boolean;
   /** A selection is open: a tap on a card selects it instead of `onPress`. */
   readonly selecting: boolean;
+  /** `scrollToItem` with `highlight`, or a move from your data, is pointing at this card for a moment. */
+  readonly highlighted: boolean;
+  /** A pointer (mouse, trackpad) is over the card. */
+  readonly hovered: boolean;
+  /** On the lifted copy: how many cards this drag moves, more than 1 when it carries the selection. 0 elsewhere. */
+  readonly dragCount: number;
   readonly openMoveSheet: () => void;
   /** Adds the card to the selection, or takes it out. */
   readonly toggleSelected: () => void;
@@ -499,6 +505,14 @@ export interface BoardProps<T> {
   undo?: boolean | UndoOptions;
 
   renderCard: (info: CardRenderInfo<T>) => ReactNode;
+  /**
+   * The marks the board draws over your card: the selection check and
+   * outline, the highlight ring, the pointer outline, the spotlight fade and
+   * the stacked edge and count on a dragged selection. 'manual' draws none of
+   * them, and your card draws what it wants from `selected`, `highlighted`,
+   * `hovered`, `dimmed` and `dragCount`. Default 'auto'.
+   */
+  cardMarks?: 'auto' | 'manual';
   renderColumnHeader?: (info: ColumnHeaderRenderInfo) => ReactNode;
   renderLaneHeader?: (info: LaneHeaderRenderInfo) => ReactNode;
   renderEmptyCell?: (info: EmptyCellRenderInfo) => ReactNode;
@@ -510,7 +524,7 @@ export interface BoardProps<T> {
   autoBreakpoint?: number;
   /** Paged layout only: column chips above the board, page dots, or nothing. Default 'tabs'. */
   pagerIndicator?: 'tabs' | 'dots' | 'none';
-  /** Column to show first in the paged and multi layouts. Ignored once `columnId` is set. */
+  /** Column to show first, in the layouts that scroll sideways. Ignored once `columnId` is set. */
   initialColumnId?: string;
   /**
    * Column to keep on screen. Changing it scrolls there. Update it from
@@ -531,8 +545,6 @@ export interface BoardProps<T> {
    * the last column.
    */
   onColumnEndReached?: (columnId: string) => void;
-  /** @deprecated Renamed `onColumnEndReached`. Removed in 1.0. */
-  onEndReached?: (columnId: string) => void;
   /**
    * Columns that are fetching more cards, for example after `onColumnEndReached`.
    * A spinner shows where that event fired: at the end of the column in the
@@ -577,8 +589,6 @@ export interface BoardProps<T> {
    * once per width on a board that fits the screen, so short boards grow too.
    */
   onEdgeReached?: (edge: 'start' | 'end') => void;
-  /** @deprecated Renamed `onEdgeReached`. Removed in 1.0. */
-  onColumnsEndReached?: (edge: 'start' | 'end') => void;
   /** Lane headers in swimlanes and section headers in stacked stay pinned while their cards scroll. Default true. */
   stickyHeaders?: boolean;
   /** Feel of lift, landing, the dock and the banner. `theme` lift tokens still win. Default `standard`. */
@@ -598,7 +608,7 @@ export interface BoardProps<T> {
   /** Controlled overview state. Omit to let pinches open and close it. Needs `overview`. */
   overviewOpen?: boolean;
   onOverviewChange?: (open: boolean) => void;
-  /** Collapse toggles on column headers. Default: on in `stacked`, off elsewhere. Never in `paged`. */
+  /** Collapse toggles on column headers. Default: on in `stacked`, off elsewhere. Never in `paged` or `matrix`. */
   collapsibleColumns?: boolean;
   /** Controlled. Omit both to let the board keep this state itself. */
   collapsedColumns?: readonly string[];
@@ -638,7 +648,7 @@ export interface BoardProps<T> {
   readOnly?: boolean;
   /** Scroll the board while a card is held near an edge. Default true. */
   autoScroll?: boolean;
-  /** Long-press time before a drag starts, 150–250 ms. Default 200. */
+  /** Long-press time before a drag starts, in ms. 150–250 suits most apps. Default 200. */
   longPressDelay?: number;
 
   appearance?: 'auto' | 'light' | 'dark';
@@ -648,8 +658,6 @@ export interface BoardProps<T> {
 
   /** Cards shown per swimlane cell before "Show more". Default 50. */
   laneCellLimit?: number;
-  /** @deprecated Renamed `laneCellLimit`. Removed in 1.0. */
-  cellLimit?: number;
   /** Replaces the default fractional-indexing ranks. */
   rankStrategy?: RankStrategy;
   /** How long a resolved move may wait for `items` to show it. Default 5000. */

@@ -41,7 +41,6 @@ import { visibleModel } from './layout/visible';
 import { HeaderSheet } from './sheet/HeaderSheet';
 import { MoveSheet } from './sheet/MoveSheet';
 import { SelectionBar } from './layout/SelectionBar';
-import { normalizeProps } from './deprecations';
 import { externalMovesBetween } from './layout/externalMoves';
 import { hapticsFor } from './haptics';
 import { columnStats, formatCompact, limitState, plannerDay, sumValues } from './insights';
@@ -148,8 +147,7 @@ function useSelection<T>(
  * edits your data. Moves arrive in `onMove` as operations you apply (or
  * reject); until your items show a move, the board shows it as an overlay.
  */
-export function Board<T>(rawProps: BoardProps<T>) {
-  const props = normalizeProps(rawProps);
+export function Board<T>(props: BoardProps<T>) {
   const scheme = useColorScheme();
   const appearance = props.appearance ?? 'auto';
   const dark = appearance === 'dark' || (appearance === 'auto' && scheme === 'dark');
@@ -542,6 +540,7 @@ export function Board<T>(rawProps: BoardProps<T>) {
     [boardWidth, cellPadding, columnGap, metrics, rtl, shownColumns],
   );
   const { renderCard, getItemLabel, canDrag } = props;
+  const cardMarks = props.cardMarks ?? 'auto';
   const { focusRequest } = fullController;
   const cardValue = useMemo<CardContextValue<T>>(
     () => ({
@@ -555,6 +554,7 @@ export function Board<T>(rawProps: BoardProps<T>) {
       reducedMotion,
       overview,
       sheetMode,
+      cardMarks,
       selectable,
       swipeEnabled,
       horizontalScrollGesture,
@@ -585,6 +585,7 @@ export function Board<T>(rawProps: BoardProps<T>) {
       allLanes,
       allows,
       canDrag,
+      cardMarks,
       cardWidth,
       describeCard,
       externalMoves,

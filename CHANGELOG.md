@@ -1,6 +1,27 @@
 # Changelog
 
-This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
+This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**. From 1.0, what counts as breaking is in the [support policy](docs/support.md).
+
+## 1.0.0
+
+`react-native-board-view` 1.0.0 and `board-view-core` 1.0.0. Publish core first: the board depends on it. Core has no changes since 0.3.0.
+
+The stable release. Upgrading from 0.x is in [Migrating to 1.0](docs/migrating.md). Every prop, type, token and label is in the new [API reference](docs/api.md), and the [support policy](docs/support.md) says what semantic versioning covers and which React Native and Expo versions are supported.
+
+- **Design the whole card.** `cardMarks="manual"` stops the board drawing over your card: no selection check or outline, highlight ring, pointer outline, spotlight fade, or stack and count on a dragged selection. `renderCard` gets `highlighted`, `hovered` and `dragCount` to draw them itself, beside `selected` and `dimmed`. The default, `'auto'`, looks as before.
+- **Release gates on a phone.** S2–S6 passed on release builds on a vivo V2158 (Android 14). The results are in [docs/spike.md](docs/spike.md).
+
+### Fixed
+
+- Holding a card at the board's side edge flipped or scrolled to the last column and showed the drop there, but letting go put the card back, because the finger was in the margin beside the column. It now lands where shown.
+- On Android, after a fling back to the first page of a paged board, the page stopped a few points short and the next taps on it did nothing, until a scroll. The stretch at the edge stayed stuck. Paged boards no longer overscroll.
+- The count on a dragged selection included selected cards that cannot be dragged and stay behind.
+- `OverlayClearReason` is re-exported, as `MoveQueueEvent` already referred to it.
+
+### Breaking
+
+- Removed `onEndReached`, `onColumnsEndReached` and `cellLimit`, deprecated in 0.8. Use `onColumnEndReached`, `onEdgeReached` and `laneCellLimit`.
+- `CardRenderInfo` has new required fields, `highlighted`, `hovered` and `dragCount`. Code that builds one itself, for example in tests, must add them.
 
 ## 0.8.1
 

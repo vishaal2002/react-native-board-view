@@ -33,12 +33,20 @@ function initials(name: string | undefined): string {
 const Ticket = memo(function Ticket({ info }: { info: CardRenderInfo<Task> }) {
   const theme = useBoardTheme();
   const { item, pending, dragging, openMoveSheet, index, count } = info;
+  // `cardMarks="manual"`: the board draws nothing over the ticket, so it shows selection, highlight and hover itself.
+  const { selected, highlighted, hovered, dimmed, dragCount } = info;
+  const marked = dragging || selected || highlighted;
   return (
     <View
       style={[
         styles.ticket,
-        { backgroundColor: theme.cardBackground, borderColor: dragging ? theme.accent : theme.cardBorder },
+        {
+          backgroundColor: theme.cardBackground,
+          borderColor: marked ? theme.accent : hovered ? theme.mutedText : theme.cardBorder,
+        },
+        marked ? styles.ticketMarked : null,
         dragging ? styles.ticketLifted : null,
+        dimmed ? styles.ticketDimmed : null,
       ]}
     >
       <View style={styles.ticketTop}>
@@ -47,6 +55,12 @@ const Ticket = memo(function Ticket({ info }: { info: CardRenderInfo<Task> }) {
           {item.id.toUpperCase()} · {index + 1}/{count}
         </Text>
         {pending ? <ActivityIndicator size="small" color={theme.accent} /> : null}
+        {dragCount > 1 ? (
+          <Text style={[styles.carrying, { backgroundColor: theme.accent, color: theme.cardBackground }]}>
+            {dragCount} tickets
+          </Text>
+        ) : null}
+        {selected ? <Text style={[styles.picked, { color: theme.accent }]}>Picked</Text> : null}
         <Pressable onPress={openMoveSheet} hitSlop={8} style={[styles.moveButton, { borderColor: theme.cardBorder }]}>
           <Text style={[styles.moveText, { color: theme.accent }]}>Move</Text>
         </Pressable>
@@ -126,7 +140,7 @@ export function CustomScreen({ onBack }: { onBack: () => void }) {
   return (
     <Screen
       title="Custom renderers"
-      subtitle="Card, column header, empty cell, footer and drop indicator are all app components. The “Move” button opens the board's sheet."
+      subtitle="Card, column header, empty cell, footer and drop indicator are all app components. The ticket draws its own selection and highlight. The “Move” button opens the board's sheet."
       onBack={onBack}
       footer={<EventLog entries={store.log} height={80} />}
     >
@@ -142,6 +156,7 @@ export function CustomScreen({ onBack }: { onBack: () => void }) {
         renderColumnFooter={renderColumnFooter}
         renderDropIndicator={renderDropIndicator}
         moveModes={moveModes}
+        cardMarks="manual"
         appearance={palette.dark ? 'dark' : 'light'}
       />
     </Screen>
@@ -150,7 +165,18 @@ export function CustomScreen({ onBack }: { onBack: () => void }) {
 
 const styles = StyleSheet.create({
   ticket: { borderRadius: 12, borderWidth: 1, padding: 12, gap: 8 },
+  ticketMarked: { borderWidth: 2, padding: 11 },
   ticketLifted: { transform: [{ rotate: '-1.5deg' }] },
+  ticketDimmed: { opacity: 0.4 },
+  carrying: {
+    fontSize: 11,
+    fontWeight: '800',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  picked: { fontSize: 12, fontWeight: '800' },
   ticketTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   flag: { width: 10, height: 10, borderRadius: 2 },
   ticketKey: { flex: 1, fontSize: 11, fontWeight: '700', letterSpacing: 0.4 },

@@ -75,6 +75,7 @@ export type {
   MoveQueueOptions,
   MoveQueueSnapshot,
   MoveSource,
+  OverlayClearReason,
   PlanMoveInput,
   ProjectBoardInput,
   RankStrategy,

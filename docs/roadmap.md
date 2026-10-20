@@ -1,14 +1,14 @@
 # Roadmap
 
-Draft, updated 2026-10-20. 0.8.0 shipped on 2026-10-20: every feature 1.0 needs, and the last release that may break the API. 0.8.1, the performance pass, is built. Features marked _experimental_ ship off by default and can change before 1.0.
+Updated 2026-10-20. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped on 2026-10-20. Features marked _experimental_ ship off by default and can change in a minor release (see the [support policy](support.md)).
 
 | Version | Theme                           | Headline                                                       |
 | ------- | ------------------------------- | -------------------------------------------------------------- |
 | 0.6.0   | Phone-first moves (shipped)     | Drop dock, undo, matrix, a better Move sheet                   |
 | 0.7.0   | Your data at a glance (shipped) | Week planner, WIP limits, sums, spotlight, presets             |
 | 0.8.0   | Feature-complete and API freeze | Multi-select, column and lane reorder, pointer, test kit, bugs |
-| 0.8.1   | Performance (built)             | Cards redraw only for their own data; first real-phone numbers |
-| 1.0.0   | Stable                          | Device gates, deprecations removed, no new features            |
+| 0.8.1   | Performance (shipped)           | Cards redraw only for their own data; first real-phone numbers |
+| 1.0.0   | Stable (built)                  | Device gates, deprecations removed, `cardMarks`                |
 
 ## 0.6.0: phone-first moves (shipped)
 
@@ -85,7 +85,7 @@ The five-developer usability study still belongs before the 0.8 API freeze.
 
 Not in 0.8.0, for after 1.0: dragging a header itself (the sheet covers reorder), arrow-key moves (React Native has no key events without a native module), live presence, flick to move, gallery cells and pipeline chevrons. The Expo Snack demo and the five-developer usability study are still to do.
 
-## 0.8.1: performance (built)
+## 0.8.1: performance (shipped)
 
 No new features and no API changes. Profiled on a real phone, a vivo V2158 (Android 14), against 0.8.0, and kept only what measurably helped:
 
@@ -99,12 +99,13 @@ The results, in [benchmarks](benchmarks.md#2026-10-20-081-against-080-on-a-phone
 - **Met.** The 4 × 500 board is at 0–1% janky frames, with the JS thread at 60.
 - **Not met.** The 20 lanes × 6 board improved, from about 6.7% to 3.8% janky while scrolling and from 6.9% to 5.8% during auto-scroll, but it misses the 0–3% target. A swimlane row still creates every column's cards natively when it scrolls in. Virtualizing columns inside a lane would fix it, but it changes how rows measure, so it comes after 1.0.
 
-## 1.0.0: stable
+## 1.0.0: stable (built)
 
-- Remove what 0.8 deprecated: `onEndReached`, `onColumnsEndReached`, `cellLimit`. No new features.
-- S2–S7 pass on release builds on a mid-tier Android phone and an iPhone. The device rows of the benchmarks table are filled in.
-- Core and the React Native package both go to 1.0.0.
-- An API reference, a migration guide from 0.x, and a support policy for React Native and Expo versions.
+- **Removed** what 0.8 deprecated: `onEndReached`, `onColumnsEndReached` and `cellLimit`.
+- **One addition**, asked for before the freeze: `cardMarks="manual"`, so an app can design the whole card, the board's marks included.
+- **Device gates.** S2–S6 passed on release builds on a vivo V2158 (Android 14), the only phone available. Two bugs found there are fixed: a drop at the board's side edge, and taps lost after a fling back to the first page. iOS ran S4 on the simulator only; no iPhone was available. S7 (TalkBack, VoiceOver) is in [the release gates](spike.md).
+- **Versions.** Core and the React Native package both go to 1.0.0.
+- **Docs.** An [API reference](api.md), a [migration guide](migrating.md) from 0.x, and a [support policy](support.md) for React Native and Expo versions.
 
 ## After 1.0
 

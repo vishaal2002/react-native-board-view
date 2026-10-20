@@ -83,6 +83,8 @@ export const ColumnsLayout = memo(function ColumnsLayout() {
         snapToInterval={paged ? metrics.pageSize : undefined}
         decelerationRate={paged ? 'fast' : 'normal'}
         disableIntervalMomentum={paged}
+        // Android's stretch at the first page can stay stuck after a fling, and the list then swallows taps.
+        overScrollMode={paged ? 'never' : 'auto'}
         contentOffset={{ x: scroller.initialOffset, y: 0 }}
         onScroll={scroller.onScroll}
         scrollEventThrottle={16}

@@ -587,21 +587,31 @@ function DragBoard(props: DragBoardProps) {
    * scrolling the cell the finger left, so the slot follows the content, read at that cell's edge,
    * and a drop there lands in it. Only for the cell at that end: a gap between swimlane rows or
    * stacked sections is inside the list, and crossing it keeps the placeholder where it is.
+   * The same holds sideways: a finger in the board's side edge, beside the cell's rows, is in the
+   * margin past the last column while the board scrolls or flips toward it.
    */
   const edgeTarget = useCallback(
     (active: ActiveDrag): { hit: [string, CellGeometry, Rect]; y: number } | null => {
-      if (active.lastCellId == null || !outerScroller(active)) return null;
+      if (active.lastCellId == null) return null;
       const geometry = store.cells.get(active.lastCellId);
       const rect = geometry?.getRect();
-      const viewport = geometry?.scroller?.getViewport();
-      if (!geometry || !rect || !viewport) return null;
+      if (!geometry || !rect) return null;
+      const hit: [string, CellGeometry, Rect] = [active.lastCellId, geometry, rect];
+      const { x, y } = active.pointer;
+      const dockTop = store.zones.size > 0 ? zonesTop(store.zones) : Infinity;
+      const across = store.scrollers.horizontal?.getViewport();
+      if (across && y >= rect.y && y < Math.min(rect.y + rect.height, dockTop)) {
+        const zone = edgeZone(across.size, propsRef.current.compact ?? true);
+        if (x < across.start + zone || x > across.start + across.size - zone) return { hit, y };
+      }
+      const viewport = outerScroller(active) ? geometry.scroller?.getViewport() : null;
+      if (!viewport) return null;
       const top = viewport.start;
-      const bottom = Math.min(viewport.start + viewport.size, store.zones.size > 0 ? zonesTop(store.zones) : Infinity);
-      const { y } = active.pointer;
+      const bottom = Math.min(viewport.start + viewport.size, dockTop);
       const pastBottom = y > bottom && rect.y + rect.height >= bottom - 1;
       const pastTop = y < top && rect.y <= top + 1;
       if (!pastBottom && !pastTop) return null;
-      return { hit: [active.lastCellId, geometry, rect], y: Math.min(Math.max(y, rect.y), rect.y + rect.height - 1) };
+      return { hit, y: Math.min(Math.max(y, rect.y), rect.y + rect.height - 1) };
     },
     [outerScroller, store],
   );

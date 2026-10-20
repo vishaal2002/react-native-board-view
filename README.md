@@ -546,6 +546,30 @@ it('moves a task to Done and saves it', async () => {
 
 `CardView` is a ready-made card. It takes `title`, `description`, `tags`, `meta`, `assignee`, `accentColor`, `pending`, `dragging`, `compact`, `leading`, `age`, `stale` and `onPress`. `leading` is the slot for a `DragHandle`. Use the card, wrap it, or render your own. Headers, empty cells, footers and the drop indicator have render props too.
 
+**Your own card, all of it.** <sup>1.0</sup> `renderCard` draws the card. The board still draws a few marks over it: the selection check and outline, the highlight ring, the pointer outline, the spotlight fade, and the stack and count on a dragged selection. `cardMarks="manual"` turns them all off, and your card draws its own from `renderCard`'s info. With `moveModes={{ sheet: 'manual' }}` the board's "…" button goes too, and your card calls `openMoveSheet()`.
+
+```tsx
+const renderCard = ({
+  item,
+  selected,
+  highlighted,
+  dimmed,
+  dragging,
+  dragCount,
+  openMoveSheet,
+}: CardRenderInfo<Task>) => (
+  <Ticket
+    task={item}
+    outlined={selected || highlighted || dragging}
+    faded={dimmed}
+    badge={dragCount > 1 ? `${dragCount} tickets` : undefined}
+    onMenu={openMoveSheet}
+  />
+);
+
+<Board cardMarks="manual" moveModes={{ sheet: 'manual' }} renderCard={renderCard} /* … */ />;
+```
+
 ## Accessibility
 
 - **One element per card.** The label gives the item, its column and lane, and its position, for example "Fix login, To do, 2 of 5".
@@ -630,27 +654,27 @@ To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filt
 | `collapsibleColumns`                 | on in `stacked` | Never in `paged`.                                                                      |
 | `collapsibleLanes`                   | `true`          | Lane collapse toggles in swimlanes. <sup>0.8</sup>                                     |
 | `collapsedColumns`, `collapsedLanes` | board-managed   | Controlled lists, with `onCollapsedColumnsChange` and `onCollapsedLanesChange`.        |
-| `laneCellLimit`                      | `50`            | Swimlane cards per cell before Show more. Was `cellLimit`. <sup>0.8</sup>              |
+| `laneCellLimit`                      | `50`            | Swimlane cards per cell before Show more. <sup>0.8</sup>                               |
 | `autoScroll`, `longPressDelay`       | `true`, `200`   | Edge scrolling while dragging, and the hold before a drag.                             |
 
 **Showing data** <sup>0.7</sup>
 
-| Prop                            | Default | Notes                                                                                                  |
-| ------------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
-| `columnLimits`, `limitBehavior` | `warn`  | Limits by column id. `block` refuses drops into a full column.                                         |
-| `getItemValue`, `formatValue`   | compact | A number per card, summed in each header.                                                              |
-| `spotlight`                     |         | Cards it returns false for fade back and keep their place.                                             |
-| `getItemAge`, `staleAfterDays`  | `14`    | Age in days, passed to `renderCard` and shown by `CardView`.                                           |
-| `onEdgeReached`                 |         | The board reached its first or last column: add more, such as planner days. Was `onColumnsEndReached`. |
+| Prop                            | Default | Notes                                                                       |
+| ------------------------------- | ------- | --------------------------------------------------------------------------- |
+| `columnLimits`, `limitBehavior` | `warn`  | Limits by column id. `block` refuses drops into a full column.              |
+| `getItemValue`, `formatValue`   | compact | A number per card, summed in each header.                                   |
+| `spotlight`                     |         | Cards it returns false for fade back and keep their place.                  |
+| `getItemAge`, `staleAfterDays`  | `14`    | Age in days, passed to `renderCard` and shown by `CardView`.                |
+| `onEdgeReached`                 |         | The board reached its first or last column: add more, such as planner days. |
 
 **Loading** <sup>0.4</sup>
 
-| Prop                      | Notes                                                                                                         |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `onColumnEndReached`      | A column reached its end. Fires again only after your append and a new scroll to the end. Was `onEndReached`. |
-| `loadingColumns`          | Column ids that are fetching. A spinner shows where `onColumnEndReached` fired.                               |
-| `columnTotals`            | Server counts by column id, shown in headers, tabs and screen-reader labels.                                  |
-| `onRefresh`, `refreshing` | Pull to refresh.                                                                                              |
+| Prop                      | Notes                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| `onColumnEndReached`      | A column reached its end. Fires again only after your append and a new scroll to the end. |
+| `loadingColumns`          | Column ids that are fetching. A spinner shows where `onColumnEndReached` fired.           |
+| `columnTotals`            | Server counts by column id, shown in headers, tabs and screen-reader labels.              |
+| `onRefresh`, `refreshing` | Pull to refresh.                                                                          |
 
 **Appearance and rendering**
 
@@ -662,6 +686,7 @@ To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filt
 | `themePreset`                                                  | `standard`    | `paper`, `slate` or `aurora`. <sup>0.7</sup>                                                             |
 | `motion`                                                       | `standard`    | `calm`, `snappy` or `playful`. <sup>0.7</sup>                                                            |
 | `stickyHeaders`                                                | `true`        | Pinned lane and section headers. <sup>0.7</sup>                                                          |
+| `cardMarks`                                                    | `auto`        | `manual`: the board draws no marks over your card. <sup>1.0</sup>                                        |
 | `renderColumnHeader`, `renderLaneHeader`                       |               | Headers get counts, `total`, limits, sums, the planner day, a lane's distribution and a collapse toggle. |
 | `renderEmptyCell`, `renderColumnFooter`, `renderDropIndicator` |               | Footers get `loading`.                                                                                   |
 | `style`, `testID`, `ref`                                       |               |                                                                                                          |
@@ -681,9 +706,9 @@ To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filt
 
 ### `renderCard` info
 
-`item`, `cellId`, `index`, `count`, `column`, `lane`, `pending`, `dragging` (true for the lifted copy), `compact` (the column is narrow), `dimmed` (outside the `spotlight`), `age` and `stale` <sup>0.7</sup>, `selected` and `selecting` <sup>0.8</sup>, `openMoveSheet()` and `toggleSelected()` <sup>0.8</sup>.
+`item`, `cellId`, `index`, `count`, `column`, `lane`, `pending`, `dragging` (true for the lifted copy), `compact` (the column is narrow), `dimmed` (outside the `spotlight`), `age` and `stale` <sup>0.7</sup>, `selected` and `selecting` <sup>0.8</sup>, `highlighted`, `hovered` and `dragCount` <sup>1.0</sup>, `openMoveSheet()` and `toggleSelected()` <sup>0.8</sup>.
 
-Renamed in 0.8: `onEndReached` is `onColumnEndReached`, `onColumnsEndReached` is `onEdgeReached`, and `cellLimit` is `laneCellLimit`. The old names still work, with a warning in development, until 1.0.
+Every prop, type, token and label is in the [API reference](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md). Coming from 0.x: [Migrating to 1.0](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/migrating.md).
 
 ### The core, on your server too
 
@@ -703,12 +728,12 @@ Renamed in 0.8: `onEndReached` is `onColumnEndReached`, `onColumnsEndReached` is
 
 ## Status
 
-The API can still change before 1.0. Breaking changes are listed in the [changelog](https://github.com/vishaal2002/react-native-board-view/blob/main/CHANGELOG.md).
+1.0 is stable. Both packages follow semantic versioning: what that covers, and which React Native and Expo versions are supported, is in the [support policy](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/support.md). Breaking changes would need 2.0. The overview and swipe-to-move stay experimental and off by default.
 
-These are still open before 1.0:
+What has run, and what has not:
 
-- **Real devices.** The drag gates have run on an Android emulator and, since 0.8.0, the iOS 27 simulator. The 0.8.1 frame-rate numbers come from one Android phone, a vivo V2158. Neither a low-end Android phone nor an iPhone has run them yet. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). The overview's pinch has not run on any device: the emulators drive one finger.
-- **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
+- **Devices.** The release gates S2–S6 passed on release builds on an Android phone, a vivo V2158 (Android 14, 6 GB). On the iOS 27 simulator, 1.0 passed S4; S5 last passed there on 0.8.0. No physical iPhone has run the gates yet, and no low-end Android phone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). The overview's pinch has not run on any device.
+- **Screen readers.** TalkBack and VoiceOver have not completed the full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
 - **Usability study.** Five developers new to the package have not been timed yet. Swipe-to-move stays experimental, and off by default, until that study.
 
 **Out of scope:** creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, items in more than one cell, and any action that edits items itself. Reanimated 3, the old architecture, and web. What comes next is in the [roadmap](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/roadmap.md).
@@ -719,7 +744,7 @@ These are still open before 1.0:
 
 | Package                   | What it is                                                                |
 | ------------------------- | ------------------------------------------------------------------------- |
-| `react-native-board-view` | `Board`, `CardView`, `DragHandle`, and a re-export of the core. **0.8.1** |
-| `board-view-core`         | Grouping, ranks, move planning and the move queue. No React. **0.3.0**    |
+| `react-native-board-view` | `Board`, `CardView`, `DragHandle`, and a re-export of the core. **1.0.0** |
+| `board-view-core`         | Grouping, ranks, move planning and the move queue. No React. **1.0.0**    |
 
 [MIT](https://github.com/vishaal2002/react-native-board-view/blob/main/LICENSE) © react-native-board-view contributors

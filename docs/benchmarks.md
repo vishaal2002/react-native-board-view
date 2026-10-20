@@ -162,6 +162,21 @@ From builds of both versions instrumented with timers and render counters (remov
 
 Holding a card in the drop dock's padding scrolled the list without moving the placeholder. The drop then put the card back. Holding just above the dock was unaffected, which is why earlier runs held there.
 
+## 2026-10-20: 1.0.0 on the same phone
+
+A check that 1.0 kept 0.8.1's numbers: the same vivo V2158, release build, same script, on battery at 20%. Each row is one run unless it says otherwise.
+
+| Board         | Scenario       | Janky frames |
+| ------------- | -------------- | ------------ |
+| 4 × 500       | Plain scroll   | 0.8%         |
+| 4 × 500       | Auto-scroll    | 0.8%, 0.4%   |
+| 4 × 500, slow | Plain scroll   | 0.4%         |
+| 4 × 500, slow | Auto-scroll    | 0.4%, 0.4%   |
+| 20 lanes × 6  | Lane scrolling | 3.5%         |
+| 20 lanes × 6  | Auto-scroll    | 3.5%, 5.6%   |
+
+All within 0.8.1's ranges. The 20 lanes × 6 board is still above the 0–3% target, as in 0.8.1.
+
 ## Still to measure (release gates)
 
 | Device                                        | Build   | Workload                |

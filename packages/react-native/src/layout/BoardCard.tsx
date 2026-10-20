@@ -223,9 +223,13 @@ export const BoardCard = memo(function BoardCard({
     ...described,
     selected,
     selecting,
+    highlighted: highlighted != null || flashed != null,
+    hovered,
+    dragCount: 0,
     openMoveSheet: openSheet,
     toggleSelected,
   };
+  const marks = card.cardMarks === 'auto';
 
   const content = (
     <View
@@ -254,14 +258,14 @@ export const BoardCard = memo(function BoardCard({
       {sheetMode === 'auto' && !compact && !overview ? (
         <MenuButton color={theme.mutedText} onPress={openSheet} />
       ) : null}
-      {described.dimmed ? (
+      {marks && described.dimmed ? (
         // A veil in the column's color, not opacity: opacity on a card with an Android elevation shadow draws a grey halo.
         <View
           pointerEvents="none"
           style={[styles.veil, { backgroundColor: theme.columnBackground, borderRadius: theme.cardRadius }]}
         />
       ) : null}
-      {highlighted || flashed ? (
+      {marks && (highlighted || flashed) ? (
         <HighlightRing
           request={highlighted ?? flashed!}
           color={theme.accent}
@@ -269,7 +273,7 @@ export const BoardCard = memo(function BoardCard({
           reducedMotion={card.reducedMotion}
         />
       ) : null}
-      {hovered && !selected && !overview ? (
+      {marks && hovered && !selected && !overview ? (
         <View
           pointerEvents="none"
           style={[
@@ -279,7 +283,7 @@ export const BoardCard = memo(function BoardCard({
           ]}
         />
       ) : null}
-      {selected ? <SelectedMark itemId={itemId} /> : null}
+      {marks && selected ? <SelectedMark itemId={itemId} /> : null}
       {selecting && !overview ? (
         // While selecting, a tap picks the card instead of reaching the card's own onPress.
         <Pressable
@@ -357,8 +361,19 @@ export function HoverCard({ itemId }: { itemId: string }) {
   const location = controller.model.locations.get(itemId);
   const cell = location ? controller.model.cellById.get(location.cellId) : undefined;
   if (item == null || !cell || !location) return null;
-  // A selected card carries the selection: a card edge peeks out behind it, and a badge counts them.
-  const stack = selected.size > 1 && selected.has(itemId);
+  // A selected card carries the selection, except cards that cannot be dragged: a card edge peeks out
+  // behind it, and a badge counts them.
+  const { canDrag } = board.props;
+  const carried =
+    selected.size > 1 && selected.has(itemId)
+      ? [...selected].filter((id) => {
+          if (id === itemId) return true;
+          const other = controller.itemsById.get(id);
+          return other != null && (!canDrag || canDrag(other));
+        })
+      : null;
+  const dragCount = carried ? carried.length : 1;
+  const stack = dragCount > 1 && board.props.cardMarks !== 'manual';
   return (
     <View>
       {stack ? (
@@ -370,10 +385,10 @@ export function HoverCard({ itemId }: { itemId: string }) {
           ]}
         />
       ) : null}
-      <HoverBody itemId={itemId} item={item} cell={cell} index={location.index} />
+      <HoverBody itemId={itemId} item={item} cell={cell} index={location.index} dragCount={dragCount} />
       {stack ? (
         <View pointerEvents="none" style={[styles.stackBadge, { backgroundColor: theme.accent }]}>
-          <Text style={[styles.stackCount, { color: theme.cardBackground }]}>{selected.size}</Text>
+          <Text style={[styles.stackCount, { color: theme.cardBackground }]}>{dragCount}</Text>
         </View>
       ) : null}
     </View>
@@ -419,11 +434,13 @@ function HoverBody({
   item,
   cell,
   index,
+  dragCount,
 }: {
   itemId: string;
   item: unknown;
   cell: BoardCell<unknown>;
   index: number;
+  dragCount: number;
 }) {
   const board = useBoard();
   const { cardWidth } = useCard();
@@ -451,6 +468,9 @@ function HoverBody({
         dimmed: false,
         selected: board.selection.get().has(itemId),
         selecting: board.selection.get().size > 0,
+        highlighted: false,
+        hovered: false,
+        dragCount,
         openMoveSheet: () => undefined,
         toggleSelected: () => undefined,
       })}
