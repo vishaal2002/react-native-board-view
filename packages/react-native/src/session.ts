@@ -46,11 +46,79 @@ interface Step {
   readonly place: number | { readonly after: string } | { readonly before: string };
 }
 
-/** The board as projected, and the overlays it was projected with. */
+/** The board as projected, and what it was projected from. */
 interface Projection<T> {
   readonly model: BoardModel<T>;
   readonly overlays: readonly MoveOperation[];
   readonly items: readonly unknown[];
+  readonly inputs: ProjectionInputs<T>;
+}
+
+/** The props a projection reads besides items and overlays. */
+export interface ProjectionInputs<T> {
+  readonly getItemId: (item: T) => string;
+  readonly getRank: (item: T) => string;
+  readonly groupBy: GroupBy<T>;
+  readonly strategy: BoardProps<T>['rankStrategy'];
+  readonly noValue: string;
+}
+
+function sameInputs<T>(a: ProjectionInputs<T>, b: ProjectionInputs<T>): boolean {
+  return (
+    a.getItemId === b.getItemId &&
+    a.getRank === b.getRank &&
+    a.groupBy === b.groupBy &&
+    a.strategy === b.strategy &&
+    a.noValue === b.noValue
+  );
+}
+
+/** Two overlays put a card in the same cell at the same rank. */
+function samePlace<T>(a: MoveOperation, b: MoveOperation, groupBy: GroupBy<T>): boolean {
+  const axes = groupBy.lanes ? [groupBy.columns, groupBy.lanes] : [groupBy.columns];
+  return (
+    a.rank === b.rank &&
+    axes.every(
+      ({ key }) => Object.hasOwn(a.changes, key) === Object.hasOwn(b.changes, key) && a.changes[key] === b.changes[key],
+    )
+  );
+}
+
+/** The item already holds what its overlay says: dropping the overlay leaves the card where it is. */
+function shows<T>(item: T | undefined, op: MoveOperation, inputs: ProjectionInputs<T>): boolean {
+  if (item == null || inputs.getRank(item) !== op.rank) return false;
+  const { columns, lanes } = inputs.groupBy;
+  return (lanes ? [columns, lanes] : [columns]).every(
+    (axis) => !Object.hasOwn(op.changes, axis.key) || readAxisValue(axis, item) === (op.changes[axis.key] ?? null),
+  );
+}
+
+/**
+ * The new overlays project the same board as the old ones, over the same
+ * items: every card keeps its overlay's cell and rank, and an overlay that
+ * went away was one the items already show. The queue merges a card's
+ * pending moves the way `withOverlay` does, so a planned batch matches what
+ * the queue then holds.
+ */
+function sameOverlays<T>(
+  before: readonly MoveOperation[],
+  after: readonly MoveOperation[],
+  items: ReadonlyMap<string, T>,
+  inputs: ProjectionInputs<T>,
+): boolean {
+  const kept = new Map(after.map((op) => [op.id, op]));
+  if (kept.size > before.length) return false;
+  let matched = 0;
+  for (const op of before) {
+    const next = kept.get(op.id);
+    if (next) {
+      if (!samePlace(op, next, inputs.groupBy)) return false;
+      matched += 1;
+    } else if (!shows(items.get(op.id), op, inputs)) {
+      return false;
+    }
+  }
+  return matched === kept.size;
 }
 
 /** Moves remembered for undo. Older ones are dropped. */
@@ -72,8 +140,12 @@ export interface SessionEnv<T> {
 export interface MoveSession<T> {
   /** The board right now, moves queued since the last render included. */
   live(): BoardModel<T>;
-  /** Hands the session a projection the hook already made, so `live` need not make it again. */
-  adopt(model: BoardModel<T>, overlays: readonly MoveOperation[], items: readonly T[]): void;
+  /**
+   * The board for these overlays and items, for the hook to draw. A move the
+   * session just planned already projected it, so a drop projects the board
+   * once, not three times.
+   */
+  projection(overlays: readonly MoveOperation[], items: readonly T[], inputs: ProjectionInputs<T>): BoardModel<T>;
   canDropTo(itemId: string, cellId: string): boolean;
   moveItem(itemId: string, toCellId: string, toIndex: number, source: MoveSource): boolean;
   moveItems(
@@ -150,10 +222,21 @@ function isFull<T>(
   cellId: string,
 ): boolean {
   const { columnKey } = parseCellId(cellId);
-  const limit = props.columnLimits?.[columnKey];
-  if (limit == null || !Number.isFinite(limit) || limit <= 0) return false;
   const from = model.locations.get(itemId);
   if (from && parseCellId(from.cellId).columnKey === columnKey) return false;
+  return columnIsFull(model, props, items, overlays, columnKey);
+}
+
+/** The column has reached its limit, counted as `isFull` counts it. */
+function columnIsFull<T>(
+  model: BoardModel<T>,
+  props: BoardProps<T>,
+  items: ReadonlyMap<string, T>,
+  overlays: readonly MoveOperation[],
+  columnKey: string,
+): boolean {
+  const limit = props.columnLimits?.[columnKey];
+  if (limit == null || !Number.isFinite(limit) || limit <= 0) return false;
   const total = props.columnTotals?.[columnKey];
   if (total == null) {
     let loaded = 0;
@@ -171,6 +254,39 @@ function isFull<T>(
     else if (stored === columnKey && shown !== columnKey) pending -= 1;
   }
   return total + pending >= limit;
+}
+
+/** Columns at their limit that refuse cards: empty unless `limitBehavior` is `block`. */
+export function fullColumnsOf<T>(
+  model: BoardModel<T>,
+  props: BoardProps<T>,
+  items: ReadonlyMap<string, T>,
+  overlays: readonly MoveOperation[],
+): ReadonlySet<string> {
+  const full = new Set<string>();
+  if (props.limitBehavior !== 'block' || !props.columnLimits) return full;
+  for (const column of model.columns) {
+    if (columnIsFull(model, props, items, overlays, column.id)) full.add(column.id);
+  }
+  return full;
+}
+
+/**
+ * The same rules as `canDropTo`, for a card that knows its column and the
+ * board's full columns. Cards use it so they redraw only when a column fills
+ * or empties, not on every move.
+ */
+export function rulesAllow<T>(
+  props: Pick<BoardProps<T>, 'readOnly' | 'limitBehavior' | 'canDrop'>,
+  item: T,
+  fromColumnKey: string,
+  cellId: string,
+  fullColumns: ReadonlySet<string>,
+): boolean {
+  if (props.readOnly) return false;
+  const { columnKey } = parseCellId(cellId);
+  if (props.limitBehavior === 'block' && columnKey !== fromColumnKey && fullColumns.has(columnKey)) return false;
+  return props.canDrop ? props.canDrop(item, moveTargetOf(cellId)) : true;
 }
 
 /** `overlays` with `op` added, merged into the item's pending overlay the way the queue merges them. */
@@ -205,17 +321,39 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
   const announcements = new Map<string, string>();
   let cache: Projection<T> | null = null;
 
-  function project(overlays: readonly MoveOperation[]): BoardModel<T> {
+  function inputsNow(): ProjectionInputs<T> {
     const props = env.props();
-    return projectBoard({
-      items: env.items(),
+    return {
       getItemId: props.getItemId,
       getRank: env.getRank(),
       groupBy: props.groupBy,
-      overlays,
       strategy: props.rankStrategy,
-      noValueLabel: env.labels().noValue,
+      noValue: env.labels().noValue,
+    };
+  }
+
+  function project(overlays: readonly MoveOperation[], inputs = inputsNow(), items = env.items()): BoardModel<T> {
+    return projectBoard({
+      items,
+      getItemId: inputs.getItemId,
+      getRank: inputs.getRank,
+      groupBy: inputs.groupBy,
+      overlays,
+      strategy: inputs.strategy,
+      noValueLabel: inputs.noValue,
     });
+  }
+
+  function projectionOf(overlays: readonly MoveOperation[], items: readonly T[], inputs = inputsNow()): Projection<T> {
+    if (cache && cache.overlays === overlays && cache.items === items && sameInputs(cache.inputs, inputs)) return cache;
+    // The queue publishes a new list when a move settles: often the same board, which need not be projected again.
+    const same =
+      cache != null &&
+      cache.items === items &&
+      sameInputs(cache.inputs, inputs) &&
+      sameOverlays(cache.overlays, overlays, env.itemsById(), inputs);
+    cache = { model: same ? cache!.model : project(overlays, inputs, items), overlays, items, inputs };
+    return cache;
   }
 
   /**
@@ -224,12 +362,7 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
    * tick plans against a fresh projection instead of stale neighbours.
    */
   function current(): Projection<T> {
-    const overlays = env.queue().getSnapshot().overlays;
-    const items = env.items();
-    if (!cache || cache.overlays !== overlays || cache.items !== items) {
-      cache = { model: project(overlays), overlays, items };
-    }
-    return cache;
+    return projectionOf(env.queue().getSnapshot().overlays, env.items());
   }
 
   function itemLabel(itemId: string): string {
@@ -360,6 +493,16 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
     }
     const queue = env.queue();
     for (const op of ops) queue.enqueue(op);
+    // The plan already projected the board these moves leave: keep it rather than project it again.
+    const queued = queue.getSnapshot().overlays;
+    const inputs = inputsNow();
+    if (
+      state.model !== start.model &&
+      state.overlays.length === queued.length &&
+      sameOverlays(state.overlays, queued, env.itemsById(), inputs)
+    ) {
+      cache = { model: state.model, overlays: queued, items: env.items(), inputs };
+    }
 
     if (source !== 'undo') {
       const moves = planned.map(({ op, from }, index) => ({
@@ -438,9 +581,7 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
 
   return {
     live: () => current().model,
-    adopt(model, overlays, items) {
-      cache = { model, overlays, items };
-    },
+    projection: (overlays, items, inputs) => projectionOf(overlays, items, inputs).model,
     canDropTo: (itemId, cellId) => allowed(current(), itemId, cellId),
     moveItem: (itemId, toCellId, toIndex, source) =>
       run([{ itemId, cellId: toCellId, place: toIndex }], source).length > 0,

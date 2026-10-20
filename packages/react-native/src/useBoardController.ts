@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AccessibilityInfo } from 'react-native';
-import { projectBoard, type BoardModel, type MoveQueue, type MoveSource } from 'board-view-core';
-import { createMoveSession, createSessionQueue, defaultGetRank, uniqueById, type UndoEntry } from './session';
+import { type BoardModel, type MoveQueue, type MoveSource } from 'board-view-core';
+import {
+  createMoveSession,
+  createSessionQueue,
+  defaultGetRank,
+  fullColumnsOf,
+  uniqueById,
+  type UndoEntry,
+} from './session';
 import type { ValueStore } from './store';
 import type { BoardLabels, BoardProps, MoveDestination } from './types';
 
@@ -33,6 +40,8 @@ export interface BoardController<T> {
   moveTo(itemId: string, to: MoveDestination): boolean;
   moveManyTo(itemIds: readonly string[], to: MoveDestination): number;
   canDropTo(itemId: string, cellId: string): boolean;
+  /** Columns at their limit that refuse cards (`limitBehavior="block"`). A new set only when it changes. */
+  readonly fullColumns: ReadonlySet<string>;
   itemLabel(itemId: string): string;
   /** The card that should take screen-reader focus once it renders in its new place. */
   readonly focusRequest: ValueStore<string | null>;
@@ -91,21 +100,25 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
 
   const model = useMemo(
     () =>
-      projectBoard({
-        items: unique,
+      session.projection(snapshot.overlays, unique, {
         getItemId,
         getRank,
         groupBy,
-        overlays: snapshot.overlays,
         strategy: rankStrategy,
-        noValueLabel: labels.noValue,
+        noValue: labels.noValue,
       }),
-    [unique, getItemId, getRank, groupBy, snapshot.overlays, rankStrategy, labels.noValue],
+    [session, unique, snapshot.overlays, getItemId, getRank, groupBy, rankStrategy, labels.noValue],
   );
-  // The render's projection is the session's too, until a move queues another.
-  session.adopt(model, snapshot.overlays, unique);
 
   const pendingIds = useMemo(() => new Set(snapshot.overlays.map((op) => op.id)), [snapshot.overlays]);
+  const fullNow = useMemo(
+    () => fullColumnsOf(model, props, itemsById, snapshot.overlays),
+    [itemsById, model, props, snapshot.overlays],
+  );
+  // The same set until a column fills or empties, so cards that read it redraw only then.
+  const fullRef = useRef(fullNow);
+  if (!sameSet(fullRef.current, fullNow)) fullRef.current = fullNow;
+  const fullColumns = fullRef.current;
 
   return useMemo(
     () => ({
@@ -117,12 +130,19 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
       moveTo: (itemId: string, to: MoveDestination) => session.moveTo(itemId, to),
       moveManyTo: (itemIds: readonly string[], to: MoveDestination) => session.moveManyTo(itemIds, to),
       canDropTo: session.canDropTo,
+      fullColumns,
       itemLabel: session.itemLabel,
       focusRequest: session.focusRequest,
       undo: session.undo,
       canUndo: session.canUndo,
       lastMove: session.lastMove,
     }),
-    [itemsById, model, pendingIds, session],
+    [fullColumns, itemsById, model, pendingIds, session],
   );
+}
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) if (!b.has(value)) return false;
+  return true;
 }

@@ -183,6 +183,9 @@ export interface DragCardProps {
   itemId: string;
   cellId: string;
   index: number;
+  /** The card's own wrapper style and layout, so a card is one view here and not two. */
+  style?: StyleProp<ViewStyle>;
+  onLayout?: (event: LayoutChangeEvent) => void;
   children: ReactNode;
 }
 

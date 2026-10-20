@@ -106,6 +106,8 @@ const groupBy: GroupBy<Task> = {
     ],
   },
 };
+const taskId = (task: Task) => task.id;
+const taskLabel = (task: Task) => task.title;
 
 export function TaskBoard({ initial }: { initial: Task[] }) {
   const [tasks, setTasks] = useState(initial);
@@ -135,8 +137,8 @@ export function TaskBoard({ initial }: { initial: Task[] }) {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Board
         items={tasks}
-        getItemId={(task) => task.id}
-        getItemLabel={(task) => task.title}
+        getItemId={taskId}
+        getItemLabel={taskLabel}
         groupBy={groupBy}
         onMove={onMove}
         renderCard={renderCard}
@@ -149,7 +151,7 @@ export function TaskBoard({ initial }: { initial: Task[] }) {
 Three things to know:
 
 - **Ranks.** Each item needs a string `rank`, or pass `getRank`. Ranks are [fractional indexes](https://github.com/rocicorp/fractional-indexing). Records without one can be [seeded once](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#seeding-ranks).
-- **Stable props.** Keep `renderCard` and `groupBy` stable, and memoize your card.
+- **Stable props.** Keep `renderCard`, `groupBy` and the other functions and objects you pass stable: define them outside the component, or wrap them in `useCallback` and `useMemo`. Memoize your card too. Cards redraw only when their own data changes, unless a new `renderCard`, `getItemLabel`, `theme`, `spotlight`, `canDrag`, `canDrop`, `cardActions` or `canPerformAction` arrives, which redraws them all.
 - **Gesture root.** `Board` has its own `GestureHandlerRootView`. Keep one at your app root as well.
 
 ## How a move works
@@ -547,7 +549,7 @@ it('moves a task to Done and saves it', async () => {
 ## Accessibility
 
 - **One element per card.** The label gives the item, its column and lane, and its position, for example "Fix login, To do, 2 of 5".
-- **Moves without a drag.** Actions are Move to…, Move to a column, Move to a lane, and your `cardActions`. The sheet lists only allowed destinations, and has Up, Down, Previous column and Next column for one-tap moves.
+- **Moves without a drag.** Actions are Move to…, Move to a column, Move to a lane, and your `cardActions`. The sheet lists only allowed destinations, and has Up, Down, Previous column and Next column for one-tap moves. On Android the card's actions are built while an accessibility service (TalkBack, Switch Access, Voice Access) runs, and appear as soon as one turns on. <sup>0.8.1</sup>
 - **Undo.** The banner's Undo button names the move. With a screen reader running, the banner stays until dismissed.
 - **Announcements.** A move is announced when `onMove` resolves, never before. A rollback is announced with where the card went back to.
 - **Focus.** It follows a card moved from the sheet or by a screen-reader action, and the board scrolls to the card first.
@@ -559,7 +561,19 @@ it('moves a task to Done and saves it', async () => {
 
 ## Performance
 
-Release build on a Pixel 9 Pro emulator (arm64, 60 Hz). The host Mac was on battery. These are not phone numbers.
+**On a phone.** <sup>0.8.1</sup> These are release builds on a vivo V2158 (Android 14, 60 Hz), on battery, with 0.8.0 and 0.8.1 measured in turn. The first three rows are janky frames from `dumpsys gfxinfo`.
+
+| Board                     | Scenario                   | 0.8.0  | 0.8.1  |
+| ------------------------- | -------------------------- | ------ | ------ |
+| 4 × 500 cards             | Scrolling and auto-scroll  | 0–1%   | 0–1%   |
+| 20 lanes × 6, 1,200 cards | Scrolling, mean            | 6.7%   | 3.8%   |
+| 20 lanes × 6              | Auto-scroll at the edge    | 6.9%   | 5.8%   |
+| 20 lanes × 6              | One drop, cards re-render  | 480    | 4      |
+| 20 lanes × 6              | Move sheet, tap to showing | 450 ms | 100 ms |
+
+Swimlanes still miss the 0–3% target. Each lane row draws every column's cards when it scrolls in.
+
+**On the emulator.** Release build on a Pixel 9 Pro emulator (arm64, 60 Hz). The host Mac was on battery. These are not phone numbers.
 
 A 500-card column, card held at the bottom edge for 4 s, read with `dumpsys gfxinfo`. 0.4.0 issued each scroll from JS. 0.5.0 scrolls that list on the UI thread. The FPS meter read JS 29–31 and UI 60 on both; JS is FlashList rendering cells.
 
@@ -572,7 +586,7 @@ A re-run of the final 0.5.0 build, with the host on mains power, drew 245–246 
 
 The method, the 2026-10-10 meter table, and what is still unmeasured are in [docs/benchmarks.md](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md).
 
-To keep it fast, memoize your card and filter `items` before they reach the board.
+To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filter `items` before they reach the board.
 
 ## API
 
@@ -693,7 +707,7 @@ The API can still change before 1.0. Breaking changes are listed in the [changel
 
 These are still open before 1.0:
 
-- **Real devices.** The drag gates have run on an Android emulator and, since 0.8.0, the iOS 27 simulator, not yet on a mid-tier Android phone or an iPhone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). Frame-rate numbers are from the Pixel 9 Pro emulator, release build; 0.8.1 is the performance pass. The overview's pinch has not run on any device: the emulators drive one finger.
+- **Real devices.** The drag gates have run on an Android emulator and, since 0.8.0, the iOS 27 simulator. The 0.8.1 frame-rate numbers come from one Android phone, a vivo V2158. Neither a low-end Android phone nor an iPhone has run them yet. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). The overview's pinch has not run on any device: the emulators drive one finger.
 - **Screen-reader pass.** TalkBack and VoiceOver have not completed a full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
 - **Usability study.** Five developers new to the package have not been timed yet. Swipe-to-move stays experimental, and off by default, until that study.
 
@@ -705,7 +719,7 @@ These are still open before 1.0:
 
 | Package                   | What it is                                                                |
 | ------------------------- | ------------------------------------------------------------------------- |
-| `react-native-board-view` | `Board`, `CardView`, `DragHandle`, and a re-export of the core. **0.8.0** |
+| `react-native-board-view` | `Board`, `CardView`, `DragHandle`, and a re-export of the core. **0.8.1** |
 | `board-view-core`         | Grouping, ranks, move planning and the move queue. No React. **0.3.0**    |
 
 [MIT](https://github.com/vishaal2002/react-native-board-view/blob/main/LICENSE) © react-native-board-view contributors

@@ -2,6 +2,24 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
+## 0.8.1
+
+`react-native-board-view` 0.8.1. `board-view-core` stays at 0.3.0.
+
+The performance pass. No new features and no API changes. Measured on a real phone for the first time, a vivo V2158 (Android 14, release build); the numbers are in [docs/benchmarks.md](docs/benchmarks.md#2026-10-20-081-against-080-on-a-phone).
+
+- **Cards redraw only when their own data changes.** A move, the drop dock sliding in or out, the Move sheet opening, or your app re-rendering `<Board>` used to redraw every mounted card. On the 20 lanes × 6 board, one drop went from 480 card renders to 4, and a lift from up to 360 to none. A `renderCard`, `getItemLabel`, `theme`, `spotlight`, `canDrag`, `canDrop`, `cardActions` or `canPerformAction` that is new on every render still redraws them all, so keep those stable (see [Stable props](README.md#quick-start)).
+- **`useBoardTheme` reads only the theme.** Cards that use it, `CardView` included, no longer redraw with every board change.
+- **Cards cost about half as much to mount.** A lane of 60 cards took 185 ms of JS on the phone; it now takes about 90 ms. Each card dropped its own UI-thread style (it only hid the card under the lifted copy) and a wrapper view, and the three dots of its "…" button are now one glyph.
+- **Screen-reader actions on Android are built while an accessibility service runs.** TalkBack, Switch Access and Voice Access get them as before, and they appear as soon as a service turns on. Without one, nothing can use them, and building 20 or more per card was a large part of a card's cost. iOS keeps them always, for Full Keyboard Access.
+- **A drop projects the board once, not three times.** The board drawn after a move is the one the move was planned on, and a move clearing once your items show it does not project the board again.
+- **The Move sheet opens in about 100 ms** on the 20 lanes × 6 board, from about 450 ms.
+- **Lane scrolling** on that board went from about 6.7% janky frames to about 4%, and lane auto-scroll from about 7% to about 6%. The 4 × 500 board was already at 0–1% janky and stays there.
+
+### Fixed
+
+- Holding a card below a column's end while it auto-scrolled, in the drop dock's padding or over a footer, scrolled the list but left the placeholder behind, so the drop put the card back where it started. The slot now follows the content.
+
 ## 0.8.0
 
 `react-native-board-view` 0.8.0 and `board-view-core` 0.3.0. Publish core first: the board depends on it.

@@ -27,6 +27,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import { createValueStore, type ValueStore } from '../store';
 import { autoScrollOrigin, edgeZone, stepAutoScroll } from './autoScroll';
 import { containsPoint, type Rect } from './geometry';
 import {
@@ -134,7 +135,11 @@ function placementFor(placement: Placement | null, cellId: string): CellPlacemen
 }
 
 interface EngineStore {
-  activeId: SharedValue<string>;
+  /**
+   * The card the lifted copy covers, or ''. A JS store and not a shared value:
+   * a shared value gave every card its own UI-thread style just to hide one.
+   */
+  hidden: ValueStore<string>;
   phase: SharedValue<number>;
   origin: SharedValue<Point>;
   grab: SharedValue<Point>;
@@ -183,7 +188,6 @@ function useEngine(): EngineStore {
 }
 
 function DragProvider({ children }: { children: ReactNode }) {
-  const activeId = useSharedValue('');
   const phase = useSharedValue(PHASE_IDLE);
   const origin = useSharedValue<Point>({ x: 0, y: 0 });
   const grab = useSharedValue<Point>({ x: 0, y: 0 });
@@ -205,7 +209,7 @@ function DragProvider({ children }: { children: ReactNode }) {
   const touchStart = useSharedValue<Point>({ x: 0, y: 0 });
   const activeZone = useSharedValue('');
   const [store] = useState<EngineStore>(() => ({
-    activeId,
+    hidden: createValueStore(''),
     phase,
     origin,
     grab,
@@ -357,11 +361,19 @@ function DragCell({ cellId, geometry, style, onLayout, children }: DragCellProps
   );
 }
 
-const DragCard = memo(function DragCard({ itemId, children }: DragCardProps) {
-  const { activeId } = useEngine();
-  // While the lifted copy settles over a card's new spot, the card stays hidden underneath.
-  const style = useAnimatedStyle(() => ({ opacity: activeId.value === itemId ? 0 : 1 }), [itemId]);
-  return <Animated.View style={style}>{children}</Animated.View>;
+const DragCard = memo(function DragCard({ itemId, style, onLayout, children }: DragCardProps) {
+  const { hidden } = useEngine();
+  // While the lifted copy covers a card (picked up, or settling over its new spot), the card stays hidden underneath.
+  const covered = useSyncExternalStore(
+    hidden.subscribe,
+    () => hidden.get() === itemId,
+    () => false,
+  );
+  return (
+    <View style={covered ? [style, styles.covered] : style} onLayout={onLayout}>
+      {children}
+    </View>
+  );
 });
 
 function Placeholder({ height, radius, color, render }: PlaceholderProps) {
@@ -456,7 +468,7 @@ function DragBoard(props: DragBoardProps) {
   const frameRef = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const {
-    activeId,
+    hidden,
     phase,
     origin,
     grab,
@@ -508,7 +520,7 @@ function DragBoard(props: DragBoardProps) {
       else requestAnimationFrame(() => nextFrames(frames - 1, run));
     };
     nextFrames(2, () => {
-      activeId.value = '';
+      hidden.set('');
       outline.value = HIDDEN_OUTLINE;
       nextFrames(2, () => {
         phase.value = PHASE_IDLE;
@@ -519,7 +531,7 @@ function DragBoard(props: DragBoardProps) {
         setHoverItemId(null);
       });
     });
-  }, [activeId, hoverOpacity, hoverReady, outline, phase, store, tracking]);
+  }, [hidden, hoverOpacity, hoverReady, outline, phase, store, tracking]);
 
   /**
    * Flies the lifted copy to `to` (or fades it when there is nowhere to go), then
@@ -528,6 +540,8 @@ function DragBoard(props: DragBoardProps) {
   const settle = useCallback(
     (to: Rect | null, fade = false) => {
       if (drag.current) drag.current.ended = true;
+      // Released before the placeholder took the card's place: the copy, already showing, covers it on the way.
+      if (drag.current && hoverReady.value) hidden.set(drag.current.itemId);
       phase.value = PHASE_SETTLING;
       outline.value = HIDDEN_OUTLINE;
       activeZone.value = '';
@@ -541,7 +555,7 @@ function DragBoard(props: DragBoardProps) {
       if (!to || fade) hoverOpacity.value = withTiming(0, timing);
       later(duration + 16, reveal);
     },
-    [activeZone, hoverOpacity, hoverX, hoverY, later, outline, phase, reveal],
+    [activeZone, hidden, hoverOpacity, hoverReady, hoverX, hoverY, later, outline, phase, reveal],
   );
 
   const allowedIn = useCallback((geometry: CellGeometry, cellId: string, itemId: string) => {
@@ -553,6 +567,44 @@ function DragBoard(props: DragBoardProps) {
     const placement = store.placement.current;
     return placement ? (store.cells.get(placement.cellId)?.itemRect(PLACEHOLDER_ID) ?? null) : null;
   }, [store]);
+
+  /** The last cell's scroller while the pointer is beyond that cell's top or bottom, within its width. */
+  const outerScroller = useCallback(
+    (active: ActiveDrag): ScrollerHandle | null => {
+      const geometry = active.lastCellId != null ? store.cells.get(active.lastCellId) : undefined;
+      const rect = geometry?.getRect();
+      if (!geometry?.scroller || !rect) return null;
+      const { x, y } = active.pointer;
+      const within = x >= rect.x && x <= rect.x + rect.width;
+      const beyond = y < rect.y || y > rect.y + rect.height;
+      return within && beyond ? geometry.scroller : null;
+    },
+    [store],
+  );
+
+  /**
+   * Past the end of what a list shows (over its footer, or the dock's padding) auto-scroll keeps
+   * scrolling the cell the finger left, so the slot follows the content, read at that cell's edge,
+   * and a drop there lands in it. Only for the cell at that end: a gap between swimlane rows or
+   * stacked sections is inside the list, and crossing it keeps the placeholder where it is.
+   */
+  const edgeTarget = useCallback(
+    (active: ActiveDrag): { hit: [string, CellGeometry, Rect]; y: number } | null => {
+      if (active.lastCellId == null || !outerScroller(active)) return null;
+      const geometry = store.cells.get(active.lastCellId);
+      const rect = geometry?.getRect();
+      const viewport = geometry?.scroller?.getViewport();
+      if (!geometry || !rect || !viewport) return null;
+      const top = viewport.start;
+      const bottom = Math.min(viewport.start + viewport.size, store.zones.size > 0 ? zonesTop(store.zones) : Infinity);
+      const { y } = active.pointer;
+      const pastBottom = y > bottom && rect.y + rect.height >= bottom - 1;
+      const pastTop = y < top && rect.y <= top + 1;
+      if (!pastBottom && !pastTop) return null;
+      return { hit: [active.lastCellId, geometry, rect], y: Math.min(Math.max(y, rect.y), rect.y + rect.height - 1) };
+    },
+    [outerScroller, store],
+  );
 
   const updateTarget = useCallback(() => {
     const active = drag.current;
@@ -567,7 +619,13 @@ function DragBoard(props: DragBoardProps) {
       active.zoneId = zoneId;
       activeZone.value = zoneId;
     }
-    const hit = zone ? null : findCell(store.cells, x, y);
+    let hit = zone ? null : findCell(store.cells, x, y);
+    let probeY = y;
+    const edge = hit || zone ? null : edgeTarget(active);
+    if (edge) {
+      hit = edge.hit;
+      probeY = edge.y;
+    }
     // Crossing a gap keeps the placeholder where it is; a cell that refuses the card sends it home.
     let desired = { cellId: placement.cellId, index: placement.index };
     active.overAllowed = false;
@@ -607,7 +665,7 @@ function DragBoard(props: DragBoardProps) {
       }
       // Wait for lists to lay out the last placeholder move before reading them again.
       if (!allowed) desired = { cellId: active.sourceCellId, index: active.sourceIndex };
-      else if (active.framesSinceMove >= SETTLE_FRAMES) desired = { cellId, index: geometry.resolve(y) };
+      else if (active.framesSinceMove >= SETTLE_FRAMES) desired = { cellId, index: geometry.resolve(probeY) };
     } else if (active.outlineKey !== '') {
       active.outlineKey = '';
       outline.value = HIDDEN_OUTLINE;
@@ -638,21 +696,7 @@ function DragBoard(props: DragBoardProps) {
       !propsRef.current.reducedMotion && !scrolling,
     );
     propsRef.current.onDragOver?.({ itemId: active.itemId, cellId: desired.cellId, index: desired.index });
-  }, [activeZone, allowedIn, outline, store]);
-
-  /** The last cell's scroller while the pointer is beyond that cell's top or bottom, within its width. */
-  const outerScroller = useCallback(
-    (active: ActiveDrag): ScrollerHandle | null => {
-      const geometry = active.lastCellId != null ? store.cells.get(active.lastCellId) : undefined;
-      const rect = geometry?.getRect();
-      if (!geometry?.scroller || !rect) return null;
-      const { x, y } = active.pointer;
-      const within = x >= rect.x && x <= rect.x + rect.width;
-      const beyond = y < rect.y || y > rect.y + rect.height;
-      return within && beyond ? geometry.scroller : null;
-    },
-    [store],
-  );
+  }, [activeZone, allowedIn, edgeTarget, outline, store]);
 
   const autoScroll = useCallback(
     (dt: number) => {
@@ -839,21 +883,24 @@ function DragBoard(props: DragBoardProps) {
   );
 
   /**
-   * The lifted copy has laid out. Show it and hide the real card in the same
-   * UI frame, then swap the card for a placeholder once the copy covers it.
-   * Swapping any earlier leaves an empty gap on screen for a frame or two.
+   * The lifted copy has laid out. Show it, then swap the card for a
+   * placeholder once the copy covers it. Swapping, or hiding the card, any
+   * earlier leaves an empty gap on screen for a frame or two: the copy shows
+   * on the UI thread, the hidden card waits for a React commit that can land
+   * first. The card stays hidden from then on, for the drop's settle.
    */
   const onHoverLaidOut = useCallback(() => {
     const active = drag.current;
     if (!active || hoverReady.value || phase.value !== PHASE_DRAGGING) return;
-    activeId.value = active.itemId;
     hoverReady.value = true;
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        if (drag.current === active && phase.value === PHASE_DRAGGING) showPlaceholder(active);
+        if (drag.current !== active || phase.value !== PHASE_DRAGGING) return;
+        hidden.set(active.itemId);
+        showPlaceholder(active);
       }),
     );
-  }, [activeId, hoverReady, phase, showPlaceholder]);
+  }, [hidden, hoverReady, phase, showPlaceholder]);
 
   const move = useCallback((x: number, y: number) => {
     const active = drag.current;
@@ -905,7 +952,9 @@ function DragBoard(props: DragBoardProps) {
       }
       const atHome = placement.cellId === active.sourceCellId && placement.index === active.sourceIndex;
       // A zone covers the cells beneath it: a refused zone drop is not a drop on those cells.
-      const released = zone ? null : findCell(store.cells, active.pointer.x, active.pointer.y);
+      const released = zone
+        ? null
+        : (findCell(store.cells, active.pointer.x, active.pointer.y) ?? edgeTarget(active)?.hit ?? null);
       // Released outside every cell that takes the card: the move is cancelled.
       const onTarget = released != null && allowedIn(released[1], released[0], active.itemId);
 
@@ -947,7 +996,7 @@ function DragBoard(props: DragBoardProps) {
       current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
       if (menu) current.onLongPressMenu?.({ itemId: active.itemId, cellId: active.sourceCellId });
     },
-    [allowedIn, phase, placeholderRect, settle, stopUiScroll, store],
+    [allowedIn, edgeTarget, phase, placeholderRect, settle, stopUiScroll, store],
   );
 
   // App data changed mid-drag: if the lifted card is gone or now lives elsewhere, drop the drag.
@@ -1329,6 +1378,7 @@ function DragHandle({ children, style, hitSlop }: DragHandleProps) {
 }
 
 const styles = StyleSheet.create({
+  covered: { opacity: 0 },
   fill: { flex: 1 },
   overlay: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, zIndex: 1000, elevation: 1000 },
   hover: {

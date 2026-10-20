@@ -12,12 +12,15 @@ import { AccessibilityInfo, I18nManager, StyleSheet, View, useColorScheme, type 
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { FadeIn, useSharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { NO_VALUE_ID, cellId as makeCellId, parseCellId, type BoardModel } from 'board-view-core';
+import { NO_VALUE_ID, cellId as makeCellId, parseCellId, type BoardModel, type GroupValue } from 'board-view-core';
 import {
   BoardContext,
+  CardContext,
+  ThemeContext,
   createValueStore,
   useBoard,
   type BoardContextValue,
+  type CardContextValue,
   type HeaderSheetTarget,
   type ScrollApi,
 } from './context';
@@ -27,7 +30,7 @@ import { HoverCard } from './layout/BoardCard';
 import { MatrixLayout, matrixFits } from './layout/MatrixLayout';
 import { ColumnsLayout } from './layout/ColumnsLayout';
 import { DOCK_ACTION, DOCK_COLUMN, DropDock } from './layout/DropDock';
-import { columnMetrics, resolveLayout, visualSlot } from './layout/metrics';
+import { columnMetrics, resolveLayout, visualSlot, type ColumnMetrics } from './layout/metrics';
 import { OverviewBar, overviewTheme } from './layout/Overview';
 import { PagerDots, PagerTabs } from './layout/Pager';
 import { PlannerToday } from './layout/PlannerToday';
@@ -44,8 +47,8 @@ import { hapticsFor } from './haptics';
 import { columnStats, formatCompact, limitState, plannerDay, sumValues } from './insights';
 import { defaultLabels, motionPresets, resolveTheme } from './theme';
 import { moveTargetOf, useBoardController } from './useBoardController';
-import { inBoardOrder } from './session';
-import { useReducedMotion } from './useReducedMotion';
+import { inBoardOrder, rulesAllow } from './session';
+import { useAccessibilityServices, useReducedMotion } from './useReducedMotion';
 import type { BoardLabels, BoardProps, CardAction, CardActionEvent } from './types';
 
 const NO_IDS: readonly string[] = [];
@@ -59,6 +62,35 @@ const HIGHLIGHT_MS = 1800;
 
 function toggleIn(list: readonly string[], id: string): string[] {
   return list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id];
+}
+
+/** The same array while the values read the same, so what reads it redraws only when they change. */
+function useStableValues(values: readonly GroupValue[]): readonly GroupValue[] {
+  const kept = useRef(values);
+  const previous = kept.current;
+  const same =
+    previous.length === values.length &&
+    previous.every((value, index) => {
+      const next = values[index]!;
+      return value.id === next.id && value.label === next.label && value.color === next.color;
+    });
+  if (!same) kept.current = values;
+  return kept.current;
+}
+
+/** Width a card gets in its column (or the whole board when stacked). */
+function cardWidthIn(
+  metrics: ColumnMetrics,
+  columns: readonly GroupValue[],
+  columnKey: string,
+  boardWidth: number,
+  spacing: { columnGap: number; cellPadding: number },
+  rtl: boolean,
+): number {
+  if (metrics.mode === 'stacked') return boardWidth - (spacing.columnGap + spacing.cellPadding) * 2;
+  const at = columns.findIndex((column) => column.id === columnKey);
+  const slot = at >= 0 ? metrics.slots[visualSlot(at, columns.length, rtl)] : undefined;
+  return (slot?.width ?? boardWidth) - spacing.cellPadding * 2;
 }
 
 /** Controlled list with an uncontrolled fallback, for collapsed lanes and columns. */
@@ -142,7 +174,11 @@ export function Board<T>(rawProps: BoardProps<T>) {
     [fullController, fullModel, shownModel],
   );
   const reducedMotion = useReducedMotion();
+  const accessibilityActions = useAccessibilityServices();
   const rtl = I18nManager.isRTL;
+  const allColumns = useStableValues(fullModel.columns);
+  const allLanes = useStableValues(fullModel.lanes);
+  const shownColumns = useStableValues(controller.model.columns);
 
   const [root, setRoot] = useState({ width: 0, height: 0 });
   const onRootLayout = useCallback((event: LayoutChangeEvent) => {
@@ -476,6 +512,105 @@ export function Board<T>(rawProps: BoardProps<T>) {
 
   const swipeEnabled = !readOnly && props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
   const autoScroll = props.autoScroll ?? true;
+
+  // Read when a card's action runs, so the card need not redraw when the board does.
+  const liveCardAction = useRef(runCardAction);
+  liveCardAction.current = runCardAction;
+  const runCardActionLater = useCallback<BoardContextValue['runCardAction']>(
+    (...args) => liveCardAction.current(...args),
+    [],
+  );
+  const actionsFor = useCallback(
+    (item: unknown) => {
+      if (cardActions.length === 0) return NO_ACTIONS;
+      const can = canPerformAction as ((entry: unknown, action: string) => boolean) | undefined;
+      return can ? cardActions.filter((action) => can(item, action.key)) : cardActions;
+    },
+    [canPerformAction, cardActions],
+  );
+  const { canDrop, limitBehavior } = props;
+  const allows = useCallback(
+    (item: unknown, fromColumnKey: string, cellId: string, full: ReadonlySet<string>) =>
+      rulesAllow({ readOnly, limitBehavior, canDrop }, item as T, fromColumnKey, cellId, full),
+    [canDrop, limitBehavior, readOnly],
+  );
+  const [fullColumns] = useState(() => createValueStore(fullController.fullColumns));
+  useLayoutEffect(() => fullColumns.set(fullController.fullColumns), [fullColumns, fullController.fullColumns]);
+  const { cellPadding } = theme;
+  const cardWidth = useCallback(
+    (columnKey: string) => cardWidthIn(metrics, shownColumns, columnKey, boardWidth, { columnGap, cellPadding }, rtl),
+    [boardWidth, cellPadding, columnGap, metrics, rtl, shownColumns],
+  );
+  const { renderCard, getItemLabel, canDrag } = props;
+  const { focusRequest } = fullController;
+  const cardValue = useMemo<CardContextValue<T>>(
+    () => ({
+      renderCard,
+      canDrag,
+      hasLanes,
+      adapter: gestureAdapter,
+      theme,
+      labels,
+      rtl,
+      reducedMotion,
+      overview,
+      sheetMode,
+      selectable,
+      swipeEnabled,
+      horizontalScrollGesture,
+      columns: shownColumns,
+      allColumns,
+      allLanes,
+      cardWidth,
+      describeCard,
+      actionsFor,
+      allows,
+      fullColumns,
+      accessibilityActions,
+      getItemLabel,
+      moveItem: fullController.moveItem,
+      runCardAction: runCardActionLater,
+      openMoveSheet,
+      toggleSelected: selection.toggle,
+      selection: selection.store,
+      highlight,
+      externalMoves,
+      focusRequest,
+      scrollApi,
+    }),
+    [
+      accessibilityActions,
+      actionsFor,
+      allColumns,
+      allLanes,
+      allows,
+      canDrag,
+      cardWidth,
+      describeCard,
+      externalMoves,
+      focusRequest,
+      fullColumns,
+      fullController.moveItem,
+      getItemLabel,
+      hasLanes,
+      highlight,
+      horizontalScrollGesture,
+      labels,
+      openMoveSheet,
+      overview,
+      reducedMotion,
+      renderCard,
+      rtl,
+      runCardActionLater,
+      selectable,
+      selection.store,
+      selection.toggle,
+      sheetMode,
+      shownColumns,
+      swipeEnabled,
+      theme,
+    ],
+  );
   const value = useMemo<BoardContextValue<T>>(
     () => ({
       props,
@@ -505,8 +640,8 @@ export function Board<T>(rawProps: BoardProps<T>) {
       loadingColumns,
       columnTotal,
       highlight,
-      allColumns: fullModel.columns,
-      allLanes: fullModel.lanes,
+      allColumns,
+      allLanes,
       cardActionsFor,
       runCardAction,
       overview,
@@ -548,8 +683,8 @@ export function Board<T>(rawProps: BoardProps<T>) {
       planner,
       durationScale,
       cardActionsFor,
-      fullModel.columns,
-      fullModel.lanes,
+      allColumns,
+      allLanes,
       overview,
       runCardAction,
       setOverview,
@@ -581,7 +716,6 @@ export function Board<T>(rawProps: BoardProps<T>) {
   );
 
   const { moveItem, moveItems, canDropTo, itemsById, model } = controller;
-  const canDrag = props.canDrag;
   const canDragItem = useCallback(
     (itemId: string) => {
       if (readOnly) return false;
@@ -693,68 +827,72 @@ export function Board<T>(rawProps: BoardProps<T>) {
       onLayout={onRootLayout}
       testID={props.testID}
     >
-      <BoardContext value={value as BoardContextValue}>
-        <DragProvider>
-          {ready && pagerIndicator === 'tabs' ? (
-            <View style={styles.tabs}>
-              <PagerTabs />
-            </View>
-          ) : null}
-          {ready && overview ? <OverviewBar /> : null}
-          <GestureDetector gesture={pinch}>
-            <View style={styles.fill} onLayout={onBodyLayout} collapsable={false}>
-              {ready ? (
-                <DragBoard
-                  onTransfer={onTransfer}
-                  onReorder={onReorder}
-                  onDragStart={onDragStart}
-                  onDragOver={onDragOver}
-                  onDragEnd={onDragEnd}
-                  isDragValid={isDragValid}
-                  revision={model}
-                  onLongPressMenu={longPressSheet ? onLongPressMenu : undefined}
-                  onZoneDrop={dockOn ? onZoneDrop : undefined}
-                  canDrag={canDragItem}
-                  canDrop={canDropBatch}
-                  enabled={!readOnly && props.moveModes?.drag !== false}
-                  longPressDelay={props.longPressDelay ?? 200}
-                  handleOnly={handleOnly}
-                  reducedMotion={reducedMotion}
-                  compact={boardWidth < 600}
-                  renderHover={renderHover}
-                  colors={colors}
-                  lift={lift}
-                  horizontalOffset={mode === 'stacked' || mode === 'matrix' ? undefined : scrollX}
-                >
-                  <LayoutFade layoutKey={`${mode}:${overview}`}>
-                    {mode === 'stacked' ? (
-                      <StackedLayout />
-                    ) : mode === 'matrix' ? (
-                      <MatrixLayout />
-                    ) : hasLanes ? (
-                      <SwimlaneLayout />
-                    ) : (
-                      // The overview is another board with other metrics: remount, so nothing carries over.
-                      <ColumnsLayout key={overview ? 'overview' : 'board'} />
-                    )}
-                  </LayoutFade>
-                  {dockOn ? <DropDock /> : null}
-                  {planner && !overview ? <PlannerToday /> : null}
-                </DragBoard>
+      <ThemeContext value={theme}>
+        <BoardContext value={value as BoardContextValue}>
+          <CardContext value={cardValue as CardContextValue}>
+            <DragProvider>
+              {ready && pagerIndicator === 'tabs' ? (
+                <View style={styles.tabs}>
+                  <PagerTabs />
+                </View>
               ) : null}
-            </View>
-          </GestureDetector>
-          {ready && pagerIndicator === 'dots' ? (
-            <View style={styles.dots}>
-              <PagerDots />
-            </View>
-          ) : null}
-          {props.undo && ready ? <UndoBanner /> : null}
-          {selectable && ready ? <SelectionBar /> : null}
-        </DragProvider>
-        <MoveSheet itemIds={sheetItems} onClose={closeMoveSheet} />
-        <HeaderSheet target={headerSheetTarget} onClose={closeHeaderSheet} />
-      </BoardContext>
+              {ready && overview ? <OverviewBar /> : null}
+              <GestureDetector gesture={pinch}>
+                <View style={styles.fill} onLayout={onBodyLayout} collapsable={false}>
+                  {ready ? (
+                    <DragBoard
+                      onTransfer={onTransfer}
+                      onReorder={onReorder}
+                      onDragStart={onDragStart}
+                      onDragOver={onDragOver}
+                      onDragEnd={onDragEnd}
+                      isDragValid={isDragValid}
+                      revision={model}
+                      onLongPressMenu={longPressSheet ? onLongPressMenu : undefined}
+                      onZoneDrop={dockOn ? onZoneDrop : undefined}
+                      canDrag={canDragItem}
+                      canDrop={canDropBatch}
+                      enabled={!readOnly && props.moveModes?.drag !== false}
+                      longPressDelay={props.longPressDelay ?? 200}
+                      handleOnly={handleOnly}
+                      reducedMotion={reducedMotion}
+                      compact={boardWidth < 600}
+                      renderHover={renderHover}
+                      colors={colors}
+                      lift={lift}
+                      horizontalOffset={mode === 'stacked' || mode === 'matrix' ? undefined : scrollX}
+                    >
+                      <LayoutFade layoutKey={`${mode}:${overview}`}>
+                        {mode === 'stacked' ? (
+                          <StackedLayout />
+                        ) : mode === 'matrix' ? (
+                          <MatrixLayout />
+                        ) : hasLanes ? (
+                          <SwimlaneLayout />
+                        ) : (
+                          // The overview is another board with other metrics: remount, so nothing carries over.
+                          <ColumnsLayout key={overview ? 'overview' : 'board'} />
+                        )}
+                      </LayoutFade>
+                      {dockOn ? <DropDock /> : null}
+                      {planner && !overview ? <PlannerToday /> : null}
+                    </DragBoard>
+                  ) : null}
+                </View>
+              </GestureDetector>
+              {ready && pagerIndicator === 'dots' ? (
+                <View style={styles.dots}>
+                  <PagerDots />
+                </View>
+              ) : null}
+              {props.undo && ready ? <UndoBanner /> : null}
+              {selectable && ready ? <SelectionBar /> : null}
+            </DragProvider>
+            <MoveSheet itemIds={sheetItems} onClose={closeMoveSheet} />
+            <HeaderSheet target={headerSheetTarget} onClose={closeHeaderSheet} />
+          </CardContext>
+        </BoardContext>
+      </ThemeContext>
     </GestureHandlerRootView>
   );
 }

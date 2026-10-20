@@ -32,7 +32,8 @@ export interface ListApi {
 export type ListRegistry = RefObject<Map<string, ListApi>>;
 
 /** Boards without lanes in the paged, multi and fit layouts: a sideways row of FlashList columns. */
-export function ColumnsLayout() {
+// Memoized: it takes no props, so a board render that leaves the context alone (a sheet opening) skips it.
+export const ColumnsLayout = memo(function ColumnsLayout() {
   const board = useBoard();
   const { metrics, controller, boardHeight, rtl, adapter, scrollApi, horizontalScrollGesture, page } = board;
   const scroller = useHorizontalScroller();
@@ -109,7 +110,7 @@ export function ColumnsLayout() {
       </Animated.ScrollView>
     </GestureDetector>
   );
-}
+});
 
 interface BoardColumnProps {
   cell: BoardCell<unknown>;
@@ -432,7 +433,10 @@ export function ColumnList({
       return (
         <BoardCard
           itemId={id}
+          item={item}
           cellId={cell.cellId}
+          column={cell.column}
+          lane={cell.laneKey === NO_LANE_ID ? null : cell.lane}
           index={controller.model.locations.get(id)?.index ?? 0}
           count={cell.items.length}
           pending={controller.isPending(id)}

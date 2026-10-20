@@ -65,7 +65,8 @@ function useLanes(): LanesContextValue {
  * list inside the sideways scroller, so they stay aligned; lane headers stay
  * pinned to the left edge while the board scrolls.
  */
-export function SwimlaneLayout() {
+// Memoized: it takes no props, so a board render that leaves the context alone (a sheet opening) skips it.
+export const SwimlaneLayout = memo(function SwimlaneLayout() {
   const board = useBoard();
   const {
     metrics,
@@ -319,7 +320,7 @@ export function SwimlaneLayout() {
       </GestureDetector>
     </LanesContext>
   );
-}
+});
 
 const laneKey = (lane: GroupValue) => lane.id;
 // Lanes above the finger change height while a card is dragged: that must not scroll the list.
@@ -669,7 +670,10 @@ const SwimCell = memo(function SwimCell({
             <BoardCard
               key={id}
               itemId={id}
+              item={row}
               cellId={cell.cellId}
+              column={cell.column}
+              lane={cell.lane}
               index={controller.model.locations.get(id)?.index ?? 0}
               count={cell.items.length}
               pending={controller.isPending(id)}

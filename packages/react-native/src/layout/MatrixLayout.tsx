@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { cellId as makeCellId } from 'board-view-core';
 import { useBoard } from '../context';
@@ -22,7 +22,8 @@ export function matrixFits(lanes: number, height: number, gap: number): boolean 
  * auto-scroll and the placeholder behave the same. Built for small grids,
  * such as a 2 × 2 priority matrix; it never scrolls as a whole.
  */
-export function MatrixLayout() {
+// Memoized: it takes no props, so a board render that leaves the context alone (a sheet opening) skips it.
+export const MatrixLayout = memo(function MatrixLayout() {
   const board = useBoard();
   const { metrics, controller, boardHeight, theme, rtl, scrollApi, labels } = board;
   const columns = controller.model.columns;
@@ -157,7 +158,7 @@ export function MatrixLayout() {
       ) : null}
     </View>
   );
-}
+});
 
 const zero = () => 0;
 

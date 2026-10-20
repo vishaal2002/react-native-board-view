@@ -1,6 +1,6 @@
 import { use, type ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { BoardContext } from '../context';
+import { CardContext } from '../context';
 import { lightTheme } from '../theme';
 
 export interface DragHandleProps {
@@ -18,7 +18,8 @@ export interface DragHandleProps {
  * draws its children. Screen readers skip it: the card already has move actions.
  */
 export function DragHandle({ children, style, hitSlop = 8 }: DragHandleProps) {
-  const board = use(BoardContext);
+  // The card context, not the board's: a handle inside every card must not redraw with each move.
+  const board = use(CardContext);
   const color = (board?.theme ?? lightTheme).mutedText;
   const Handle = board?.adapter.Handle;
   const grip = children ?? (

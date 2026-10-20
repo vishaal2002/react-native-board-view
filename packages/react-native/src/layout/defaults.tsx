@@ -345,6 +345,10 @@ export function DefaultEmptyCell({ theme, labels }: { theme: BoardTheme; labels:
   );
 }
 
+/**
+ * The card's "…". The dots are one text glyph, not three views: every card
+ * has one, and each view is a noticeable part of what a card costs to mount.
+ */
 export function MenuButton({ color, onPress }: { color: string; onPress: () => void }) {
   return (
     <Pressable
@@ -356,9 +360,10 @@ export function MenuButton({ color, onPress }: { color: string; onPress: () => v
       importantForAccessibility="no-hide-descendants"
       style={({ pressed }) => [styles.menu, pressed ? styles.menuPressed : null]}
     >
-      <View style={[styles.menuDot, { backgroundColor: color }]} />
-      <View style={[styles.menuDot, { backgroundColor: color }]} />
-      <View style={[styles.menuDot, { backgroundColor: color }]} />
+      {/* Drawn at a fixed size, like the views it replaced: large text must not push it out of the button. */}
+      <Text style={[styles.menuGlyph, { color }]} allowFontScaling={false}>
+        •••
+      </Text>
     </Pressable>
   );
 }
@@ -480,6 +485,8 @@ const styles = StyleSheet.create({
   },
   menuPressed: { backgroundColor: 'rgba(127, 127, 127, 0.18)' },
   menuDot: { width: 4, height: 4, borderRadius: 2 },
+  // System font on purpose: the glyph should look the same whatever `fontFamily` the board uses.
+  menuGlyph: { fontSize: 14, fontWeight: '900', letterSpacing: 1, lineHeight: 16 },
   showMore: { minHeight: 44, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
   loading: { paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
   showMoreText: { fontSize: 13, fontWeight: '600' },

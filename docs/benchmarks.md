@@ -1,6 +1,6 @@
 # Benchmarks
 
-These are measured numbers, each with its device and build. Take them as a regression baseline, not as a promise. We have not yet run them on a low-end physical Android phone or on iOS hardware. Those runs are release gates (see the release gates section of the README).
+These are measured numbers, each with its device and build. Take them as a regression baseline, not as a promise. Since 0.8.1 they include one Android phone, a vivo V2158. We have not yet run them on a low-end Android phone or on iOS hardware. Those runs are release gates (see the release gates section of the README).
 
 ## How to measure
 
@@ -112,6 +112,55 @@ Same AVD, release builds of both versions installed in turn, measured by one scr
 **Method change.** In 0.6.0 the drop dock covers the bottom of the board while a card is held, and the lists end above it. Hold the card at the lists' new bottom edge, just above the dock. Holding at the bottom of the screen puts the finger on a dock chip, where auto-scroll correctly stops: two early 0.6.0 runs drew 1 and 2 frames that way.
 
 A mains-power run of 0.6.0 is still to do.
+
+## 2026-10-20: 0.8.1 against 0.8.0 on a phone
+
+The first run on real hardware.
+
+- **Phone:** vivo V2158, Android 14 (API 34), arm64, 1080 × 2376, 60 Hz, about 7.3 GB of RAM.
+- **Builds:** release builds of 0.8.0 and 0.8.1, installed in turn over Wi-Fi `adb`.
+- **Power:** on battery, 46% at the start of the day and 29% at the end. Builds were compared within the same hour, never across the day.
+- **Input:** touches came from `adb shell input motionevent`.
+- **Frames:** each row is `dumpsys gfxinfo` over 4 s with the card held just above the drop dock, or over six flicks for scrolling.
+
+### Frame stats
+
+| Board         | Scenario       | 0.8.0 janky             | 0.8.1 janky              |
+| ------------- | -------------- | ----------------------- | ------------------------ |
+| 4 × 500       | Plain scroll   | 0.4–0.8%                | 0.4%                     |
+| 4 × 500       | Auto-scroll    | 0–0.8%                  | 0.4%                     |
+| 4 × 500, slow | Auto-scroll    | 0.4–1.7%                | 0.4–0.8%                 |
+| 20 lanes × 6  | Lane scrolling | 6.1–7.5%, mean 6.7% (5) | 2.6–7.2%, mean 3.8% (11) |
+| 20 lanes × 6  | Auto-scroll    | 6.2–7.5%, mean 6.9% (8) | 3.4–9.2%, mean 5.8% (15) |
+
+The number in brackets is how many runs.
+
+The JS meter during lane auto-scroll read a median of 56–60 and a lowest 500 ms window of 33–44 on 0.8.0. On 0.8.1 it read 57–60 and 40–52. The 4 × 500 board read 60 / 60 on both builds.
+
+### JS work
+
+From builds of both versions instrumented with timers and render counters (removed afterwards), on the same phone. The sheet times come from screen recordings:
+
+| Work                                  | 0.8.0        | 0.8.1        |
+| ------------------------------------- | ------------ | ------------ |
+| Mount one lane row (60 cards), median | 185 ms       | about 90 ms  |
+| Card renders for one drop (20 × 6)    | 480          | 4            |
+| Card renders while the dock shows     | up to 360    | 0            |
+| Board projections for one drop        | 4            | 2            |
+| Move sheet, tap to first sheet frame  | about 450 ms | about 100 ms |
+
+### What is left
+
+- **The 4 × 500 board** meets the 0.8.1 target, 0–3% janky, on this phone, and already did on 0.8.0.
+- **The 20 lanes × 6 board** does not. Its median auto-scroll frame is 18 ms on both builds: most of the remaining cost is native.
+  - A swimlane row draws every column's cards, 60 views or more, even when one column is on screen.
+  - The UI thread creates them as each lane scrolls in.
+- **Virtualizing columns inside a lane** is the next lever. It changes how lane rows measure, so it waits until after 1.0.
+- **Projecting the board** for 1,200 cards takes 4–5 ms on this phone once the CPU has ramped up. The first projection after a drop can take 30–60 ms, because the drop arrives while the CPU is still at low clock.
+
+### Fixed during this run
+
+Holding a card in the drop dock's padding scrolled the list without moving the placeholder. The drop then put the card back. Holding just above the dock was unaffected, which is why earlier runs held there.
 
 ## Still to measure (release gates)
 

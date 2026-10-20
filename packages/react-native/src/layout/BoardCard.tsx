@@ -16,10 +16,9 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { cellId as makeCellId, parseCellId, NO_LANE_ID, type BoardCell } from 'board-view-core';
-import { useBoard, type BoardContextValue } from '../context';
+import { cellId as makeCellId, parseCellId, type BoardCell, type GroupValue } from 'board-view-core';
+import { useBoard, useCard } from '../context';
 import { MenuButton } from './defaults';
-import { visualSlot } from './metrics';
 import { MiniCard } from './Overview';
 import { SwipeActions, type SwipeAction } from './SwipeActions';
 import type { CardRenderInfo } from '../types';
@@ -29,22 +28,21 @@ const SELECT = 'select';
 /** Cards narrower than this get `compact` render info and no "…" button. */
 const COMPACT_CARD_WIDTH = 200;
 
-/** Width a card gets in its column (or the whole board when stacked). */
-function cardWidth(board: BoardContextValue, columnKey: string): number {
-  const { metrics, theme, controller, rtl, boardWidth } = board;
-  if (metrics.mode === 'stacked') return boardWidth - (theme.columnGap + theme.cellPadding) * 2;
-  const columns = controller.model.columns;
-  const at = columns.findIndex((column) => column.id === columnKey);
-  const slot = at >= 0 ? metrics.slots[visualSlot(at, columns.length, rtl)] : undefined;
-  return (slot?.width ?? boardWidth) - theme.cellPadding * 2;
-}
 const COLUMN_PREFIX = 'c:';
 const LANE_PREFIX = 'l:';
 const ACTION_PREFIX = 'a:';
 
+const NO_FULL_COLUMNS: ReadonlySet<string> = new Set();
+const noFullColumns = () => NO_FULL_COLUMNS;
+
 export interface BoardCardProps {
   itemId: string;
+  /** The card's item. A prop, so a card redraws when its own item changes and not when another card moves. */
+  item: unknown;
   cellId: string;
+  column: GroupValue;
+  /** Null outside swimlanes. */
+  lane: GroupValue | null;
   index: number;
   count: number;
   pending: boolean;
@@ -59,31 +57,31 @@ export interface BoardCardProps {
  */
 export const BoardCard = memo(function BoardCard({
   itemId,
+  item,
   cellId,
+  column,
+  lane,
   index,
   count,
   pending,
   onSlotLayout,
 }: BoardCardProps) {
-  const board = useBoard();
-  const { controller, props, theme, labels, adapter, openMoveSheet, sheetMode, rtl, overview } = board;
-  const { allColumns, allLanes, cardActionsFor, runCardAction } = board;
-  const item = controller.itemsById.get(itemId);
-  const cell = controller.model.cellById.get(cellId);
+  const card = useCard();
+  const { theme, labels, adapter, openMoveSheet, sheetMode, rtl, overview, hasLanes } = card;
+  const { allColumns, allLanes, runCardAction, moveItem, allows } = card;
   const { laneKey, columnKey } = parseCellId(cellId);
-  const hasLanes = props.groupBy.lanes != null;
 
   const openSheet = useCallback(() => openMoveSheet(itemId), [openMoveSheet, itemId]);
 
   // After a move from the sheet or a screen-reader action, focus follows the card to its new place.
   const accessibleRef = useRef<View>(null);
-  const { focusRequest } = controller;
+  const { focusRequest } = card;
   const focused = useSyncExternalStore(
     focusRequest.subscribe,
     () => focusRequest.get() === itemId,
     () => false,
   );
-  const { highlight, externalMoves, selection } = board;
+  const { highlight, externalMoves, selection } = card;
   const highlighted = useSyncExternalStore(
     highlight.subscribe,
     () => {
@@ -107,7 +105,8 @@ export const BoardCard = memo(function BoardCard({
     () => selection.get().size > 0,
     () => false,
   );
-  const toggleSelected = useCallback(() => board.toggleSelected(itemId), [board, itemId]);
+  const { toggleSelected: toggle } = card;
+  const toggleSelected = useCallback(() => toggle(itemId), [toggle, itemId]);
   // Pointer hover (iPad, Android with a mouse, ChromeOS): a quiet outline.
   const [hovered, setHovered] = useState(false);
   const onPointerEnter = useCallback(() => setHovered(true), []);
@@ -122,35 +121,46 @@ export const BoardCard = memo(function BoardCard({
     return () => cancelAnimationFrame(frame);
   }, [focusRequest, focused]);
 
+  // Full columns matter only to the screen-reader actions and the swipe targets; other cards ignore them.
+  const { accessibilityActions, swipeEnabled, fullColumns: fullStore, actionsFor, selectable } = card;
+  const fullColumns = useSyncExternalStore(
+    fullStore.subscribe,
+    accessibilityActions || swipeEnabled ? fullStore.get : noFullColumns,
+    noFullColumns,
+  );
+  const appActions = actionsFor(item);
   const actions = useMemo(() => {
     const list: { name: string; label: string }[] = [];
+    if (!accessibilityActions) return list;
     if (sheetMode !== false) list.push({ name: MOVE_TO, label: labels.moveTo });
-    if (board.selectable) list.push({ name: SELECT, label: selected ? labels.deselect : labels.select });
-    for (const column of allColumns) {
-      if (column.id === columnKey) continue;
-      if (!controller.canDropTo(itemId, makeCellId(laneKey, column.id))) continue;
-      list.push({ name: COLUMN_PREFIX + column.id, label: labels.moveToColumnAction(column.label) });
+    if (selectable) list.push({ name: SELECT, label: selected ? labels.deselect : labels.select });
+    for (const target of allColumns) {
+      if (target.id === columnKey) continue;
+      if (!allows(item, columnKey, makeCellId(laneKey, target.id), fullColumns)) continue;
+      list.push({ name: COLUMN_PREFIX + target.id, label: labels.moveToColumnAction(target.label) });
     }
     if (hasLanes) {
-      for (const lane of allLanes) {
-        if (lane.id === laneKey) continue;
-        if (!controller.canDropTo(itemId, makeCellId(lane.id, columnKey))) continue;
-        list.push({ name: LANE_PREFIX + lane.id, label: labels.moveToLaneAction(lane.label) });
+      for (const target of allLanes) {
+        if (target.id === laneKey) continue;
+        if (!allows(item, columnKey, makeCellId(target.id, columnKey), fullColumns)) continue;
+        list.push({ name: LANE_PREFIX + target.id, label: labels.moveToLaneAction(target.label) });
       }
     }
-    for (const action of cardActionsFor(itemId)) list.push({ name: ACTION_PREFIX + action.key, label: action.label });
+    for (const action of appActions) list.push({ name: ACTION_PREFIX + action.key, label: action.label });
     return list;
   }, [
+    accessibilityActions,
     allColumns,
     allLanes,
-    board.selectable,
-    cardActionsFor,
+    allows,
+    appActions,
     columnKey,
-    controller,
+    fullColumns,
     hasLanes,
-    itemId,
+    item,
     labels,
     laneKey,
+    selectable,
     selected,
     sheetMode,
   ]);
@@ -160,33 +170,34 @@ export const BoardCard = memo(function BoardCard({
       const name = event.nativeEvent.actionName;
       // The card may land in a column that is not mounted (a paged board): bring it on screen so focus can follow.
       const reveal = (moved: boolean) => {
-        if (moved) requestAnimationFrame(() => board.scrollApi.current?.toItem(itemId, !board.reducedMotion));
+        if (moved) requestAnimationFrame(() => card.scrollApi.current?.toItem(itemId, !card.reducedMotion));
       };
       if (name === MOVE_TO) openSheet();
       else if (name === SELECT) toggleSelected();
       else if (name.startsWith(COLUMN_PREFIX))
-        reveal(controller.moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0, 'accessibility'));
+        reveal(moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0, 'accessibility'));
       else if (name.startsWith(LANE_PREFIX))
-        reveal(controller.moveItem(itemId, makeCellId(name.slice(2), columnKey), 0, 'accessibility'));
+        reveal(moveItem(itemId, makeCellId(name.slice(2), columnKey), 0, 'accessibility'));
       else if (name.startsWith(ACTION_PREFIX)) runCardAction(itemId, name.slice(2), 'accessibility');
     },
-    [board, columnKey, controller, itemId, laneKey, openSheet, runCardAction, toggleSelected],
+    [card, columnKey, itemId, laneKey, moveItem, openSheet, runCardAction, toggleSelected],
   );
 
+  const { columns, canDrag } = card;
   const swipe = useMemo(() => {
-    if (!board.swipeEnabled || item == null || (props.canDrag && !props.canDrag(item))) return null;
-    const columns = controller.model.columns;
-    const at = columns.findIndex((column) => column.id === columnKey);
+    if (!swipeEnabled || (canDrag && !canDrag(item))) return null;
+    const at = columns.findIndex((entry) => entry.id === columnKey);
     const neighbour = (step: number): SwipeAction | undefined => {
-      const column = columns[at + step];
-      const target = column ? makeCellId(laneKey, column.id) : null;
-      if (!column || !target || !controller.canDropTo(itemId, target)) return undefined;
-      return { label: column.label, run: () => controller.moveItem(itemId, target, 0, 'swipe') };
+      const next = columns[at + step];
+      const target = next ? makeCellId(laneKey, next.id) : null;
+      if (!next || !target || !allows(item, columnKey, target, fullColumns)) return undefined;
+      return { label: next.label, run: () => moveItem(itemId, target, 0, 'swipe') };
     };
     // Visual right is the next column, or the previous one right-to-left.
     return { toRight: neighbour(rtl ? -1 : 1), toLeft: neighbour(rtl ? 1 : -1) };
-  }, [board.swipeEnabled, columnKey, controller, item, itemId, laneKey, props, rtl]);
+  }, [allows, canDrag, columnKey, columns, fullColumns, item, itemId, laneKey, moveItem, rtl, swipeEnabled]);
 
+  const gap = useMemo(() => ({ paddingBottom: theme.cardGap }), [theme.cardGap]);
   const onLayout = useMemo(
     () =>
       onSlotLayout
@@ -196,16 +207,15 @@ export const BoardCard = memo(function BoardCard({
     [itemId, onSlotLayout],
   );
 
-  if (item == null || !cell) return null;
-  const lane = laneKey === NO_LANE_ID ? null : cell.lane;
-  const compact = cardWidth(board, columnKey) < COMPACT_CARD_WIDTH;
-  const described = board.describeCard(item);
+  const compact = card.cardWidth(columnKey) < COMPACT_CARD_WIDTH;
+  const described = card.describeCard(item);
+  const label = card.getItemLabel ? card.getItemLabel(item) : itemId;
   const info: CardRenderInfo<unknown> = {
     item,
     cellId,
     index,
     count,
-    column: cell.column,
+    column,
     lane,
     pending,
     dragging: false,
@@ -222,8 +232,8 @@ export const BoardCard = memo(function BoardCard({
       ref={accessibleRef}
       accessible
       accessibilityLabel={labels.card({
-        item: controller.itemLabel(itemId),
-        column: cell.column.label,
+        item: label,
+        column: column.label,
         lane: lane?.label ?? null,
         position: index + 1,
         count,
@@ -240,11 +250,7 @@ export const BoardCard = memo(function BoardCard({
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
     >
-      {overview ? (
-        <MiniCard label={controller.itemLabel(itemId)} color={cell.column.color} theme={theme} />
-      ) : (
-        props.renderCard(info)
-      )}
+      {overview ? <MiniCard label={label} color={column.color} theme={theme} /> : card.renderCard(info)}
       {sheetMode === 'auto' && !compact && !overview ? (
         <MenuButton color={theme.mutedText} onPress={openSheet} />
       ) : null}
@@ -260,7 +266,7 @@ export const BoardCard = memo(function BoardCard({
           request={highlighted ?? flashed!}
           color={theme.accent}
           radius={theme.cardRadius}
-          reducedMotion={board.reducedMotion}
+          reducedMotion={card.reducedMotion}
         />
       ) : null}
       {hovered && !selected && !overview ? (
@@ -287,23 +293,21 @@ export const BoardCard = memo(function BoardCard({
   );
 
   return (
-    <View style={{ paddingBottom: theme.cardGap }} onLayout={onLayout}>
-      <adapter.Card itemId={itemId} cellId={cellId} index={index}>
-        {swipe && (swipe.toLeft || swipe.toRight) ? (
-          <SwipeActions
-            toLeft={swipe.toLeft}
-            toRight={swipe.toRight}
-            blocks={board.horizontalScrollGesture}
-            theme={theme}
-            reducedMotion={board.reducedMotion}
-          >
-            {content}
-          </SwipeActions>
-        ) : (
-          content
-        )}
-      </adapter.Card>
-    </View>
+    <adapter.Card itemId={itemId} cellId={cellId} index={index} style={gap} onLayout={onLayout}>
+      {swipe && (swipe.toLeft || swipe.toRight) ? (
+        <SwipeActions
+          toLeft={swipe.toLeft}
+          toRight={swipe.toRight}
+          blocks={card.horizontalScrollGesture}
+          theme={theme}
+          reducedMotion={card.reducedMotion}
+        >
+          {content}
+        </SwipeActions>
+      ) : (
+        content
+      )}
+    </adapter.Card>
   );
 });
 
@@ -381,10 +385,9 @@ export function HoverCard({ itemId }: { itemId: string }) {
  * riding along fade, so the board shows they are on the move.
  */
 function SelectedMark({ itemId }: { itemId: string }) {
-  const board = useBoard();
-  const { theme } = board;
-  const source = board.adapter.useDragSource();
-  const riding = source != null && source.itemId !== itemId && board.selection.get().has(source.itemId);
+  const { theme, adapter, selection } = useCard();
+  const source = adapter.useDragSource();
+  const riding = source != null && source.itemId !== itemId && selection.get().has(source.itemId);
   return (
     <>
       <View
@@ -423,6 +426,7 @@ function HoverBody({
   index: number;
 }) {
   const board = useBoard();
+  const { cardWidth } = useCard();
   const { controller, props } = board;
   if (board.overview) {
     return (
@@ -442,7 +446,7 @@ function HoverBody({
         lane: props.groupBy.lanes ? cell.lane : null,
         pending: controller.isPending(itemId),
         dragging: true,
-        compact: cardWidth(board, cell.columnKey) < COMPACT_CARD_WIDTH,
+        compact: cardWidth(cell.columnKey) < COMPACT_CARD_WIDTH,
         ...board.describeCard(item),
         dimmed: false,
         selected: board.selection.get().has(itemId),

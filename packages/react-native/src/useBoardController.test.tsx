@@ -14,6 +14,7 @@ import {
   type MoveOperation,
 } from 'board-view-core';
 import { defaultLabels } from './theme';
+import { rulesAllow } from './session';
 import { resolveDestination, useBoardController } from './useBoardController';
 import type { BoardProps } from './types';
 
@@ -363,6 +364,48 @@ describe('columnLimits', () => {
       initialProps: props({ columnLimits: { todo: 5 }, limitBehavior: 'block', columnTotals: { todo: 5 } }),
     });
     expect(result.current.canDropTo('c', todo)).toBe(false);
+  });
+
+  it('lists full columns in one set that changes only when a column fills or empties', () => {
+    const { result, rerender } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ columnLimits: { done: 2 }, limitBehavior: 'block', onMove: () => new Promise(() => {}) }),
+    });
+    const before = result.current.fullColumns;
+    expect([...before]).toEqual([]);
+
+    // A reorder inside To do changes the board, not which columns are full.
+    act(() => {
+      result.current.moveItem('b', todo, 0, 'drag');
+    });
+    expect(result.current.fullColumns).toBe(before);
+
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    expect([...result.current.fullColumns]).toEqual(['done']);
+
+    // Warn mode never blocks, so nothing counts as full.
+    rerender(props({ columnLimits: { done: 2 } }));
+    expect([...result.current.fullColumns]).toEqual([]);
+  });
+});
+
+describe('rulesAllow', () => {
+  const rules = { limitBehavior: 'block' as const };
+  const full = new Set(['done']);
+
+  it('refuses a full column, but not a move inside it', () => {
+    expect(rulesAllow(rules, seed[0]!, 'todo', done, full)).toBe(false);
+    expect(rulesAllow(rules, seed[2]!, 'done', done, full)).toBe(true);
+    expect(rulesAllow({}, seed[0]!, 'todo', done, full)).toBe(true);
+  });
+
+  it('applies canDrop and read-only like canDropTo', () => {
+    const canDrop = vi.fn((task: Task) => task.id !== 'a');
+    expect(rulesAllow({ canDrop }, seed[0]!, 'todo', done, new Set())).toBe(false);
+    expect(canDrop).toHaveBeenCalledWith(seed[0], { cellId: done, columnId: 'done', laneId: null });
+    expect(rulesAllow({ canDrop }, seed[1]!, 'todo', done, new Set())).toBe(true);
+    expect(rulesAllow({ readOnly: true }, seed[1]!, 'todo', done, new Set())).toBe(false);
   });
 });
 

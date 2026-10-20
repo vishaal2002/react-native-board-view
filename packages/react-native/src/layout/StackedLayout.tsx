@@ -227,7 +227,8 @@ function stackedGeometry(
  * Stacked: one vertical FlashList, a section per column (and a group per
  * lane). No sideways scrolling at all; drags auto-scroll the one list.
  */
-export function StackedLayout() {
+// Memoized: it takes no props, so a board render that leaves the context alone (a sheet opening) skips it.
+export const StackedLayout = memo(function StackedLayout() {
   const board = useBoard();
   const { controller, props, adapter, scrollApi, collapsedLanes, collapsedColumns, autoScroll, loadingColumns } = board;
   const placement = adapter.usePlacementState();
@@ -372,7 +373,7 @@ export function StackedLayout() {
       ) : null}
     </View>
   );
-}
+});
 
 const NO_ANCHORING = { disabled: true };
 const rowKey = (row: Row) => row.key;
@@ -469,12 +470,18 @@ function BodyRow({ row }: { row: Exclude<Row, { kind: 'lane' } | { kind: 'sectio
   const closes = row.kind === 'footer' || row.last;
   const frame = [sectionStyle(theme), closes ? closingStyle(theme) : null];
 
+  const lane = cell.laneKey === NO_LANE_ID ? null : cell.lane;
   if (row.kind === 'card') {
+    const item = controller.itemsById.get(row.itemId);
+    if (item == null) return null;
     return (
       <View style={frame}>
         <BoardCard
           itemId={row.itemId}
+          item={item}
           cellId={row.cellId}
+          column={cell.column}
+          lane={lane}
           index={controller.model.locations.get(row.itemId)?.index ?? 0}
           count={cell.items.length}
           pending={controller.isPending(row.itemId)}
@@ -482,7 +489,6 @@ function BodyRow({ row }: { row: Exclude<Row, { kind: 'lane' } | { kind: 'sectio
       </View>
     );
   }
-  const lane = cell.laneKey === NO_LANE_ID ? null : cell.lane;
   if (row.kind === 'footer') {
     return (
       <View style={frame}>

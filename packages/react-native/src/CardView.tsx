@@ -1,6 +1,6 @@
 import { memo, use, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { BoardContext } from './context';
+import { ThemeContext } from './context';
 import { lightTheme } from './theme';
 import type { BoardTheme } from './types';
 
@@ -38,7 +38,7 @@ export interface CardViewProps {
 
 /** The theme of the surrounding board, or the light theme outside one. */
 export function useBoardTheme(): BoardTheme {
-  return use(BoardContext)?.theme ?? lightTheme;
+  return use(ThemeContext) ?? lightTheme;
 }
 
 function initials(name: string): string {

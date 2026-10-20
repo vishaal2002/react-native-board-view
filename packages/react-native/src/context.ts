@@ -127,8 +127,68 @@ export interface CardDescription {
 
 export const BoardContext = createContext<BoardContextValue | null>(null);
 
+/**
+ * What a card reads, apart from the board context: a move, the dock showing
+ * or the app re-rendering `<Board>` changes the board context, and every
+ * card that read it would redraw. This one changes only with the props and
+ * layout cards depend on. A card's own data (item, column, index) come as
+ * props, and moves are read when they happen.
+ */
+export interface CardContextValue<T = unknown> {
+  readonly renderCard: BoardProps<T>['renderCard'];
+  readonly canDrag?: (item: T) => boolean;
+  readonly hasLanes: boolean;
+  readonly adapter: DragAdapter;
+  readonly theme: BoardTheme;
+  readonly labels: BoardLabels;
+  readonly rtl: boolean;
+  readonly reducedMotion: boolean;
+  readonly overview: boolean;
+  readonly sheetMode: 'auto' | 'manual' | false;
+  readonly selectable: boolean;
+  /** Swipe-to-move is on (`multi` and `fit` layouts). */
+  readonly swipeEnabled: boolean;
+  readonly horizontalScrollGesture: GestureType;
+  /** The columns drawn, in order, for swipe neighbours. The same array until they change. */
+  readonly columns: readonly GroupValue[];
+  readonly allColumns: readonly GroupValue[];
+  readonly allLanes: readonly GroupValue[];
+  /** Width a card gets in a column. */
+  readonly cardWidth: (columnKey: string) => number;
+  readonly describeCard: (item: unknown) => CardDescription;
+  /** `cardActions` this card may use. */
+  readonly actionsFor: (item: unknown) => readonly CardAction[];
+  /** Whether the card's rules let it into a cell, given the columns that are full. */
+  readonly allows: (item: unknown, fromColumnKey: string, cellId: string, fullColumns: ReadonlySet<string>) => boolean;
+  /** Columns at their limit that refuse cards. */
+  readonly fullColumns: ValueStore<ReadonlySet<string>>;
+  /** Screen-reader actions are worth building: always on iOS, while an accessibility service runs on Android. */
+  readonly accessibilityActions: boolean;
+  readonly getItemLabel?: (item: T) => string;
+  readonly moveItem: BoardController<T>['moveItem'];
+  readonly runCardAction: BoardContextValue<T>['runCardAction'];
+  readonly openMoveSheet: (itemId: string) => void;
+  readonly toggleSelected: (itemId: string) => void;
+  readonly selection: ValueStore<ReadonlySet<string>>;
+  readonly highlight: ValueStore<{ readonly itemId: string } | null>;
+  readonly externalMoves: ValueStore<ReadonlyMap<string, object>>;
+  readonly focusRequest: ValueStore<string | null>;
+  readonly scrollApi: { current: ScrollApi | null };
+}
+
+export const CardContext = createContext<CardContextValue | null>(null);
+
+/** The board theme alone, for `useBoardTheme` in app cards: it changes far less often than the board. */
+export const ThemeContext = createContext<BoardTheme | null>(null);
+
 export function useStoreValue<V>(store: ValueStore<V>): V {
   return useSyncExternalStore(store.subscribe, store.get, store.get);
+}
+
+export function useCard<T = unknown>(): CardContextValue<T> {
+  const value = use(CardContext);
+  if (!value) throw new Error('react-native-board-view: this component must render inside <Board>.');
+  return value as CardContextValue<T>;
 }
 
 export function useBoard<T = unknown>(): BoardContextValue<T> {

@@ -1,13 +1,13 @@
 # Roadmap
 
-Draft, updated 2026-10-19. 0.7.0 shipped on 2026-10-19, front end only. 0.8.0 is built: every feature 1.0 needs, and the last release that may break the API. The performance pass moved from 0.7.1 to 0.8.1. Features marked _experimental_ ship off by default and can change before 1.0.
+Draft, updated 2026-10-20. 0.8.0 shipped on 2026-10-20: every feature 1.0 needs, and the last release that may break the API. 0.8.1, the performance pass, is built. Features marked _experimental_ ship off by default and can change before 1.0.
 
 | Version | Theme                           | Headline                                                       |
 | ------- | ------------------------------- | -------------------------------------------------------------- |
 | 0.6.0   | Phone-first moves (shipped)     | Drop dock, undo, matrix, a better Move sheet                   |
 | 0.7.0   | Your data at a glance (shipped) | Week planner, WIP limits, sums, spotlight, presets             |
 | 0.8.0   | Feature-complete and API freeze | Multi-select, column and lane reorder, pointer, test kit, bugs |
-| 0.8.1   | Performance                     | JS thread near 60 fps while scrolling, jank near 0%            |
+| 0.8.1   | Performance (built)             | Cards redraw only for their own data; first real-phone numbers |
 | 1.0.0   | Stable                          | Device gates, deprecations removed, no new features            |
 
 ## 0.6.0: phone-first moves (shipped)
@@ -85,17 +85,19 @@ The five-developer usability study still belongs before the 0.8 API freeze.
 
 Not in 0.8.0, for after 1.0: dragging a header itself (the sheet covers reorder), arrow-key moves (React Native has no key events without a native module), live presence, flick to move, gallery cells and pipeline chevrons. The Expo Snack demo and the five-developer usability study are still to do.
 
-## 0.8.1: performance
+## 0.8.1: performance (built)
 
-No new features and no API changes. Profile a release build on mains power, then fix what dominates. The likely causes, from reading the code:
+No new features and no API changes. Profiled on a real phone, a vivo V2158 (Android 14), against 0.8.0, and kept only what measurably helped:
 
-- Every card rebuilds its screen-reader actions (a `canDrop` call per column) whenever the board's shared state changes, and that state is rebuilt on every board update.
-- Every card mounts its own UI-thread animated style, only to hide itself during a drag.
-- One move re-renders every mounted card, not only the two cells it touched.
-- Hit-testing runs in JS once per frame. Move it to a worklet if devices need it.
-- The dock reshapes the lists twice per drag.
+- **Cards redraw only when their own data changes.** They read a context of their own, so a move, the dock or an app re-render no longer redraws every mounted card. One drop on the 20 lanes × 6 board went from 480 card renders to 4.
+- **Cheaper cards.** Screen-reader actions on Android are built only while an accessibility service runs, and each card lost its UI-thread style and three views. A lane of 60 cards mounts in about 90 ms of JS instead of 185.
+- **Fewer projections.** A drop projects the board twice instead of four times.
+- **Dropped:** hit-testing in a worklet. It costs well under a millisecond per frame, and moving it would not change any number above.
 
-Targets: the JS thread at 55 fps or more during auto-scroll, and 0–3% janky frames on every board, measured against 0.5.0 to 0.8.0 on the emulator, a mid-tier Android phone and an iPhone. Keep only the changes that measurably help.
+The results, in [benchmarks](benchmarks.md#2026-10-20-081-against-080-on-a-phone):
+
+- **Met.** The 4 × 500 board is at 0–1% janky frames, with the JS thread at 60.
+- **Not met.** The 20 lanes × 6 board improved, from about 6.7% to 3.8% janky while scrolling and from 6.9% to 5.8% during auto-scroll, but it misses the 0–3% target. A swimlane row still creates every column's cards natively when it scrolls in. Virtualizing columns inside a lane would fix it, but it changes how rows measure, so it comes after 1.0.
 
 ## 1.0.0: stable
 
