@@ -8,10 +8,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "board-view-core": "0.2.0",
+    "board-view-core": "0.3.0",
     "fractional-indexing": "^4.0.0",
     "lucide-react-native": "1.51.0",
-    "react-native-board-view": "0.7.0",
+    "react-native-board-view": "0.8.0",
     "react-native-svg": "15.15.4"
   },
   "peerDependencies": {

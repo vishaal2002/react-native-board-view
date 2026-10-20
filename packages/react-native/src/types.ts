@@ -17,7 +17,7 @@ import type { LaneShare, LimitState, PlannerDay } from './insights';
  * - `planner`: a column per day, side by side like `multi`, with day headers,
  *   today marked, weekends dimmed and a Today button. Column ids are
  *   `YYYY-MM-DD` dates: build them with `dayColumns`, and add more days from
- *   `onColumnsEndReached`.
+ *   `onEdgeReached`.
  * - `auto`: `paged` below 600pt of board width, else `multi`.
  */
 export type BoardLayout = 'auto' | 'paged' | 'multi' | 'fit' | 'stacked' | 'matrix' | 'planner';
@@ -84,6 +84,11 @@ export interface CardActionEvent<T> {
   readonly item: T;
   readonly from: MoveTarget;
   readonly source: 'dock' | 'sheet' | 'accessibility';
+  /**
+   * Every card the action applies to: the selected cards when the card is part
+   * of a selection, else just this one. `itemId` is always among them.
+   */
+  readonly itemIds: readonly string[];
 }
 
 /** What the drop dock shows while a card is lifted. */
@@ -104,14 +109,18 @@ export interface UndoOptions {
 }
 
 export interface UndoBannerContext {
-  item: string;
-  column: string;
-  lane: string | null;
+  readonly item: string;
+  readonly column: string;
+  readonly lane: string | null;
+  /** Cards the move took: more than 1 for a batch. */
+  readonly count: number;
 }
 
 export interface DragStartEvent {
   readonly itemId: string;
   readonly from: MoveTarget;
+  /** The cards riding along: the selection when the lifted card is selected, else just it. */
+  readonly itemIds: readonly string[];
 }
 
 /** The drop target changed while dragging: a good moment for a selection haptic. */
@@ -148,7 +157,13 @@ export interface CardRenderInfo<T> {
   readonly age: number | null;
   /** `age` has reached `staleAfterDays`. */
   readonly stale: boolean;
+  /** The card is in the selection. The board already draws a check and an outline. */
+  readonly selected: boolean;
+  /** A selection is open: a tap on a card selects it instead of `onPress`. */
+  readonly selecting: boolean;
   readonly openMoveSheet: () => void;
+  /** Adds the card to the selection, or takes it out. */
+  readonly toggleSelected: () => void;
 }
 
 export interface ColumnHeaderRenderInfo {
@@ -162,8 +177,8 @@ export interface ColumnHeaderRenderInfo {
   readonly compact: boolean;
   /** Present when the column can collapse in this layout. */
   readonly toggleCollapsed?: () => void;
-  /** `columnLimits` for this column. */
-  readonly limit?: number;
+  /** `columnLimits` for this column, or null. */
+  readonly limit: number | null;
   /** `total` against `limit`. `none` without a limit. */
   readonly limitState: LimitState;
   /** Sum of `getItemValue` over the column's cards, or null without it. */
@@ -172,13 +187,18 @@ export interface ColumnHeaderRenderInfo {
   readonly valueLabel: string | null;
   /** In the planner, the day this column is. Null elsewhere and for non-date columns. */
   readonly day: PlannerDay | null;
+  /** Present when `onColumnOrderChange` is set: opens the column's sheet, with move and collapse. */
+  readonly openColumnSheet?: () => void;
 }
 
 export interface LaneHeaderRenderInfo {
   readonly lane: GroupValue;
   readonly count: number;
   readonly collapsed: boolean;
-  readonly toggleCollapsed: () => void;
+  /** Present when lanes can collapse (`collapsibleLanes`, on by default). */
+  readonly toggleCollapsed?: () => void;
+  /** Present when `onLaneOrderChange` is set: opens the lane's sheet, with move and collapse. */
+  readonly openLaneSheet?: () => void;
   /** The lane's cards per column, in column order: the default header draws it as a bar. */
   readonly distribution: readonly LaneShare[];
 }
@@ -211,9 +231,9 @@ export interface MoveDestination {
 }
 
 export interface ScrollToItemOptions {
-  animated?: boolean;
+  readonly animated?: boolean;
   /** Flash an outline on the card once it is on screen. Default false. */
-  highlight?: boolean;
+  readonly highlight?: boolean;
 }
 
 /** Built-in palettes, each with a light and a dark variant. */
@@ -269,35 +289,44 @@ export interface BoardTheme {
 }
 
 export interface CardAccessibilityContext {
-  item: string;
-  column: string;
-  lane: string | null;
-  position: number;
-  count: number;
-  pending: boolean;
+  readonly item: string;
+  readonly column: string;
+  readonly lane: string | null;
+  readonly position: number;
+  readonly count: number;
+  readonly pending: boolean;
   /** Outside the `spotlight`. */
-  dimmed: boolean;
+  readonly dimmed: boolean;
   /** Days old, when `getItemAge` is given and the card is stale. */
-  staleDays: number | null;
+  readonly staleDays: number | null;
+  /** In the selection. */
+  readonly selected: boolean;
 }
 
 export interface ColumnSummaryContext {
-  column: string;
-  total: number;
-  limit: number | null;
-  limitState: LimitState;
-  valueLabel: string | null;
+  readonly column: string;
+  readonly total: number;
+  readonly limit: number | null;
+  readonly limitState: LimitState;
+  readonly valueLabel: string | null;
   /** Planner columns: the full date, such as "Monday 19 October". */
-  date: string | null;
-  today: boolean;
+  readonly date: string | null;
+  readonly today: boolean;
 }
 
 export interface MoveAnnouncementContext {
-  item: string;
-  column: string;
-  lane: string | null;
-  position: number;
-  count: number;
+  readonly item: string;
+  readonly column: string;
+  readonly lane: string | null;
+  readonly position: number;
+  readonly count: number;
+}
+
+/** A batch of cards moved together. */
+export interface BatchAnnouncementContext {
+  readonly count: number;
+  readonly column: string;
+  readonly lane: string | null;
 }
 
 export interface BoardLabels {
@@ -348,6 +377,39 @@ export interface BoardLabels {
   full: string;
   /** The planner's button back to today. */
   today: string;
+  /** A batch moved, once `onMove` accepts its last card. */
+  movedMany: (context: BatchAnnouncementContext) => string;
+  /** Card action and Move sheet button that starts a selection with the card. */
+  select: string;
+  /** Card action that takes a selected card out of the selection. */
+  deselect: string;
+  /** The selection bar's count, such as "3 selected". */
+  selectedCount: (count: number) => string;
+  /** Selection bar button that opens the Move sheet for every selected card. */
+  moveSelected: string;
+  /** Selection bar button that ends the selection. */
+  clearSelection: string;
+  /** Move sheet title for a selection. */
+  moveManyTitle: (count: number) => string;
+  /** Column and lane sheet actions, and their screen-reader actions. */
+  moveColumnLeft: string;
+  moveColumnRight: string;
+  moveColumnFirst: string;
+  moveColumnLast: string;
+  moveLaneUp: string;
+  moveLaneDown: string;
+  moveLaneFirst: string;
+  moveLaneLast: string;
+  /** Announced after a column or lane moves. */
+  columnMoved: (context: { readonly column: string; readonly position: number; readonly count: number }) => string;
+  laneMoved: (context: { readonly lane: string; readonly position: number; readonly count: number }) => string;
+  /** Title of the column sheet. */
+  columnSheetTitle: (column: string) => string;
+  laneSheetTitle: (lane: string) => string;
+  /** Announced when data moves a card while the board is on screen (`highlightExternalMoves`). */
+  externallyMoved: (context: { readonly item: string; readonly column: string }) => string;
+  /** Screen-reader action and hint on a card that a keyboard or pointer can open the sheet with. */
+  openMenu: string;
 }
 
 /** Imperative controls, through the `ref` prop. */
@@ -364,12 +426,22 @@ export interface BoardHandle {
   openMoveSheet(itemId: string): void;
   closeMoveSheet(): void;
   /**
-   * Reverts the last move that is still where it landed, through `onMove`
-   * with `source: 'undo'`. Moves made by undo are not undone again. Returns
-   * false when there is nothing to undo.
+   * Moves several cards to one cell together, keeping their board order:
+   * one `onMove` per card, each with the same `op.batch.id`. Returns how many
+   * moved. Cards the target refuses stay where they are.
+   */
+  moveItems(itemIds: readonly string[], to: MoveDestination): number;
+  /**
+   * Reverts the newest move whose cards are still where they landed, through
+   * `onMove` with `source: 'undo'`; a batch comes back as one batch. Moves made
+   * by undo are not undone again. Returns false when there is nothing to undo
+   * or the target refuses the cards (a full column in `block` mode).
    */
   undo(): boolean;
   canUndo(): boolean;
+  /** Replaces the selection. An empty list ends it. Ignored with `selectable={false}`. */
+  setSelection(itemIds: readonly string[]): void;
+  getSelection(): readonly string[];
   /**
    * Experimental. Opens or closes the whole-board overview. Closing with a
    * `columnId` scrolls to that column. Needs `overview`.
@@ -387,7 +459,8 @@ export interface BoardProps<T> {
   getItemLabel?: (item: T) => string;
   groupBy: GroupBy<T>;
   /**
-   * Called once per move, in order per item. Resolve when the move is
+   * Called once per card moved, in order per item; a multi-card move calls it
+   * once per card with a shared `op.batch`. Resolve when the move is
    * accepted; reject to roll the card back. The overlay stays until `items`
    * shows the move (or `settleTimeoutMs` passes), so `setState` timing never
    * matters. Pass `context.signal` to your request: it aborts when the move
@@ -444,7 +517,10 @@ export interface BoardProps<T> {
    * `onColumnChange` so a swipe stays where the finger left it.
    */
   columnId?: string;
-  /** Paged layout: the column now on screen. */
+  /**
+   * The column now on screen: the page in `paged`, the first fully visible
+   * column in `multi`, `fit` and the planner.
+   */
   onColumnChange?: (columnId: string) => void;
   /**
    * The user reached the end of a column. The board does not fetch: append
@@ -454,9 +530,11 @@ export interface BoardProps<T> {
    * so the bottom of that list fires it once per column. Stacked fires it for
    * the last column.
    */
+  onColumnEndReached?: (columnId: string) => void;
+  /** @deprecated Renamed `onColumnEndReached`. Removed in 1.0. */
   onEndReached?: (columnId: string) => void;
   /**
-   * Columns that are fetching more cards, for example after `onEndReached`.
+   * Columns that are fetching more cards, for example after `onColumnEndReached`.
    * A spinner shows where that event fired: at the end of the column in the
    * paged, multi and fit layouts, and at the end of the board in swimlanes
    * and stacked.
@@ -493,7 +571,13 @@ export interface BoardProps<T> {
   getItemAge?: (item: T) => number | null | undefined;
   /** Cards at least this many days old are `stale`. Default 14. */
   staleAfterDays?: number;
-  /** The planner reached its first or last day: add more days to `groupBy.columns`. Also fires in `multi` and `fit`. */
+  /**
+   * The board reached its first or last column, sideways: in the planner, add
+   * days to `groupBy.columns`. Fires in the planner, `multi` and `fit`, and
+   * once per width on a board that fits the screen, so short boards grow too.
+   */
+  onEdgeReached?: (edge: 'start' | 'end') => void;
+  /** @deprecated Renamed `onEdgeReached`. Removed in 1.0. */
   onColumnsEndReached?: (edge: 'start' | 'end') => void;
   /** Lane headers in swimlanes and section headers in stacked stay pinned while their cards scroll. Default true. */
   stickyHeaders?: boolean;
@@ -511,15 +595,41 @@ export interface BoardProps<T> {
    * go back. Boards without lanes, in the paged, multi and fit layouts.
    */
   overview?: boolean;
+  /** Controlled overview state. Omit to let pinches open and close it. Needs `overview`. */
+  overviewOpen?: boolean;
   onOverviewChange?: (open: boolean) => void;
   /** Collapse toggles on column headers. Default: on in `stacked`, off elsewhere. Never in `paged`. */
   collapsibleColumns?: boolean;
   /** Controlled. Omit both to let the board keep this state itself. */
   collapsedColumns?: readonly string[];
   onCollapsedColumnsChange?: (columnIds: string[]) => void;
+  /** Collapse toggles on lane headers in swimlanes. Default true. */
+  collapsibleLanes?: boolean;
   /** Controlled. Omit both to let the board keep this state itself. */
   collapsedLanes?: readonly string[];
   onCollapsedLanesChange?: (laneIds: string[]) => void;
+  /**
+   * Lets people reorder columns: long-press a column header to drag it, or use
+   * the header's sheet and screen-reader actions. The board does not change
+   * `groupBy`: save the order and pass the columns back in it.
+   */
+  onColumnOrderChange?: (columnIds: string[]) => void;
+  /** The same for swimlanes: long-press a lane header, or use its sheet. */
+  onLaneOrderChange?: (laneIds: string[]) => void;
+  /**
+   * Multi-select. Start a selection from a card's Move sheet or screen-reader
+   * actions, or with `setSelection`; then taps select cards, a bar shows the
+   * count, and dragging a selected card moves them all. Default true.
+   */
+  selectable?: boolean;
+  /** Controlled selection. Omit both to let the board keep it. */
+  selection?: readonly string[];
+  onSelectionChange?: (itemIds: string[]) => void;
+  /**
+   * When `items` moves a card to another cell by itself (another user, a sync),
+   * the card flashes once and screen readers hear where it went. Default true.
+   */
+  highlightExternalMoves?: boolean;
   moveModes?: MoveModes;
   /**
    * Display only. Scrolling, paging, collapse and Show more stay on.
@@ -537,6 +647,8 @@ export interface BoardProps<T> {
   labels?: Partial<BoardLabels>;
 
   /** Cards shown per swimlane cell before "Show more". Default 50. */
+  laneCellLimit?: number;
+  /** @deprecated Renamed `laneCellLimit`. Removed in 1.0. */
   cellLimit?: number;
   /** Replaces the default fractional-indexing ranks. */
   rankStrategy?: RankStrategy;

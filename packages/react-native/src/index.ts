@@ -8,6 +8,7 @@ export { compactMetrics, darkTheme, defaultLabels, lightTheme, motionPresets, th
 export { addDays, dayColumns, formatCompact, parseDayId, toDayId } from './insights';
 export type { DayColumnsOptions, LaneShare, LimitState, PlannerDay } from './insights';
 export type {
+  BatchAnnouncementContext,
   BoardHandle,
   BoardLabels,
   BoardLayout,
@@ -66,6 +67,7 @@ export type {
   GroupValue,
   ItemLocation,
   ItemMoveSnapshot,
+  MoveBatch,
   MoveContext,
   MoveOperation,
   MoveQueue,

@@ -40,23 +40,26 @@ function font(theme: BoardTheme): StyleProp<TextStyle> {
  * The "Move to…" sheet: the accessible, no-drag way to move a card. Quick
  * moves (up, down, the next column), then lane, position and one tap on a
  * column. Your `cardActions` sit at the end. Drag the top of the sheet down,
- * tap outside or press Cancel to close it.
+ * tap outside or press Cancel to close it. With several `itemIds` (a
+ * selection) it moves them all together, in board order.
  */
-export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose: () => void }) {
+export function MoveSheet({ itemIds, onClose }: { itemIds: readonly string[] | null; onClose: () => void }) {
   const board = useBoard();
   const { controller, theme, labels, props, reducedMotion, scrollApi, allColumns, allLanes } = board;
-  // The item stays on screen while the sheet slides away after `itemId` clears.
-  const [shownId, setShownId] = useState<string | null>(itemId);
+  // The cards stay on screen while the sheet slides away after `itemIds` clears.
+  const [shownIds, setShownIds] = useState<readonly string[] | null>(itemIds);
+  const itemId = itemIds?.[0] ?? null;
+  const shownId = shownIds?.[0] ?? null;
   const [laneId, setLaneId] = useState<string | null>(null);
   const [position, setPosition] = useState<Position>('top');
   const [query, setQuery] = useState('');
   const offset = useSharedValue(OFFSCREEN);
   const backdrop = useSharedValue(0);
 
-  const finishClose = useCallback(() => setShownId(null), []);
+  const finishClose = useCallback(() => setShownIds(null), []);
   useEffect(() => {
-    if (itemId != null) {
-      setShownId(itemId);
+    if (itemIds != null) {
+      setShownIds(itemIds);
       setLaneId(null);
       setPosition('top');
       setQuery('');
@@ -71,7 +74,7 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
       'worklet';
       if (done) scheduleOnRN(finishClose);
     });
-  }, [backdrop, board.durationScale, finishClose, itemId, offset, reducedMotion]);
+  }, [backdrop, board.durationScale, finishClose, itemIds, offset, reducedMotion]);
 
   const dismiss = useMemo(
     () =>
@@ -97,6 +100,8 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdrop.value }));
 
   const id = itemId ?? shownId;
+  const ids = itemIds ?? shownIds ?? [];
+  const many = ids.length > 1;
   const location = id != null ? controller.model.locations.get(id) : undefined;
   const cell = location ? controller.model.cellById.get(location.cellId) : undefined;
   const current = location ? parseCellId(location.cellId) : null;
@@ -104,6 +109,11 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
   const lane = laneId ?? current?.laneKey ?? NO_LANE_ID;
   const laneLabel = lanes.find((entry) => entry.id === lane)?.label;
   const actions = id != null ? board.cardActionsFor(id) : [];
+  const columnCount = (columnId: string) => {
+    let total = 0;
+    for (const entry of controller.model.cells) if (entry.columnKey === columnId) total += entry.items.length;
+    return total;
+  };
   const searchable = allColumns.length > SEARCH_FROM;
   const needle = query.trim().toLocaleLowerCase();
   const columns = needle
@@ -112,11 +122,20 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
 
   const moveTo = (targetCellId: string, index: number, close: boolean) => {
     if (id == null) return;
-    const moved = controller.moveItem(id, targetCellId, index, 'sheet');
+    const moved = many
+      ? controller.moveItems(ids, targetCellId, index, 'sheet', id) > 0
+      : controller.moveItem(id, targetCellId, index, 'sheet');
+    if (moved && many) board.setSelection([]);
     if (!close) return;
     onClose();
     if (moved) requestAnimationFrame(() => scrollApi.current?.toItem(id, !reducedMotion));
   };
+  /** A selection moves when any of its cards may go there; the rest stay. */
+  const canTake = (targetCellId: string) =>
+    many
+      ? ids.some((entry) => controller.canDropTo(entry, targetCellId))
+      : id != null && controller.canDropTo(id, targetCellId);
+  const selectable = board.selectable && !many && id != null;
 
   const indexIn = (targetCellId: string, at: Position) => {
     const target = controller.model.cellById.get(targetCellId);
@@ -154,7 +173,7 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
     run: () => void;
     chevron: 'up' | 'down' | 'left' | 'right';
   }[] =
-    location && current
+    location && current && !many
       ? [
           {
             key: 'up',
@@ -229,22 +248,42 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
               <GestureDetector gesture={dismiss}>
                 <View style={styles.head} collapsable={false}>
                   <View style={[styles.grabber, { backgroundColor: theme.sheetDivider }]} />
-                  <Text
-                    style={[styles.title, { color: theme.text }, font(theme)]}
-                    accessibilityRole="header"
-                    numberOfLines={2}
-                  >
-                    {labels.moveSheetTitle(controller.itemLabel(id))}
-                  </Text>
-                  <Text style={[styles.subtitle, { color: theme.mutedText }, font(theme)]} numberOfLines={1}>
-                    {labels.currentPlace({
-                      item: controller.itemLabel(id),
-                      column: cell.column.label,
-                      lane: props.groupBy.lanes ? cell.lane.label : null,
-                      position: index + 1,
-                      count,
-                    })}
-                  </Text>
+                  <View style={styles.titleRow}>
+                    <Text
+                      style={[styles.title, { color: theme.text }, font(theme)]}
+                      accessibilityRole="header"
+                      numberOfLines={2}
+                    >
+                      {many ? labels.moveManyTitle(ids.length) : labels.moveSheetTitle(controller.itemLabel(id))}
+                    </Text>
+                    {selectable ? (
+                      <Pressable
+                        onPress={() => {
+                          board.setSelection([id]);
+                          onClose();
+                        }}
+                        accessibilityRole="button"
+                        hitSlop={4}
+                        style={({ pressed }) => [
+                          styles.select,
+                          { borderColor: theme.accent, opacity: pressed ? 0.6 : 1 },
+                        ]}
+                      >
+                        <Text style={[styles.selectText, { color: theme.accent }, font(theme)]}>{labels.select}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  {many ? null : (
+                    <Text style={[styles.subtitle, { color: theme.mutedText }, font(theme)]} numberOfLines={1}>
+                      {labels.currentPlace({
+                        item: controller.itemLabel(id),
+                        column: cell.column.label,
+                        lane: props.groupBy.lanes ? cell.lane.label : null,
+                        position: index + 1,
+                        count,
+                      })}
+                    </Text>
+                  )}
                 </View>
               </GestureDetector>
 
@@ -254,7 +293,7 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <View style={styles.quick}>
+                <View style={[styles.quick, many ? styles.none : null]}>
                   {quick.map((entry) => (
                     <Pressable
                       key={entry.key}
@@ -299,7 +338,13 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
                               selected ? { backgroundColor: theme.accent } : null,
                             ]}
                           >
-                            <Text style={[styles.chipText, { color: selected ? '#FFFFFF' : theme.text }, font(theme)]}>
+                            <Text
+                              style={[
+                                styles.chipText,
+                                { color: selected ? theme.cardBackground : theme.text },
+                                font(theme),
+                              ]}
+                            >
                               {own ? `• ${entry.label}` : entry.label}
                             </Text>
                           </Pressable>
@@ -359,8 +404,19 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
                 {columns.map((column) => {
                   const target = makeCellId(lane, column.id);
                   const targetCell = controller.model.cellById.get(target);
-                  const isCurrent = location.cellId === target;
-                  const allowed = targetCell != null && controller.canDropTo(id, target);
+                  const isCurrent = !many && location.cellId === target;
+                  const allowed = targetCell != null && canTake(target);
+                  // A full column in block mode: say why the row is disabled.
+                  const full =
+                    !allowed &&
+                    props.limitBehavior === 'block' &&
+                    (() => {
+                      const state = board.describeColumn(
+                        column.id,
+                        board.columnTotal(column.id, columnCount(column.id)),
+                      ).limitState;
+                      return state === 'at' || state === 'over';
+                    })();
                   return (
                     <Pressable
                       key={column.id}
@@ -368,7 +424,7 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
                       onPress={() => choose(column)}
                       accessibilityRole="button"
                       accessibilityState={{ disabled: !allowed }}
-                      accessibilityLabel={`${labels.moveToColumnAction(column.label)}${laneLabel ? `, ${labels.lane} ${laneLabel}` : ''}, ${position === 'top' ? labels.top : labels.bottom}${isCurrent ? `, ${labels.current}` : ''}`}
+                      accessibilityLabel={`${labels.moveToColumnAction(column.label)}${laneLabel ? `, ${labels.lane} ${laneLabel}` : ''}, ${position === 'top' ? labels.top : labels.bottom}${isCurrent ? `, ${labels.current}` : ''}${full ? `, ${labels.full}` : ''}`}
                       style={({ pressed }) => [
                         styles.row,
                         { borderColor: theme.sheetDivider, opacity: allowed ? 1 : 0.4 },
@@ -383,6 +439,9 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
                       {isCurrent ? (
                         <Text style={[styles.current, { color: theme.accent }, font(theme)]}>{labels.current}</Text>
                       ) : null}
+                      {full ? (
+                        <Text style={[styles.current, { color: theme.warning }, font(theme)]}>{labels.full}</Text>
+                      ) : null}
                       <CountPill count={targetCell?.items.length ?? 0} theme={theme} />
                     </Pressable>
                   );
@@ -395,7 +454,8 @@ export function MoveSheet({ itemId, onClose }: { itemId: string | null; onClose:
                       <Pressable
                         key={action.key}
                         onPress={() => {
-                          board.runCardAction(id, action.key, 'sheet');
+                          board.runCardAction(id, action.key, 'sheet', many ? ids : undefined);
+                          if (many) board.setSelection([]);
                           onClose();
                         }}
                         accessibilityRole="button"
@@ -450,7 +510,19 @@ const styles = StyleSheet.create({
   },
   head: { paddingTop: 10, paddingBottom: 4 },
   grabber: { alignSelf: 'center', width: 38, height: 5, borderRadius: 3, marginBottom: 12 },
-  title: { fontSize: 18, fontWeight: '700' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  title: { flex: 1, fontSize: 18, fontWeight: '700' },
+  select: {
+    minHeight: 44,
+    minWidth: 64,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectText: { fontSize: 15, fontWeight: '700' },
+  none: { display: 'none' },
   subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
   body: { flexGrow: 0, flexShrink: 1 },
   bodyContent: { paddingBottom: 4 },
@@ -478,8 +550,8 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 6,
-    minHeight: 36,
-    borderRadius: 18,
+    minHeight: 44,
+    borderRadius: 22,
     borderWidth: 1,
     justifyContent: 'center',
   },
@@ -487,7 +559,7 @@ const styles = StyleSheet.create({
   segment: { flexDirection: 'row', borderRadius: 10, padding: 3 },
   segmentItem: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 44,
     paddingVertical: 6,
     borderRadius: 8,
     alignItems: 'center',

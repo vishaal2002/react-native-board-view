@@ -1,5 +1,5 @@
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,7 +8,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
-import Animated, { LinearTransition } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
 import { NO_LANE_ID, cellId as makeCellId, type BoardCell } from 'board-view-core';
 import { useBoard, useStoreValue, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type SlotSource } from '../engine/geometry';
@@ -138,7 +138,7 @@ const BoardColumn = memo(function BoardColumn({
   const board = useBoard();
   const { theme, labels, props, canCollapseColumns, toggleColumn, columnTotal, loadingColumns } = board;
   const [listFrame, setListFrame] = useState({ y: 0, height: 0 });
-  const glide = useColumnGlide();
+  const glide = useColumnGlide(slot.x);
   const count = cell.items.length;
   const total = columnTotal(cell.columnKey, count);
   const loading = loadingColumns.has(cell.columnKey);
@@ -166,7 +166,7 @@ const BoardColumn = memo(function BoardColumn({
 
   if (slot.collapsed) {
     return (
-      <Animated.View layout={glide} style={frame}>
+      <Animated.View style={[frame, glide]}>
         <CollapsedColumnStrip
           label={cell.column.label}
           count={total}
@@ -187,10 +187,11 @@ const BoardColumn = memo(function BoardColumn({
     collapsed: false,
     compact: slot.width < COMPACT_HEADER_WIDTH,
     toggleCollapsed: canCollapseColumns ? toggle : undefined,
+    openColumnSheet: board.headerSheet('column', cell.columnKey),
     ...board.describeColumn(cell.columnKey, total),
   };
   return (
-    <Animated.View layout={glide} style={frame}>
+    <Animated.View style={[frame, glide]}>
       {board.overview ? (
         <OverviewHeader column={cell.column} count={total} />
       ) : props.renderColumnHeader ? (
@@ -221,17 +222,33 @@ const BoardColumn = memo(function BoardColumn({
 });
 
 /**
- * Columns glide to a new place or width: collapsing, hiding empty columns,
- * rotating. Never during a drag, when column heights change under the finger
- * and hit-testing reads the final frames.
+ * Columns glide to a new place: collapsing, hiding empty columns, rotating.
+ * The frame takes its new `left` at once, so hit-testing and the final layout
+ * are always right, and a transform eases the column in from where it was.
+ * No glide during a drag, with reduced motion, or when the column order
+ * changes (a reorder, days added in front), where every column would cross
+ * the board.
  */
-function useColumnGlide() {
-  const { adapter, reducedMotion, durationScale } = useBoard();
+function useColumnGlide(x: number) {
+  const { adapter, reducedMotion, durationScale, controller } = useBoard();
   const dragging = adapter.useDragSource() !== null;
-  return useMemo(
-    () => (reducedMotion || dragging ? undefined : LinearTransition.duration(Math.round(240 * durationScale))),
-    [dragging, durationScale, reducedMotion],
-  );
+  const order = controller.model.columns.map((column) => column.id).join('\0');
+  const last = useRef({ x, order });
+  const shift = useSharedValue(0);
+  useLayoutEffect(() => {
+    const before = last.current;
+    last.current = { x, order };
+    if (before.x === x) return;
+    if (reducedMotion || dragging || before.order !== order) {
+      shift.value = 0;
+      return;
+    }
+    shift.value = withSequence(
+      withTiming(before.x - x, { duration: 0 }),
+      withTiming(0, { duration: Math.round(240 * durationScale), easing: Easing.out(Easing.cubic) }),
+    );
+  }, [dragging, durationScale, order, reducedMotion, shift, x]);
+  return useAnimatedStyle(() => ({ transform: [{ translateX: shift.value }] }));
 }
 
 interface ColumnListProps {
@@ -244,6 +261,8 @@ interface ColumnListProps {
   getScrollX: () => number;
   lists: ListRegistry;
   pendingReveal: RefObject<Map<string, number>>;
+  /** Shared by the matrix's cells of one column, so the column's end fires once, not once per lane. */
+  endTimes?: RefObject<Map<string, number>>;
 }
 
 interface ColumnLive {
@@ -360,6 +379,7 @@ export function ColumnList({
   getScrollX,
   lists,
   pendingReveal,
+  endTimes,
 }: ColumnListProps) {
   const board = useBoard();
   const { controller, theme, adapter, props, labels } = board;
@@ -433,15 +453,17 @@ export function ColumnList({
     contentHeight.current = height;
   }, []);
   const columnId = cell.column.id;
-  const onEndReached = props.onEndReached;
+  const onEndReached = props.onColumnEndReached;
   const endAt = useRef(0);
   const notifyEnd = useCallback(() => {
     // FlashList retries as soon as the list data changes, before the new card is measured.
     const now = Date.now();
-    if (now - endAt.current < 400) return;
-    endAt.current = now;
+    const last = endTimes ? (endTimes.current.get(columnId) ?? 0) : endAt.current;
+    if (now - last < 400) return;
+    if (endTimes) endTimes.current.set(columnId, now);
+    else endAt.current = now;
     onEndReached?.(columnId);
-  }, [columnId, onEndReached]);
+  }, [columnId, endTimes, onEndReached]);
 
   const empty = (
     <View>

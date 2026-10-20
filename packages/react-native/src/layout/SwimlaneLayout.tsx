@@ -1,6 +1,7 @@
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list';
 import { createContext, memo, use, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
+  Pressable,
   StyleSheet,
   View,
   type LayoutChangeEvent,
@@ -83,7 +84,7 @@ export function SwimlaneLayout() {
   const scroller = useHorizontalScroller();
   const columns = controller.model.columns;
   const lanes = controller.model.lanes;
-  const cellLimit = Math.max(1, props.cellLimit ?? DEFAULT_CELL_LIMIT);
+  const cellLimit = Math.max(1, props.laneCellLimit ?? DEFAULT_CELL_LIMIT);
   const listRef = useRef<FlashListRef<GroupValue>>(null);
   const scrollY = useRef(0);
   const contentHeight = useRef(0);
@@ -196,10 +197,8 @@ export function SwimlaneLayout() {
   const [pinnedLane, setPinnedLane] = useState<GroupValue | null>(null);
   const lanesRef = useRef(lanes);
   lanesRef.current = lanes;
-  const onScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const y = event.nativeEvent.contentOffset.y;
-      scrollY.current = y;
+  const pinAt = useCallback(
+    (y: number) => {
       if (!sticky) return;
       const list = listRef.current;
       const current = lanesRef.current;
@@ -224,11 +223,29 @@ export function SwimlaneLayout() {
     },
     [sticky],
   );
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = event.nativeEvent.contentOffset.y;
+      scrollY.current = y;
+      pinAt(y);
+    },
+    [pinAt],
+  );
+  // Lanes collapsing, or being added, removed or reordered, move the rows without a scroll: pin again once they lay out.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => pinAt(scrollY.current));
+    return () => cancelAnimationFrame(frame);
+  }, [collapsedLanes, lanes, pinAt]);
+  const dragging = adapter.useDragSource() !== null;
+  const extraData = useMemo(
+    () => [controller.model, collapsedLanes, limits, metrics],
+    [collapsedLanes, controller.model, limits, metrics],
+  );
   const onContentSizeChange = useCallback((_width: number, height: number) => {
     contentHeight.current = height;
   }, []);
   const columnIds = columns.map((column) => column.id).join('\0');
-  const onEndReached = props.onEndReached;
+  const onEndReached = props.onColumnEndReached;
   const endAt = useRef(0);
   const notifyEnd = useCallback(() => {
     if (!onEndReached) return;
@@ -270,7 +287,7 @@ export function SwimlaneLayout() {
                   data={lanes as GroupValue[]}
                   keyExtractor={laneKey}
                   renderItem={renderLane}
-                  extraData={[controller.model, collapsedLanes, limits, metrics]}
+                  extraData={extraData}
                   onScroll={onScroll}
                   scrollEventThrottle={16}
                   onContentSizeChange={onContentSizeChange}
@@ -284,8 +301,15 @@ export function SwimlaneLayout() {
                   showsVerticalScrollIndicator={false}
                 />
               ) : null}
-              {sticky && pinnedLane ? (
-                <View style={[styles.pinnedLane, { backgroundColor: board.theme.background }]} pointerEvents="box-none">
+              {sticky && pinnedLane && !dragging ? (
+                // A copy for the eye: hidden during a drag, so it never covers the drop line, and from screen
+                // readers, which reach the real header in the list.
+                <View
+                  style={[styles.pinnedLane, { backgroundColor: board.theme.background }]}
+                  pointerEvents="box-none"
+                  importantForAccessibility="no-hide-descendants"
+                  accessibilityElementsHidden
+                >
                   <LaneHeaderBar lane={pinnedLane} />
                 </View>
               ) : null}
@@ -316,8 +340,8 @@ function PinnedLoading() {
 }
 
 function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSlot }) {
-  const { controller, props, theme, labels, canCollapseColumns, toggleColumn, columnTotal, describeColumn } =
-    useBoard();
+  const board = useBoard();
+  const { controller, props, theme, labels, canCollapseColumns, toggleColumn, columnTotal, describeColumn } = board;
   const loaded = useMemo(
     () =>
       controller.model.cells.reduce((sum, cell) => (cell.columnKey === column.id ? sum + cell.items.length : sum), 0),
@@ -327,10 +351,15 @@ function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSl
   const toggle = useCallback(() => toggleColumn(column.id), [column.id, toggleColumn]);
   if (slot.collapsed) {
     return (
-      <View style={[styles.collapsedHeader, { width: slot.width }]}>
+      <Pressable
+        onPress={toggle}
+        accessibilityRole="button"
+        accessibilityLabel={`${labels.expandColumn(column.label)}, ${count}`}
+        style={({ pressed }) => [styles.collapsedHeader, { width: slot.width, opacity: pressed ? 0.6 : 1 }]}
+      >
         <Chevron direction="right" color={theme.mutedText} size={7} />
         <CountPill count={count} theme={theme} />
-      </View>
+      </Pressable>
     );
   }
   const info = {
@@ -340,6 +369,7 @@ function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSl
     collapsed: false,
     compact: slot.width < COMPACT_HEADER_WIDTH,
     toggleCollapsed: canCollapseColumns ? toggle : undefined,
+    openColumnSheet: board.headerSheet('column', column.id),
     ...describeColumn(column.id, count),
   };
   return (
@@ -355,7 +385,8 @@ function ColumnHeaderCell({ column, slot }: { column: GroupValue; slot: ColumnSl
 
 /** A lane's header, held still while the board scrolls sideways. Also the pinned copy at the top of the list. */
 const LaneHeaderBar = memo(function LaneHeaderBar({ lane }: { lane: GroupValue }) {
-  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth } = useBoard();
+  const board = useBoard();
+  const { controller, metrics, theme, labels, props, collapsedLanes, toggleLane, scrollX, boardWidth } = board;
   const collapsed = collapsedLanes.has(lane.id);
   const count = useMemo(
     () => controller.model.cells.reduce((sum, cell) => (cell.laneKey === lane.id ? sum + cell.items.length : sum), 0),
@@ -367,7 +398,14 @@ const LaneHeaderBar = memo(function LaneHeaderBar({ lane }: { lane: GroupValue }
     transform: [{ translateX: Math.min(Math.max(scrollX.value, 0), maxShift) }],
   }));
   const distribution = useMemo(() => laneDistribution(controller.model, lane.id), [controller.model, lane.id]);
-  const info = { lane, count, collapsed, toggleCollapsed: toggle, distribution };
+  const info = {
+    lane,
+    count,
+    collapsed,
+    toggleCollapsed: board.canCollapseLanes ? toggle : undefined,
+    openLaneSheet: board.headerSheet('lane', lane.id),
+    distribution,
+  };
   return (
     <Animated.View
       style={[
@@ -591,9 +629,14 @@ const SwimCell = memo(function SwimCell({
 
   if (slot.collapsed) {
     return (
-      <View style={[frameStyle, styles.collapsedCell]}>
+      <Pressable
+        onPress={() => board.toggleColumn(cell.columnKey)}
+        accessibilityRole="button"
+        accessibilityLabel={`${board.labels.expandColumn(cell.column.label)}, ${cell.items.length}`}
+        style={[frameStyle, styles.collapsedCell]}
+      >
         <CountPill count={cell.items.length} theme={theme} />
-      </View>
+      </Pressable>
     );
   }
 
@@ -654,7 +697,7 @@ const styles = StyleSheet.create({
   ltr: { direction: 'ltr' },
   fill: { flex: 1 },
   headerRow: { flexDirection: 'row', paddingBottom: 6 },
-  collapsedHeader: { alignItems: 'center', gap: 6, paddingVertical: 10 },
+  collapsedHeader: { alignItems: 'center', gap: 6, paddingVertical: 10, minHeight: 44 },
   lanesContent: { paddingBottom: 32 },
   pinnedLane: { position: 'absolute', left: 0, right: 0, top: 0, paddingBottom: 4, zIndex: 20 },
   lane: { paddingBottom: LANE_SPACING },

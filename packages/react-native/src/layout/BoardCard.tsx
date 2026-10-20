@@ -1,7 +1,10 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   AccessibilityInfo,
+  Platform,
+  Pressable,
   StyleSheet,
+  Text,
   View,
   type AccessibilityActionEvent,
   type LayoutChangeEvent,
@@ -13,7 +16,7 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { cellId as makeCellId, parseCellId, NO_LANE_ID } from 'board-view-core';
+import { cellId as makeCellId, parseCellId, NO_LANE_ID, type BoardCell } from 'board-view-core';
 import { useBoard, type BoardContextValue } from '../context';
 import { MenuButton } from './defaults';
 import { visualSlot } from './metrics';
@@ -22,6 +25,7 @@ import { SwipeActions, type SwipeAction } from './SwipeActions';
 import type { CardRenderInfo } from '../types';
 
 const MOVE_TO = 'moveTo';
+const SELECT = 'select';
 /** Cards narrower than this get `compact` render info and no "…" button. */
 const COMPACT_CARD_WIDTH = 200;
 
@@ -79,7 +83,7 @@ export const BoardCard = memo(function BoardCard({
     () => focusRequest.get() === itemId,
     () => false,
   );
-  const { highlight } = board;
+  const { highlight, externalMoves, selection } = board;
   const highlighted = useSyncExternalStore(
     highlight.subscribe,
     () => {
@@ -88,6 +92,26 @@ export const BoardCard = memo(function BoardCard({
     },
     () => null,
   );
+  const flashed = useSyncExternalStore(
+    externalMoves.subscribe,
+    () => externalMoves.get().get(itemId) ?? null,
+    () => null,
+  );
+  const selected = useSyncExternalStore(
+    selection.subscribe,
+    () => selection.get().has(itemId),
+    () => false,
+  );
+  const selecting = useSyncExternalStore(
+    selection.subscribe,
+    () => selection.get().size > 0,
+    () => false,
+  );
+  const toggleSelected = useCallback(() => board.toggleSelected(itemId), [board, itemId]);
+  // Pointer hover (iPad, Android with a mouse, ChromeOS): a quiet outline.
+  const [hovered, setHovered] = useState(false);
+  const onPointerEnter = useCallback(() => setHovered(true), []);
+  const onPointerLeave = useCallback(() => setHovered(false), []);
 
   useEffect(() => {
     if (!focused) return;
@@ -101,6 +125,7 @@ export const BoardCard = memo(function BoardCard({
   const actions = useMemo(() => {
     const list: { name: string; label: string }[] = [];
     if (sheetMode !== false) list.push({ name: MOVE_TO, label: labels.moveTo });
+    if (board.selectable) list.push({ name: SELECT, label: selected ? labels.deselect : labels.select });
     for (const column of allColumns) {
       if (column.id === columnKey) continue;
       if (!controller.canDropTo(itemId, makeCellId(laneKey, column.id))) continue;
@@ -115,19 +140,37 @@ export const BoardCard = memo(function BoardCard({
     }
     for (const action of cardActionsFor(itemId)) list.push({ name: ACTION_PREFIX + action.key, label: action.label });
     return list;
-  }, [allColumns, allLanes, cardActionsFor, columnKey, controller, hasLanes, itemId, labels, laneKey, sheetMode]);
+  }, [
+    allColumns,
+    allLanes,
+    board.selectable,
+    cardActionsFor,
+    columnKey,
+    controller,
+    hasLanes,
+    itemId,
+    labels,
+    laneKey,
+    selected,
+    sheetMode,
+  ]);
 
   const onAccessibilityAction = useCallback(
     (event: AccessibilityActionEvent) => {
       const name = event.nativeEvent.actionName;
+      // The card may land in a column that is not mounted (a paged board): bring it on screen so focus can follow.
+      const reveal = (moved: boolean) => {
+        if (moved) requestAnimationFrame(() => board.scrollApi.current?.toItem(itemId, !board.reducedMotion));
+      };
       if (name === MOVE_TO) openSheet();
+      else if (name === SELECT) toggleSelected();
       else if (name.startsWith(COLUMN_PREFIX))
-        controller.moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0, 'accessibility');
+        reveal(controller.moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0, 'accessibility'));
       else if (name.startsWith(LANE_PREFIX))
-        controller.moveItem(itemId, makeCellId(name.slice(2), columnKey), 0, 'accessibility');
+        reveal(controller.moveItem(itemId, makeCellId(name.slice(2), columnKey), 0, 'accessibility'));
       else if (name.startsWith(ACTION_PREFIX)) runCardAction(itemId, name.slice(2), 'accessibility');
     },
-    [columnKey, controller, itemId, laneKey, openSheet, runCardAction],
+    [board, columnKey, controller, itemId, laneKey, openSheet, runCardAction, toggleSelected],
   );
 
   const swipe = useMemo(() => {
@@ -168,7 +211,10 @@ export const BoardCard = memo(function BoardCard({
     dragging: false,
     compact,
     ...described,
+    selected,
+    selecting,
     openMoveSheet: openSheet,
+    toggleSelected,
   };
 
   const content = (
@@ -184,9 +230,15 @@ export const BoardCard = memo(function BoardCard({
         pending,
         dimmed: described.dimmed,
         staleDays: described.stale ? Math.round(described.age ?? 0) : null,
+        selected,
       })}
+      accessibilityState={selecting ? { selected } : undefined}
       accessibilityActions={actions}
       onAccessibilityAction={onAccessibilityAction}
+      // A hardware keyboard on Android reaches each card with Tab and the arrows.
+      focusable={Platform.OS === 'android'}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
     >
       {overview ? (
         <MiniCard label={controller.itemLabel(itemId)} color={cell.column.color} theme={theme} />
@@ -203,12 +255,32 @@ export const BoardCard = memo(function BoardCard({
           style={[styles.veil, { backgroundColor: theme.columnBackground, borderRadius: theme.cardRadius }]}
         />
       ) : null}
-      {highlighted ? (
+      {highlighted || flashed ? (
         <HighlightRing
-          request={highlighted}
+          request={highlighted ?? flashed!}
           color={theme.accent}
           radius={theme.cardRadius}
           reducedMotion={board.reducedMotion}
+        />
+      ) : null}
+      {hovered && !selected && !overview ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.ring,
+            styles.hoverRing,
+            { borderColor: theme.accent, borderRadius: theme.cardRadius + RING_OUTSET },
+          ]}
+        />
+      ) : null}
+      {selected ? <SelectedMark itemId={itemId} /> : null}
+      {selecting && !overview ? (
+        // While selecting, a tap picks the card instead of reaching the card's own onPress.
+        <Pressable
+          onPress={toggleSelected}
+          style={styles.cover}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
         />
       ) : null}
     </View>
@@ -275,11 +347,83 @@ function HighlightRing({
 /** The lifted copy rendered in the drag overlay. Not interactive and hidden from screen readers. */
 export function HoverCard({ itemId }: { itemId: string }) {
   const board = useBoard();
-  const { controller, props } = board;
+  const { controller, theme, selection } = board;
+  const selected = useSyncExternalStore(selection.subscribe, selection.get, selection.get);
   const item = controller.itemsById.get(itemId);
   const location = controller.model.locations.get(itemId);
   const cell = location ? controller.model.cellById.get(location.cellId) : undefined;
   if (item == null || !cell || !location) return null;
+  // A selected card carries the selection: a card edge peeks out behind it, and a badge counts them.
+  const stack = selected.size > 1 && selected.has(itemId);
+  return (
+    <View>
+      {stack ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.stackEdge,
+            { backgroundColor: theme.cardBackground, borderColor: theme.cardBorder, borderRadius: theme.cardRadius },
+          ]}
+        />
+      ) : null}
+      <HoverBody itemId={itemId} item={item} cell={cell} index={location.index} />
+      {stack ? (
+        <View pointerEvents="none" style={[styles.stackBadge, { backgroundColor: theme.accent }]}>
+          <Text style={[styles.stackCount, { color: theme.cardBackground }]}>{selected.size}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The check on a selected card. During a drag of the selection, the cards
+ * riding along fade, so the board shows they are on the move.
+ */
+function SelectedMark({ itemId }: { itemId: string }) {
+  const board = useBoard();
+  const { theme } = board;
+  const source = board.adapter.useDragSource();
+  const riding = source != null && source.itemId !== itemId && board.selection.get().has(source.itemId);
+  return (
+    <>
+      <View
+        pointerEvents="none"
+        style={[
+          styles.ring,
+          styles.selectedRing,
+          { borderColor: theme.accent, borderRadius: theme.cardRadius + RING_OUTSET },
+        ]}
+      />
+      <View
+        pointerEvents="none"
+        style={[styles.check, { backgroundColor: theme.accent, borderColor: theme.cardBackground }]}
+      >
+        <View style={[styles.checkMark, { borderColor: theme.cardBackground }]} />
+      </View>
+      {riding ? (
+        <View
+          pointerEvents="none"
+          style={[styles.veil, { backgroundColor: theme.columnBackground, borderRadius: theme.cardRadius }]}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function HoverBody({
+  itemId,
+  item,
+  cell,
+  index,
+}: {
+  itemId: string;
+  item: unknown;
+  cell: BoardCell<unknown>;
+  index: number;
+}) {
+  const board = useBoard();
+  const { controller, props } = board;
   if (board.overview) {
     return (
       <View style={styles.hover} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
@@ -292,7 +436,7 @@ export function HoverCard({ itemId }: { itemId: string }) {
       {props.renderCard({
         item,
         cellId: cell.cellId,
-        index: location.index,
+        index,
         count: cell.items.length,
         column: cell.column,
         lane: props.groupBy.lanes ? cell.lane : null,
@@ -301,7 +445,10 @@ export function HoverCard({ itemId }: { itemId: string }) {
         compact: cardWidth(board, cell.columnKey) < COMPACT_CARD_WIDTH,
         ...board.describeCard(item),
         dimmed: false,
+        selected: board.selection.get().has(itemId),
+        selecting: board.selection.get().size > 0,
         openMoveSheet: () => undefined,
+        toggleSelected: () => undefined,
       })}
     </View>
   );
@@ -309,6 +456,49 @@ export function HoverCard({ itemId }: { itemId: string }) {
 
 const styles = StyleSheet.create({
   hover: { width: '100%' },
+  cover: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  hoverRing: { opacity: 0.35, borderWidth: 2 },
+  selectedRing: { borderWidth: 2.5 },
+  check: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkMark: {
+    width: 10,
+    height: 6,
+    marginTop: -2,
+    borderLeftWidth: 2.5,
+    borderBottomWidth: 2.5,
+    transform: [{ rotate: '-45deg' }],
+  },
+  stackEdge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    right: -6,
+    bottom: -6,
+    borderWidth: StyleSheet.hairlineWidth,
+    opacity: 0.9,
+  },
+  stackBadge: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 7,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stackCount: { fontSize: 14, fontWeight: '800', fontVariant: ['tabular-nums'] },
   // Out of the spotlight: still there, still movable, but quiet.
   veil: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.68 },
   ring: {

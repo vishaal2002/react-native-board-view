@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 import { LayoutAnimation, StyleSheet, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, PointerType, type PanGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   measure,
@@ -49,7 +49,14 @@ import {
 /** Long-press released within this distance (px) opens the menu instead of dropping. */
 const MENU_SLOP = 10;
 /** A drag from a handle starts once the finger moves this far, before a list starts scrolling. */
+const MOUSE = PointerType.MOUSE;
 const HANDLE_SLOP = 3;
+/**
+ * A mouse picks a card up after this short a press. A plain click is quicker,
+ * so it still reaches the card's own onPress; waiting for movement instead
+ * loses to the list, which scrolls on a mouse drag.
+ */
+const MOUSE_HOLD = 120;
 const AUTO_SCROLL_QUIET_MS = 150;
 /** How the lifted card looks and how long a drop takes, unless the board passes its own. */
 const DEFAULT_LIFT: LiftStyle = { scale: 1.03, tilt: 0, shadowOpacity: 0.25, dropMs: 200 };
@@ -374,6 +381,12 @@ function Placeholder({ height, radius, color, render }: PlaceholderProps) {
 }
 
 interface ActiveDrag {
+  /**
+   * The drag has ended in JS (dropped, cancelled, or dropped because the data
+   * changed). The UI thread can still report the finger lifting a frame later:
+   * that must not end it twice.
+   */
+  ended: boolean;
   itemId: string;
   sourceCellId: string;
   sourceIndex: number;
@@ -514,6 +527,7 @@ function DragBoard(props: DragBoardProps) {
    */
   const settle = useCallback(
     (to: Rect | null, fade = false) => {
+      if (drag.current) drag.current.ended = true;
       phase.value = PHASE_SETTLING;
       outline.value = HIDDEN_OUTLINE;
       activeZone.value = '';
@@ -764,6 +778,7 @@ function DragBoard(props: DragBoardProps) {
         return;
       }
       drag.current = {
+        ended: false,
         itemId: card.itemId,
         sourceCellId: hit[0],
         sourceIndex: card.index,
@@ -854,6 +869,9 @@ function DragBoard(props: DragBoardProps) {
         phase.value = PHASE_IDLE;
         return;
       }
+      if (active.ended) return;
+      // From here the drag is over, even while the card waits a frame or two to fly home.
+      active.ended = true;
       const current = propsRef.current;
       const placement = store.placement.current;
       const travelled = Math.hypot(active.pointer.x - active.start.x, active.pointer.y - active.start.y);
@@ -936,7 +954,7 @@ function DragBoard(props: DragBoardProps) {
   const { revision, isDragValid } = props;
   useEffect(() => {
     const active = drag.current;
-    if (!active || !isDragValid || phase.value !== PHASE_DRAGGING) return;
+    if (!active || active.ended || !isDragValid || phase.value !== PHASE_DRAGGING) return;
     if (isDragValid(active.itemId, active.sourceCellId)) return;
     cancelAnimationFrame(frameRef.current);
     stopUiScroll();
@@ -959,65 +977,78 @@ function DragBoard(props: DragBoardProps) {
    * The board owns every drag, in both modes, so a drag survives its card being
    * swapped for the placeholder. Long-press mode waits for the press. Handle
    * mode activates on the first movement, only when the touch started on a
-   * handle, and starts from where the finger went down.
+   * handle, and starts from where the finger went down. A mouse (iPad pointer,
+   * Android, ChromeOS) needs only a short press, not a long one.
    */
   const gesture = useMemo(() => {
-    const pan = Gesture.Pan().enabled(enabled).maxPointers(1).shouldCancelWhenOutside(false);
-    const activation = handleOnly
-      ? pan
-          .manualActivation(true)
-          .onTouchesDown((event) => {
-            'worklet';
-            const touch = event.allTouches[0];
-            if (touch) touchStart.value = { x: touch.absoluteX, y: touch.absoluteY };
-          })
-          .onTouchesMove((event, manager) => {
-            'worklet';
-            if (!handleDown.value) {
-              manager.fail();
-              return;
-            }
-            const touch = event.allTouches[0];
-            if (!touch) return;
-            const moved = Math.hypot(touch.absoluteX - touchStart.value.x, touch.absoluteY - touchStart.value.y);
-            if (moved >= HANDLE_SLOP) manager.activate();
-          })
-      : pan.activateAfterLongPress(longPressDelay);
-    return activation
-      .onStart((event) => {
-        'worklet';
-        if (phase.value !== PHASE_IDLE) return;
-        const frame = measure(boardRef);
-        if (!frame) return;
-        origin.value = { x: frame.pageX, y: frame.pageY };
-        phase.value = PHASE_DRAGGING;
-        // A handle drag picks the card under the finger's first touch, not where it is now.
-        const startX = handleOnly ? touchStart.value.x : event.absoluteX;
-        const startY = handleOnly ? touchStart.value.y : event.absoluteY;
-        scheduleOnRN(begin, startX - frame.pageX, startY - frame.pageY);
-      })
-      .onUpdate((event) => {
-        'worklet';
-        if (phase.value !== PHASE_DRAGGING) return;
-        const x = event.absoluteX - origin.value.x;
-        const y = event.absoluteY - origin.value.y;
-        if (dragPosition) dragPosition.value = { x, y };
-        pointerX.value = x;
-        pointerY.value = y;
-        if (tracking.value) {
-          hoverX.value = x - grab.value.x;
-          hoverY.value = y - grab.value.y;
-        }
-        scheduleOnRN(move, x, y);
-      })
-      .onFinalize((_event, success) => {
-        'worklet';
-        handleDown.value = false;
-        if (phase.value !== PHASE_DRAGGING) return;
-        // Stop UI-thread scrolling now: JS may take a few frames to run end().
-        armed.value = false;
-        scheduleOnRN(end, !success);
-      });
+    const base = () => Gesture.Pan().enabled(enabled).maxPointers(1).shouldCancelWhenOutside(false);
+    /** Handle mode: activates once the touch has moved, if it started on a handle. */
+    const onMove = (pan: PanGesture) =>
+      pan
+        .manualActivation(true)
+        .onTouchesDown((event) => {
+          'worklet';
+          const touch = event.allTouches[0];
+          if (touch) touchStart.value = { x: touch.absoluteX, y: touch.absoluteY };
+        })
+        .onTouchesMove((event, manager) => {
+          'worklet';
+          if (handleOnly && !handleDown.value) {
+            manager.fail();
+            return;
+          }
+          const touch = event.allTouches[0];
+          if (!touch) return;
+          const moved = Math.hypot(touch.absoluteX - touchStart.value.x, touch.absoluteY - touchStart.value.y);
+          if (moved >= HANDLE_SLOP) manager.activate();
+        });
+    /** A pan for the mouse only: anything else fails at touch down, so a finger's long press waits for nothing. */
+    const mouse = () =>
+      base()
+        .activateAfterLongPress(MOUSE_HOLD)
+        .onTouchesDown((event, manager) => {
+          'worklet';
+          if (event.pointerType !== MOUSE) manager.fail();
+        });
+    const drags = (pan: PanGesture, fromTouchStart: boolean) =>
+      pan
+        .onStart((event) => {
+          'worklet';
+          if (phase.value !== PHASE_IDLE) return;
+          const frame = measure(boardRef);
+          if (!frame) return;
+          origin.value = { x: frame.pageX, y: frame.pageY };
+          phase.value = PHASE_DRAGGING;
+          // A drag that waits for movement picks the card under the first touch, not where the pointer is now.
+          const startX = fromTouchStart ? touchStart.value.x : event.absoluteX;
+          const startY = fromTouchStart ? touchStart.value.y : event.absoluteY;
+          scheduleOnRN(begin, startX - frame.pageX, startY - frame.pageY);
+        })
+        .onUpdate((event) => {
+          'worklet';
+          if (phase.value !== PHASE_DRAGGING) return;
+          const x = event.absoluteX - origin.value.x;
+          const y = event.absoluteY - origin.value.y;
+          if (dragPosition) dragPosition.value = { x, y };
+          pointerX.value = x;
+          pointerY.value = y;
+          if (tracking.value) {
+            hoverX.value = x - grab.value.x;
+            hoverY.value = y - grab.value.y;
+          }
+          scheduleOnRN(move, x, y);
+        })
+        .onFinalize((_event, success) => {
+          'worklet';
+          handleDown.value = false;
+          if (phase.value !== PHASE_DRAGGING) return;
+          // Stop UI-thread scrolling now: JS may take a few frames to run end().
+          armed.value = false;
+          scheduleOnRN(end, !success);
+        });
+    if (handleOnly) return drags(onMove(base()), true);
+    // The mouse gesture fails at once for a finger or a pen, so their long press is unchanged.
+    return Gesture.Exclusive(drags(mouse(), false), drags(base().activateAfterLongPress(longPressDelay), false));
   }, [
     armed,
     begin,

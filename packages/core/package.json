@@ -1,6 +1,6 @@
 {
   "name": "board-view-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Board model for flat data: grouping into columns and swimlanes, fractional ranks, move planning and an optimistic move queue. No React or React Native dependency.",
   "license": "MIT",
   "repository": {

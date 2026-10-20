@@ -321,7 +321,7 @@ export function StackedLayout() {
     contentHeight.current = height;
   }, []);
   const lastColumnId = controller.model.columns.at(-1)?.id;
-  const onEndReached = board.props.onEndReached;
+  const onEndReached = board.props.onColumnEndReached;
   const endAt = useRef(0);
   const notifyEnd = useCallback(() => {
     if (!lastColumnId) return;
@@ -331,6 +331,12 @@ export function StackedLayout() {
     onEndReached?.(lastColumnId);
   }, [lastColumnId, onEndReached]);
   const renderRow = useCallback(({ item }: ListRenderItemInfo<Row>) => <StackedRow row={item} />, []);
+  const extraData = useMemo(
+    () => [controller.model, board.theme, controller.isPending],
+    [board.theme, controller.isPending, controller.model],
+  );
+  // Pinned headers would cover the drop line at the top of the list: they let go during a drag.
+  const dragging = adapter.useDragSource() !== null;
 
   return (
     <View style={styles.fill} onLayout={onLayout}>
@@ -347,7 +353,7 @@ export function StackedLayout() {
           keyExtractor={rowKey}
           getItemType={rowType}
           renderItem={renderRow}
-          extraData={[controller.model, board.theme, controller.isPending]}
+          extraData={extraData}
           onScroll={onScroll}
           scrollEventThrottle={16}
           onContentSizeChange={onContentSizeChange}
@@ -361,7 +367,7 @@ export function StackedLayout() {
           contentContainerStyle={{ paddingTop: board.theme.columnGap, paddingBottom: 48 }}
           maintainVisibleContentPosition={NO_ANCHORING}
           showsVerticalScrollIndicator={false}
-          stickyHeaderIndices={stickyIndices}
+          stickyHeaderIndices={dragging ? undefined : stickyIndices}
         />
       ) : null}
     </View>
@@ -379,12 +385,14 @@ const StackedRow = memo(function StackedRow({ row }: { row: Row }) {
 });
 
 function LaneHeaderRow({ row }: { row: Extract<Row, { kind: 'lane' }> }) {
-  const { theme, labels, props, toggleLane, controller } = useBoard();
+  const board = useBoard();
+  const { theme, labels, props, toggleLane, controller } = board;
   const info = {
     lane: row.lane,
     count: row.count,
     collapsed: row.collapsed,
-    toggleCollapsed: () => toggleLane(row.lane.id),
+    toggleCollapsed: board.canCollapseLanes ? () => toggleLane(row.lane.id) : undefined,
+    openLaneSheet: board.headerSheet('lane', row.lane.id),
     distribution: laneDistribution(controller.model, row.lane.id),
   };
   return (
@@ -416,8 +424,8 @@ function closingStyle(theme: BoardContextValue['theme']) {
 }
 
 function SectionHeaderRow({ row }: { row: Extract<Row, { kind: 'section' }> }) {
-  const { theme, labels, props, controller, toggleColumn, canCollapseColumns, columnTotal, describeColumn } =
-    useBoard();
+  const board = useBoard();
+  const { theme, labels, props, controller, toggleColumn, canCollapseColumns, columnTotal, describeColumn } = board;
   const cell = controller.model.cellById.get(row.cellId);
   if (!cell) return null;
   const hasLanes = props.groupBy.lanes != null;
@@ -430,9 +438,10 @@ function SectionHeaderRow({ row }: { row: Extract<Row, { kind: 'section' }> }) {
     collapsed: row.collapsed,
     compact: false,
     toggleCollapsed: canCollapseColumns ? () => toggleColumn(cell.columnKey) : undefined,
+    openColumnSheet: board.headerSheet('column', cell.columnKey),
     // A lane section sums its own cards; its limit is the whole column's, so it is left out.
     ...(hasLanes
-      ? { ...describeColumn(cell.columnKey, total, cell.items), limit: undefined, limitState: 'none' as const }
+      ? { ...describeColumn(cell.columnKey, total, cell.items), limit: null, limitState: 'none' as const }
       : describeColumn(cell.columnKey, total)),
   };
   return (

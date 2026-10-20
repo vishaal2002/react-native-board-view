@@ -46,7 +46,7 @@ export function ShowcaseScreen({ onBack }: { onBack: () => void }) {
       onMove={store.onMove}
       renderCard={renderCard}
       layout={layout}
-      cellLimit={3}
+      laneCellLimit={3}
       labels={lanes ? laneLabels : undefined}
       appearance={palette.dark ? 'dark' : 'light'}
     />

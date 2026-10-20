@@ -65,7 +65,7 @@ const refresh = useCallback(async () => {
 
 <Board
   items={tasks}
-  onEndReached={loadMore}
+  onColumnEndReached={loadMore}
   loadingColumns={loading}
   columnTotals={totals}
   onRefresh={refresh}
@@ -74,7 +74,7 @@ const refresh = useCallback(async () => {
 />;
 ```
 
-- **`onEndReached`** fires once per end. It fires again only after your append moves the end off screen and the user scrolls back to it.
+- **`onColumnEndReached`** fires once per end. It fires again only after your append moves the end off screen and the user scrolls back to it.
 - **`loadingColumns`** puts a spinner at the end of that column, or at the end of the board in swimlanes and stacked.
 - **`columnTotals`** makes headers and tabs say 120, not the 18 you have loaded so far.
 - **Ranks across pages:** a card dropped at the bottom of a partly loaded column gets a rank after the last card you loaded. That can sort it among cards you have not loaded yet. If it matters, place the card on the server from `previousId` and `nextId` instead of `rank`.

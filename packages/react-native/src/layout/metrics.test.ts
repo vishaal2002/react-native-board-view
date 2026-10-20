@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   MATRIX_GUTTER,
   columnMetrics,
+  leadingSlot,
   offsetForSlot,
   pageAt,
   resolveLayout,
+  sameMetrics,
   showsCellFooter,
   slotAtX,
   visibleSlots,
@@ -142,5 +144,26 @@ describe('matrix metrics', () => {
     const width = (400 - MATRIX_GUTTER - theme.columnGap * 2) / 2;
     expect(metrics.slots.map((slot) => slot.width)).toEqual([width, width]);
     expect(metrics.slots[1]?.x).toBe(MATRIX_GUTTER + width + theme.columnGap);
+  });
+});
+
+describe('leadingSlot', () => {
+  it('is the first column at least half on screen, never "none" in a gap', () => {
+    const metrics = columnMetrics('multi', 800, open(4), theme);
+    expect(leadingSlot(metrics, 0)).toBe(0);
+    // Inside the gap after column 0: still a column, not -1.
+    const gapX = metrics.slots[0]!.x + metrics.slots[0]!.width + 2;
+    expect(slotAtX(metrics, gapX)).toBe(-1);
+    expect(leadingSlot(metrics, gapX)).toBe(1);
+    expect(leadingSlot(metrics, metrics.slots[1]!.x + 200)).toBe(2);
+    expect(leadingSlot(metrics, 1e6)).toBe(3);
+  });
+});
+
+describe('sameMetrics', () => {
+  it('matches geometry built from equal tokens, and not after a collapse', () => {
+    const a = columnMetrics('multi', 800, open(3), theme);
+    expect(sameMetrics(a, columnMetrics('multi', 800, open(3), { ...theme }))).toBe(true);
+    expect(sameMetrics(a, columnMetrics('multi', 800, [true, false, false], theme))).toBe(false);
   });
 });

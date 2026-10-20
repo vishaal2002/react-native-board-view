@@ -65,6 +65,18 @@ export interface MoveOperation {
   readonly previousId: string | null;
   readonly nextId: string | null;
   readonly source: MoveSource;
+  /**
+   * Set when several cards move together (multi-select, or undoing such a
+   * move). Every op of the batch shares `id`; `index` runs from 0 to `size - 1`
+   * in the order the board sends them. Absent on single moves.
+   */
+  readonly batch?: MoveBatch;
+}
+
+export interface MoveBatch {
+  readonly id: string;
+  readonly index: number;
+  readonly size: number;
 }
 
 export interface BoardCell<T> {

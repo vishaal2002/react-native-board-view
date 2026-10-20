@@ -8,31 +8,8 @@ import type { GroupValue } from 'board-view-core';
 import type { LimitState, PlannerDay } from './insights';
 import type { BoardLabels, BoardProps, BoardTheme, CardAction, CardActionEvent } from './types';
 
-/** Minimal observable value, so a few components can follow it without re-rendering the board. */
-export interface ValueStore<V> {
-  get(): V;
-  set(value: V): void;
-  subscribe(listener: () => void): () => void;
-}
-
-export function createValueStore<V>(initial: V): ValueStore<V> {
-  let value = initial;
-  const listeners = new Set<() => void>();
-  return {
-    get: () => value,
-    set(next) {
-      if (Object.is(next, value)) return;
-      value = next;
-      for (const listener of listeners) listener();
-    },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-  };
-}
+export { createValueStore, type ValueStore } from './store';
+import type { ValueStore } from './store';
 
 /** Set by the active layout; used by tabs, the move sheet and the imperative handle. */
 export interface ScrollApi {
@@ -55,8 +32,10 @@ export interface BoardContextValue<T = unknown> {
   readonly scrollX: SharedValue<number>;
   /** Native gesture of the horizontal scroller, so card swipes can block it. */
   readonly horizontalScrollGesture: GestureType;
-  /** Current page of the paged layout (visual slot). */
+  /** The column on screen as a visual slot: the page in `paged`, the leading column elsewhere. */
   readonly page: ValueStore<number>;
+  /** Id of the column on screen, kept across layout remounts so rotation and the overview return to it. */
+  readonly lastColumn: { current: string | null };
   readonly scrollApi: { current: ScrollApi | null };
   readonly sheetMode: 'auto' | 'manual' | false;
   readonly swipeEnabled: boolean;
@@ -81,8 +60,40 @@ export interface BoardContextValue<T = unknown> {
   readonly allLanes: readonly GroupValue[];
   /** `cardActions` this card may use. Empty in read-only boards. */
   readonly cardActionsFor: (itemId: string) => readonly CardAction[];
-  /** Calls `onCardAction`. False when the card or action is gone, or refused for this card. */
-  readonly runCardAction: (itemId: string, action: string, source: CardActionEvent<unknown>['source']) => boolean;
+  /**
+   * Calls `onCardAction`. False when the card or action is gone, or refused
+   * for this card. `itemIds` defaults to the selection when the card is in it.
+   */
+  readonly runCardAction: (
+    itemId: string,
+    action: string,
+    source: CardActionEvent<unknown>['source'],
+    itemIds?: readonly string[],
+  ) => boolean;
+  /** `selectable` is on: cards can join a selection. */
+  readonly selectable: boolean;
+  /** The selected cards, in the order they were picked. Empty when nothing is selected. */
+  readonly selection: ValueStore<ReadonlySet<string>>;
+  readonly setSelection: (itemIds: readonly string[]) => void;
+  readonly toggleSelected: (itemId: string) => void;
+  /** Opens the column or lane sheet: move it, collapse it. */
+  readonly openHeaderSheet: (target: HeaderSheetTarget) => void;
+  /**
+   * The header's "…" handler, or undefined where there is nothing to reorder:
+   * reorder is off, or the No value column or lane, which is not in `groupBy`.
+   */
+  readonly headerSheet: (kind: HeaderSheetTarget['kind'], id: string) => (() => void) | undefined;
+  /** Columns can be reordered (`onColumnOrderChange`). */
+  readonly reorderColumns: boolean;
+  /** Lanes can be reordered (`onLaneOrderChange`). */
+  readonly reorderLanes: boolean;
+  /** Moves a column or lane to a new index among all of them, and tells the app. */
+  readonly moveColumn: (columnId: string, toIndex: number) => void;
+  readonly moveLane: (laneId: string, toIndex: number) => void;
+  /** Lanes have collapse toggles. */
+  readonly canCollapseLanes: boolean;
+  /** Cards that `items` just moved by itself, to flash once. A new map for every change. */
+  readonly externalMoves: ValueStore<ReadonlyMap<string, object>>;
   /** The whole-board overview is showing: cards draw small. */
   readonly overview: boolean;
   readonly setOverview: (open: boolean, columnId?: string) => void;
@@ -98,8 +109,10 @@ export interface BoardContextValue<T = unknown> {
   readonly durationScale: number;
 }
 
+export type HeaderSheetTarget = { readonly kind: 'column' | 'lane'; readonly id: string };
+
 export interface ColumnDescription {
-  readonly limit?: number;
+  readonly limit: number | null;
   readonly limitState: LimitState;
   readonly value: number | null;
   readonly valueLabel: string | null;

@@ -2,6 +2,73 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**.
 
+## 0.8.0
+
+`react-native-board-view` 0.8.0 and `board-view-core` 0.3.0. Publish core first: the board depends on it.
+
+This is the feature-complete release before 1.0 and the last one that may break the API. 0.8.1 is the performance pass; after that come release candidates.
+
+- **Multi-select.** Tap **Select** in a card's Move sheet, use the card's Select screen-reader action, or call `ref.setSelection(ids)`. While a selection is open, a tap selects a card instead of opening it, each selected card shows a check, and a bar shows the count with **Move** and **Done**.
+  - Dragging a selected card carries the rest. The lifted card shows a stack and a count, and the others fade until the drop.
+  - The dock, the Move sheet ("Move 3 cards") and `ref.moveItems(ids, to)` move a selection too.
+  - Cards land together in board order. One undo reverts the whole batch.
+  - `selectable` (default true), and `selection` with `onSelectionChange` for a controlled selection. `renderCard` gets `selected`, `selecting` and `toggleSelected`.
+- **Batch moves reach `onMove` one card at a time.** Each op of a batch carries `op.batch = { id, index, size }`, so a server can group them, and existing handlers keep working unchanged. Screen readers hear one "Moved 3 cards to Done".
+- **Column and lane reorder.** Pass `onColumnOrderChange` (or `onLaneOrderChange`): headers get a "…" that opens a sheet to move the column left or right, to either end, or to collapse it. The board reports the new order and the app passes `groupBy` back in it, as with every other change.
+- **Pointer and keyboard.** A mouse or trackpad (iPad, Android, ChromeOS) picks a card up after a short press (120 ms) instead of a long one; a plain click still reaches the card. Cards show a hover outline. On Android, a hardware keyboard reaches every card and its "…" with Tab and the arrow keys, and Enter opens the Move sheet. On iOS, Full Keyboard Access reaches the same screen-reader actions.
+- **Moves from elsewhere flash.** When `items` moves a card by itself (a teammate, a sync), the card flashes once and screen readers hear where it went. A regroup that moves more than six cards at once does not flash. `highlightExternalMoves={false}` turns it off.
+- **Test kit.** `react-native-board-view/testing` exports `createBoardTester`. It runs the board's own move code on plain data, with no rendering and no native modules: drag, move, select, undo and limits, and it records what `onMove` received. See [Testing your board](README.md#testing-your-board).
+- **`collapsibleLanes`.** Default true; false removes the lane collapse toggle.
+- **`overviewOpen`.** Controls the overview from the app.
+- **`onColumnChange` in every layout.** It now fires for `multi`, `fit` and the planner too, with the first column at least half on screen.
+- **Matrix headers.** The matrix uses the same column header as every other layout: `renderColumnHeader`, limits, sums and the column sheet. A matrix whose lanes would get less than 96 points each is drawn as swimlanes instead.
+- **Labels.** `movedMany`, `select`, `deselect`, `selectedCount`, `moveSelected`, `clearSelection`, `moveManyTitle`, `moveColumnLeft`, `moveColumnRight`, `moveColumnFirst`, `moveColumnLast`, `moveLaneUp`, `moveLaneDown`, `moveLaneFirst`, `moveLaneLast`, `columnMoved`, `laneMoved`, `columnSheetTitle`, `laneSheetTitle`, `externallyMoved` and `openMenu`. `labels.card` gets `selected`; `labels.undoBanner` gets `count`.
+- **iOS.** The demo app now builds against the iOS 27 SDK (scene life cycle) and runs as a release build on the simulator. Drag, the dock, the sheets and selection were checked there; the last iOS run before this was the spike's debug build. Devices are still open.
+- **`board-view-core` 0.3.0.** `MoveOperation` gains an optional `batch`, and `PlanMoveInput` takes one. `MoveBatch` is exported.
+
+### Fixed
+
+- Undo from the banner reverted an older move when the move it named could no longer be undone (its card was deleted, moved by the server, or refused by a full column). The banner now undoes exactly its move. `ref.undo()` keeps a refused move for later instead of reverting an older one.
+- Two moves in the same tick (a loop over cards, or two quick calls to `moveItem`) planned against the board before the first one. The second card got the wrong neighbours and rank, and both could slip past a full column in `block` mode.
+- With `columnTotals`, a `block` limit ignored moves into the column that the server had not shown yet.
+- If the data changed mid-drag as the finger lifted, `onDragEnd` could fire twice and the Move sheet could open for a removed card.
+- A collapsed column in swimlanes could not be expanded, and screen readers got no label for it.
+- An inline `theme={{…}}` made `multi` and `fit` boards snap to a column, or jump to the first one, whenever the parent re-rendered. Collapsing a column now keeps the scroll position.
+- The "Move to" screen-reader action did not scroll to the card, so focus was lost when the card left the screen.
+- Leaving the overview, and rotating across the `auto` breakpoint, went back to the first column instead of the one on screen.
+- `onEdgeReached` never fired on a board that fits the screen, so a short planner could not grow.
+- A controlled `columnId` pulled the board back whenever columns changed (days added, empty columns hidden).
+- Text on the accent color in the pager tabs and the Move sheet's lane chips failed contrast in dark mode.
+- The matrix fired `onColumnEndReached` once per lane.
+- The undo banner came back after a cancelled drag.
+- Pager dots highlighted the mirrored dot in right-to-left layouts.
+- The pinned swimlane header kept showing a lane after it collapsed, until the next scroll.
+- Pinned headers in swimlanes and stacked could cover the drop line during a drag. They now let go while a card is lifted.
+- Screen readers read column counts twice. They also heard the pinned lane header twice. Matrix headers were not announced as headers on iOS.
+- Pager tabs, lane headers, the Move sheet's lane chips and position control, Show more and overview headers are now at least 44 points tall.
+- The Move sheet marks full columns in `block` mode with `labels.full`.
+- On iOS a board that opened at a later column (`initialColumnId`, the planner's today) showed the Today button and placed pinned lane headers as if it were at the first column, until the first scroll.
+- On iOS a fling into the planner's first days loaded earlier days again and again, and the board drifted back weeks: the fling overrode the scroll that keeps the same day on screen. `onEdgeReached('start')` now waits until the board comes to rest.
+- After a column reorder on Android, a column could stop short of its slot and overlap its neighbour. Columns now take their new place at once and ease in with a transform.
+- `extraData` arrays were rebuilt on every render in swimlanes and stacked, which re-rendered every visible row.
+
+### Deprecated
+
+These still work in 0.8 with a warning in development. 1.0 removes them.
+
+- `onEndReached` → `onColumnEndReached`.
+- `onColumnsEndReached` → `onEdgeReached`.
+- `cellLimit` → `laneCellLimit`.
+
+### Breaking
+
+- `UndoEntry` (internal, but visible to code that read `controller.lastMove`) now holds `moves`.
+- `ColumnHeaderRenderInfo.limit` is `number | null` instead of optional.
+- `LaneHeaderRenderInfo.toggleCollapsed` is optional: it is missing when `collapsibleLanes={false}`.
+- `CardRenderInfo`, `CardActionEvent` (`itemIds`), `DragStartEvent` (`itemIds`), `CardAccessibilityContext`, `UndoBannerContext` and `BoardLabels` have new required fields, and `BoardHandle` has `moveItems`, `setSelection` and `getSelection`. Code that builds them itself, for example in tests, must add them.
+- `CardAccessibilityContext`, `ColumnSummaryContext`, `MoveAnnouncementContext` and `UndoBannerContext` are now readonly.
+- While a selection is open, taps on cards select them instead of reaching your card's `onPress`. Pass `selectable={false}` to keep 0.7's behaviour.
+
 ## 0.7.0
 
 `react-native-board-view` only. `board-view-core` stays 0.2.0. Every feature here is in the board: nothing reaches your server.

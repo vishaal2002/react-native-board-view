@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react-native';
-import { applyMove, projectBoard, type GroupBy, type MoveOperation } from 'react-native-board-view';
+import { applyMove, projectBoard, type GroupBy, type MoveContext, type MoveOperation } from 'react-native-board-view';
 import type { Task } from './data';
 
 export interface ServerSimulation {
@@ -16,14 +16,23 @@ export interface LogEntry {
   icon?: LucideIcon;
 }
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+/** Waits, or rejects as soon as the board aborts the move (a timeout, or the board unmounting). */
+const wait = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(new Error('The move was aborted.'));
+    });
+  });
 const setRank = (task: Task, rank: string): Task => ({ ...task, rank });
 
 function describe(op: MoveOperation): string {
   const fields = Object.entries(op.changes)
     .map(([key, value]) => `${key}→${value ?? '∅'}`)
     .join(' ');
-  return fields.length > 0 ? fields : 'reorder';
+  const what = fields.length > 0 ? fields : 'reorder';
+  return op.batch ? `${what} (${op.batch.index + 1} of ${op.batch.size})` : what;
 }
 
 /**
@@ -51,12 +60,14 @@ export function useTaskStore(
   }, []);
 
   const onMove = useCallback(
-    async (op: MoveOperation) => {
+    async (op: MoveOperation, context?: MoveContext) => {
       const task = itemsRef.current.find((entry) => entry.id === op.id);
       const name = task?.title ?? op.id;
       const { latencyMs, failureRate } = simulationRef.current;
       if (latencyMs > 0) push(`… ${name}: ${describe(op)}`);
-      if (latencyMs > 0) await wait(latencyMs);
+      if (latencyMs > 0) await wait(latencyMs, context?.signal);
+      // A real server would not apply a request the client gave up on.
+      if (context?.signal.aborted) throw new Error('The move was aborted.');
       if (Math.random() < failureRate) {
         push(`Rejected ${name}`, 'bad');
         throw new Error('The server rejected this move.');

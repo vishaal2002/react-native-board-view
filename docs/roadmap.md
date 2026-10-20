@@ -1,14 +1,14 @@
 # Roadmap
 
-Draft, updated 2026-10-19. 0.6.0 shipped on 2026-10-18 with `board-view-core` 0.2.0. 0.7.0 is built, front end only. Each minor release has one theme. Features marked _experimental_ ship off by default and can change before 1.0.
+Draft, updated 2026-10-19. 0.7.0 shipped on 2026-10-19, front end only. 0.8.0 is built: every feature 1.0 needs, and the last release that may break the API. The performance pass moved from 0.7.1 to 0.8.1. Features marked _experimental_ ship off by default and can change before 1.0.
 
-| Version | Theme                           | Headline                                              |
-| ------- | ------------------------------- | ----------------------------------------------------- |
-| 0.6.0   | Phone-first moves (shipped)     | Drop dock, undo, matrix, a better Move sheet          |
-| 0.7.0   | Living board                    | Live moves, multi-select, week planner, layout morphs |
-| 0.7.1   | Performance                     | JS thread near 60 fps while scrolling, jank near 0%   |
-| 0.8.0   | Structure, input and API freeze | Column and lane reorder, keyboard, test kit           |
-| 1.0.0   | Stable                          | Device gates, no new features                         |
+| Version | Theme                           | Headline                                                       |
+| ------- | ------------------------------- | -------------------------------------------------------------- |
+| 0.6.0   | Phone-first moves (shipped)     | Drop dock, undo, matrix, a better Move sheet                   |
+| 0.7.0   | Your data at a glance (shipped) | Week planner, WIP limits, sums, spotlight, presets             |
+| 0.8.0   | Feature-complete and API freeze | Multi-select, column and lane reorder, pointer, test kit, bugs |
+| 0.8.1   | Performance                     | JS thread near 60 fps while scrolling, jank near 0%            |
+| 1.0.0   | Stable                          | Device gates, deprecations removed, no new features            |
 
 ## 0.6.0: phone-first moves (shipped)
 
@@ -42,7 +42,7 @@ As shipped:
 
 Dock chip drops reach `onMove` as `source: 'drag'`, and undo as `source: 'undo'` (core 0.2.0).
 
-## 0.7.0: your data at a glance (built)
+## 0.7.0: your data at a glance (shipped)
 
 Front end only: nothing here changes the core or reaches a server. `board-view-core` stays 0.2.0.
 
@@ -69,7 +69,23 @@ Front end only: nothing here changes the core or reaches a server. `board-view-c
 
 The five-developer usability study still belongs before the 0.8 API freeze.
 
-## 0.7.1: performance
+## 0.8.0: feature-complete and API freeze (built)
+
+| Priority | Feature                    | Status                                                                                                     |
+| -------- | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| P0       | Bug fixes from the audit   | Built. 4 engine and 17 layout and accessibility bugs, each with a regression test where one fits.          |
+| P0       | Multi-select and batches   | Built. Selection mode, stack drag, Move sheet and dock for many, one undo, `op.batch` (core 0.3.0).        |
+| P0       | Column and lane reorder    | Built. The header's "…" opens a sheet: move left or right, to either end, collapse. Screen readers too.    |
+| P0       | Pointer and keyboard       | Built. Mouse drag without a long press, hover outline, Android keyboard focus. Arrow-key moves: after 1.0. |
+| P0       | API freeze                 | Built. Three props renamed with deprecated aliases, readonly contexts, `limit: number \| null`.            |
+| P0       | Test kit                   | Built. `react-native-board-view/testing`: `createBoardTester`.                                             |
+| P1       | `collapsibleLanes`         | Built.                                                                                                     |
+| P1       | Moves from elsewhere flash | Built. `highlightExternalMoves`, on by default.                                                            |
+| P0       | Release gates              | Android emulator and, for the first time, the iOS simulator. Devices and screen readers are still open.    |
+
+Not in 0.8.0, for after 1.0: dragging a header itself (the sheet covers reorder), arrow-key moves (React Native has no key events without a native module), live presence, flick to move, gallery cells and pipeline chevrons. The Expo Snack demo and the five-developer usability study are still to do.
+
+## 0.8.1: performance
 
 No new features and no API changes. Profile a release build on mains power, then fix what dominates. The likely causes, from reading the code:
 
@@ -79,20 +95,11 @@ No new features and no API changes. Profile a release build on mains power, then
 - Hit-testing runs in JS once per frame. Move it to a worklet if devices need it.
 - The dock reshapes the lists twice per drag.
 
-Targets: the JS thread at 55 fps or more during auto-scroll, and 0–3% janky frames on every board, measured against 0.5.0, 0.6.0 and 0.7.0 on the emulator, a mid-tier Android phone and an iPhone. Keep only the changes that measurably help.
-
-## 0.8.0: structure, input and API freeze
-
-- **Column and lane reorder.** Drag a header, or use a screen-reader action. The board reports the order, and the app updates its list.
-- **Hardware keyboard and pointer.** Arrows, space to lift, enter to drop, escape to cancel. Hover states and mouse drag without a long press.
-- **Test helpers.** A testing export that simulates moves and checks `onMove` calls in Jest.
-- **API review.** Every export marked stable or experimental. Dev warnings on anything 1.0 removes.
-
-The last release that can break the API. After it come release candidates, not a 0.9.
+Targets: the JS thread at 55 fps or more during auto-scroll, and 0–3% janky frames on every board, measured against 0.5.0 to 0.8.0 on the emulator, a mid-tier Android phone and an iPhone. Keep only the changes that measurably help.
 
 ## 1.0.0: stable
 
-- Remove what 0.8 deprecated. No new features.
+- Remove what 0.8 deprecated: `onEndReached`, `onColumnsEndReached`, `cellLimit`. No new features.
 - S2–S7 pass on release builds on a mid-tier Android phone and an iPhone. The device rows of the benchmarks table are filled in.
 - Core and the React Native package both go to 1.0.0.
 - An API reference, a migration guide from 0.x, and a support policy for React Native and Expo versions.
@@ -118,4 +125,4 @@ The last release that can break the API. After it come release candidates, not a
 
 Creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, items in more than one cell, Reanimated 3, the old architecture, and web.
 
-Multi-select and column reorder leave the README's out-of-scope list when they ship.
+Multi-select and column reorder shipped in 0.8.0 and left the README's out-of-scope list.

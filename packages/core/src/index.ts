@@ -23,6 +23,7 @@ export type {
   GroupValue,
   ItemLocation,
   ItemMoveSnapshot,
+  MoveBatch,
   MoveOperation,
   MoveSource,
   RankStrategy,

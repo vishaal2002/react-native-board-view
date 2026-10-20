@@ -131,7 +131,7 @@ export interface DayColumnsOptions {
 /**
  * Columns for `layout="planner"`: `count` days from `start`, with ids like
  * `2026-10-19` and labels like "Mon 19 Oct". Prepend or append more as the
- * board reaches either end (`onColumnsEndReached`).
+ * board reaches either end (`onEdgeReached`).
  */
 export function dayColumns(start: Date, count: number, options: DayColumnsOptions = {}): GroupValue[] {
   const format = new Intl.DateTimeFormat(options.locale, { weekday: 'short', day: 'numeric', month: 'short' });

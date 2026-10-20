@@ -70,21 +70,19 @@ export function PagerTabs() {
             ]}
           >
             {column.color ? (
-              <View style={[styles.dot, { backgroundColor: selected ? '#FFFFFF' : column.color }]} />
+              <View style={[styles.dot, { backgroundColor: selected ? theme.cardBackground : column.color }]} />
             ) : null}
             <Text
               numberOfLines={1}
               style={[
                 styles.tabText,
-                { color: selected ? '#FFFFFF' : theme.text },
+                { color: selected ? theme.cardBackground : theme.text },
                 theme.fontFamily ? { fontFamily: theme.fontFamily } : null,
               ]}
             >
               {column.label}
             </Text>
-            <Text style={[styles.tabCount, { color: selected ? 'rgba(255,255,255,0.85)' : theme.mutedText }]}>
-              {count}
-            </Text>
+            <Text style={[styles.tabCount, { color: selected ? theme.cardBackground : theme.mutedText }]}>{count}</Text>
           </Pressable>
         );
       })}
@@ -94,16 +92,18 @@ export function PagerTabs() {
 
 /** Page dots for the paged layout. */
 export function PagerDots() {
-  const { controller, theme } = useBoard();
+  const { controller, theme, rtl } = useBoard();
   const current = useCurrentPage();
+  const columns = controller.model.columns;
   return (
     <View style={styles.dots} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-      {controller.model.columns.map((column, index) => (
+      {columns.map((column, index) => (
         <View
           key={column.id}
           style={[
             styles.pageDot,
-            index === current
+            // `current` is a visual slot; right-to-left rows are mirrored, so compare like with like.
+            visualSlot(index, columns.length, rtl) === current
               ? { backgroundColor: theme.accent, width: 18 }
               : { backgroundColor: theme.emptyCellBorder },
           ]}
@@ -120,10 +120,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    minHeight: 34,
+    minHeight: 44,
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 17,
+    borderRadius: 22,
   },
   dot: { width: 8, height: 8, borderRadius: 4 },
   tabText: { fontSize: 14, fontWeight: '700', maxWidth: 160 },

@@ -260,8 +260,8 @@ export const defaultLabels: BoardLabels = {
   expandColumn: (column) => `Expand ${column}`,
   collapseColumn: (column) => `Collapse ${column}`,
   emptyCell: 'No cards',
-  card: ({ item, column, lane, position, count, pending, dimmed, staleDays }) =>
-    `${item}, ${where(column, lane)}, ${position} of ${count}${pending ? ', saving' : ''}${staleDays != null ? `, ${staleDays} days old` : ''}${dimmed ? ', outside the filter' : ''}`,
+  card: ({ item, column, lane, position, count, pending, dimmed, staleDays, selected }) =>
+    `${selected ? 'Selected, ' : ''}${item}, ${where(column, lane)}, ${position} of ${count}${pending ? ', saving' : ''}${staleDays != null ? `, ${staleDays} days old` : ''}${dimmed ? ', outside the filter' : ''}`,
   moveToColumnAction: (column) => `Move to ${column}`,
   moveToLaneAction: (lane) => `Move to lane ${lane}`,
   moved: ({ item, column, lane, position, count }) =>
@@ -279,7 +279,8 @@ export const defaultLabels: BoardLabels = {
   noColumnsMatch: 'No columns match',
   undo: 'Undo',
   dismiss: 'Dismiss',
-  undoBanner: ({ item, column, lane }) => `Moved “${item}” to ${where(column, lane)}`,
+  undoBanner: ({ item, column, lane, count }) =>
+    count > 1 ? `Moved ${count} cards to ${where(column, lane)}` : `Moved “${item}” to ${where(column, lane)}`,
   overview: 'Board overview',
   closeOverview: 'Back to the board',
   columnSummary: ({ column, total, limit, limitState, valueLabel, date, today }) =>
@@ -294,4 +295,25 @@ export const defaultLabels: BoardLabels = {
       .join(', '),
   full: 'Full',
   today: 'Today',
+  movedMany: ({ count, column, lane }) => `Moved ${count} cards to ${where(column, lane)}`,
+  select: 'Select',
+  deselect: 'Deselect',
+  selectedCount: (count) => `${count} selected`,
+  moveSelected: 'Move',
+  clearSelection: 'Done',
+  moveManyTitle: (count) => `Move ${count} cards`,
+  moveColumnLeft: 'Move left',
+  moveColumnRight: 'Move right',
+  moveColumnFirst: 'Move to start',
+  moveColumnLast: 'Move to end',
+  moveLaneUp: 'Move up',
+  moveLaneDown: 'Move down',
+  moveLaneFirst: 'Move to top',
+  moveLaneLast: 'Move to bottom',
+  columnMoved: ({ column, position, count }) => `Moved column ${column} to position ${position} of ${count}`,
+  laneMoved: ({ lane, position, count }) => `Moved lane ${lane} to position ${position} of ${count}`,
+  columnSheetTitle: (column) => `Column “${column}”`,
+  laneSheetTitle: (lane) => `Lane “${lane}”`,
+  externallyMoved: ({ item, column }) => `${item} moved to ${column}`,
+  openMenu: 'Options',
 };

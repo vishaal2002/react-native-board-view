@@ -1,13 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import {
-  Board,
-  addDays,
-  dayColumns,
-  fractionalRank,
-  toDayId,
-  type CardRenderInfo,
-  type GroupBy,
-} from 'react-native-board-view';
+import { Board, addDays, dayColumns, toDayId, type CardRenderInfo, type GroupBy } from 'react-native-board-view';
 import { makeTasks, random, type Task } from '../data';
 import { taskId, taskLabel } from '../ids';
 import { EventLog, Screen, TaskCard, usePalette } from '../ui';
@@ -29,10 +21,15 @@ function seed(): Task[] {
   }));
 }
 
+// Stable references: an inline `getRank` or `theme` is new on every render.
+const getRank = (task: Task) => task.rank;
+const THEME = { columnWidth: 232 } as const;
+
 /**
  * `layout="planner"`: a column per day, today marked, weekends set back, and
  * more days added as the board reaches either end.
  */
+
 export function PlannerScreen({ onBack }: { onBack: () => void }) {
   const palette = usePalette();
   const [range, setRange] = useState(() => ({ start: startOfWindow(), count: 14 }));
@@ -44,7 +41,7 @@ export function PlannerScreen({ onBack }: { onBack: () => void }) {
   const { push } = store;
   const live = useRef(range);
   live.current = range;
-  const onColumnsEndReached = useCallback(
+  const onEdgeReached = useCallback(
     (edge: 'start' | 'end') => {
       const current = live.current;
       if (edge === 'start') {
@@ -70,14 +67,14 @@ export function PlannerScreen({ onBack }: { onBack: () => void }) {
         items={store.items}
         getItemId={taskId}
         getItemLabel={taskLabel}
-        getRank={(task) => task.rank || fractionalRank.between(null, null)}
+        getRank={getRank}
         groupBy={groupBy}
         onMove={store.onMove}
         renderCard={renderCard}
         layout="planner"
         initialColumnId={toDayId(new Date())}
-        onColumnsEndReached={onColumnsEndReached}
-        theme={{ columnWidth: 232 }}
+        onEdgeReached={onEdgeReached}
+        theme={THEME}
         appearance={palette.dark ? 'dark' : 'light'}
       />
     </Screen>

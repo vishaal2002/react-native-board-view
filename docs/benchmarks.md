@@ -107,7 +107,7 @@ Same AVD, release builds of both versions installed in turn, measured by one scr
 | 0.6.0 | 120 and 118 frames      | 96%, 100% | 89–91 frames         | 82–89% |
 | 0.7.0 | 119 and 123 frames      | 99%, 95%  | 90 frames            | 88%    |
 
-0.7.0 was measured on 2026-10-19 with the same script on the same throttled host, as the baseline for 0.7.1. No regression in 0.6.0 or 0.7.0. 0.6.0's drop zones cost a lookup over an empty map when the dock is off, and a few rect reads when it shows.
+0.7.0 was measured on 2026-10-19 with the same script on the same throttled host, as the baseline for the performance pass, now 0.8.1. 0.8.0 adds features, not speed, and was not measured. No regression in 0.6.0 or 0.7.0. 0.6.0's drop zones cost a lookup over an empty map when the dock is off, and a few rect reads when it shows.
 
 **Method change.** In 0.6.0 the drop dock covers the bottom of the board while a card is held, and the lists end above it. Hold the card at the lists' new bottom edge, just above the dock. Holding at the bottom of the screen puts the finger on a dock chip, where auto-scroll correctly stops: two early 0.6.0 runs drew 1 and 2 frames that way.
 

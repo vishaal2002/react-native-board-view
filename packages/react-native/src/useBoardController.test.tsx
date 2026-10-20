@@ -378,10 +378,8 @@ describe('undo', () => {
     });
     expect(idsIn(result.current.model, done)).toEqual(['c', 'b']);
     expect(result.current.lastMove.get()).toMatchObject({
-      itemId: 'b',
-      fromCellId: todo,
-      fromIndex: 1,
-      toCellId: done,
+      source: 'drag',
+      moves: [{ itemId: 'b', fromCellId: todo, fromIndex: 1, toCellId: done }],
     });
     expect(result.current.canUndo()).toBe(true);
 
@@ -468,6 +466,198 @@ describe('undo', () => {
     });
     expect(result.current.lastMove.get()).toBeNull();
     expect(result.current.canUndo()).toBe(false);
+  });
+});
+
+describe('0.8 fixes', () => {
+  it('undoes the move the banner names, not an older one, when that move can no longer be undone', async () => {
+    const { result, rerender } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props(),
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    act(() => {
+      result.current.moveItem('b', done, 0, 'drag');
+    });
+    const named = result.current.lastMove.get()!;
+    expect(named.moves[0]?.itemId).toBe('b');
+    // The server deletes the card the banner names.
+    await act(async () => {
+      rerender(props({ items: seed.filter((task) => task.id !== 'b') }));
+    });
+    let undone = true;
+    act(() => {
+      undone = result.current.undo(named.id);
+    });
+    expect(undone).toBe(false);
+    // `a` stays where the user put it.
+    expect(idsIn(result.current.model, done)[0]).toBe('a');
+  });
+
+  it('never falls back to an older move when the newest is refused, and keeps it for later', () => {
+    const { result, rerender } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props(),
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    act(() => {
+      result.current.moveItem('b', done, 0, 'drag');
+    });
+    // Now `b` may not go back to To do.
+    rerender(props({ canDrop: (task, target) => !(task.id === 'b' && target.columnId === 'todo') }));
+    let undone = true;
+    act(() => {
+      undone = result.current.undo();
+    });
+    expect(undone).toBe(false);
+    expect(idsIn(result.current.model, done)).toEqual(['b', 'a', 'c']);
+    expect(result.current.canUndo()).toBe(true);
+    // Once it may, the same undo works.
+    rerender(props());
+    act(() => {
+      undone = result.current.undo();
+    });
+    expect(undone).toBe(true);
+    expect(idsIn(result.current.model, todo)).toEqual(['b']);
+  });
+
+  it('plans a second move in the same tick against the first one', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), { initialProps: props() });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+      result.current.moveItem('b', done, 0, 'drag');
+    });
+    expect(idsIn(result.current.model, done)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('enforces a block limit across moves made in the same tick', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ columnLimits: { done: 2 }, limitBehavior: 'block' }),
+    });
+    let first = false;
+    let second = true;
+    act(() => {
+      first = result.current.moveItem('a', done, 0, 'drag');
+      second = result.current.moveItem('b', done, 0, 'drag');
+    });
+    expect([first, second]).toEqual([true, false]);
+    expect(idsIn(result.current.model, done)).toEqual(['a', 'c']);
+  });
+
+  it('counts moves the server has not shown yet against a columnTotals limit', () => {
+    const pending = deferred();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({
+        onMove: () => pending.promise,
+        columnLimits: { done: 2 },
+        columnTotals: { done: 1 },
+        limitBehavior: 'block',
+      }),
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    expect(result.current.canDropTo('b', done)).toBe(false);
+  });
+});
+
+describe('review fixes', () => {
+  it('keeps the rest of a batch when one card is refused', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ canDrop: (task) => task.id !== 'a' }),
+    });
+    let moved = 0;
+    act(() => {
+      moved = result.current.moveItems(['a', 'b'], done, 0, 'sheet');
+    });
+    expect(moved).toBe(1);
+    expect(idsIn(result.current.model, done)).toEqual(['b', 'c']);
+  });
+
+  it('undoes into a cell that has shrunk since', async () => {
+    const { result, rerender } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props(),
+    });
+    act(() => {
+      result.current.moveItem('b', done, 0, 'drag');
+    });
+    await act(async () => {
+      rerender(props({ items: seed.filter((task) => task.id !== 'a') }));
+    });
+    let undone = false;
+    act(() => {
+      undone = result.current.undo();
+    });
+    expect(undone).toBe(true);
+    expect(idsIn(result.current.model, todo)).toEqual(['b']);
+  });
+});
+
+describe('batch moves', () => {
+  it('moves cards together in board order, with one batch for onMove', async () => {
+    const onMove = vi.fn<(op: MoveOperation, context: MoveContext) => void>();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove }),
+    });
+    let moved = 0;
+    act(() => {
+      moved = result.current.moveItems(['b', 'a'], done, 0, 'sheet');
+    });
+    expect(moved).toBe(2);
+    expect(idsIn(result.current.model, done)).toEqual(['a', 'b', 'c']);
+    await act(async () => undefined);
+    const ops = onMove.mock.calls.map(([op]) => op);
+    expect(ops.map((op) => op.id)).toEqual(['a', 'b']);
+    expect(ops[0]?.batch).toEqual({ id: ops[1]?.batch?.id, index: 0, size: 2 });
+    expect(ops[1]?.batch?.index).toBe(1);
+    expect(ops[1]).toMatchObject({ previousId: 'a', nextId: 'c' });
+    expect(announce).not.toHaveBeenCalledWith(expect.stringContaining('Moved Alpha'));
+  });
+
+  it('gathers the others around the dragged card', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), { initialProps: props() });
+    act(() => {
+      // b is dragged below c; a, above b on the board, lands just above it.
+      result.current.moveItems(['a', 'b'], done, 1, 'drag', 'b');
+    });
+    expect(idsIn(result.current.model, done)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('undoes a batch as one move', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), { initialProps: props() });
+    act(() => {
+      result.current.moveItems(['a', 'b'], done, 1, 'sheet');
+    });
+    expect(result.current.lastMove.get()?.moves).toHaveLength(2);
+    act(() => {
+      result.current.undo();
+    });
+    expect(idsIn(result.current.model, todo)).toEqual(['a', 'b']);
+    expect(idsIn(result.current.model, done)).toEqual(['c']);
+  });
+
+  it('moves only the cards the target takes', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ canDrop: (task) => task.id !== 'b' }),
+    });
+    let moved = 0;
+    act(() => {
+      moved = result.current.moveItems(['a', 'b'], done, 0, 'sheet');
+    });
+    expect(moved).toBe(1);
+    expect(idsIn(result.current.model, done)).toEqual(['a', 'c']);
+  });
+
+  it('moves a selection from the handle to a column', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), { initialProps: props() });
+    let moved = 0;
+    act(() => {
+      moved = result.current.moveManyTo(['a', 'b'], { columnId: 'done', index: 'end' });
+    });
+    expect(moved).toBe(2);
+    expect(idsIn(result.current.model, done)).toEqual(['c', 'a', 'b']);
   });
 });
 

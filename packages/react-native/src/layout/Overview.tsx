@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
   barTitle: { fontSize: 16, fontWeight: '800', flexShrink: 1 },
   back: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1.5, justifyContent: 'center' },
   backText: { fontSize: 13, fontWeight: '700' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 40, paddingHorizontal: 8 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 44, paddingHorizontal: 8 },
   headerDot: { width: 7, height: 7, borderRadius: 4 },
   headerText: { flex: 1, fontSize: 12, fontWeight: '800' },
   headerCount: { fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },

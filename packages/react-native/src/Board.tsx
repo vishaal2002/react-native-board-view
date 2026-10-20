@@ -1,14 +1,30 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
-import { I18nManager, StyleSheet, View, useColorScheme, type LayoutChangeEvent } from 'react-native';
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { AccessibilityInfo, I18nManager, StyleSheet, View, useColorScheme, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { FadeIn, useSharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { cellId as makeCellId, parseCellId } from 'board-view-core';
-import { BoardContext, createValueStore, useBoard, type BoardContextValue, type ScrollApi } from './context';
+import { NO_VALUE_ID, cellId as makeCellId, parseCellId, type BoardModel } from 'board-view-core';
+import {
+  BoardContext,
+  createValueStore,
+  useBoard,
+  type BoardContextValue,
+  type HeaderSheetTarget,
+  type ScrollApi,
+} from './context';
 import { gestureAdapter } from './engine/DragEngine';
 import type { ReorderIntent, TransferIntent } from './engine/types';
 import { HoverCard } from './layout/BoardCard';
-import { MatrixLayout } from './layout/MatrixLayout';
+import { MatrixLayout, matrixFits } from './layout/MatrixLayout';
 import { ColumnsLayout } from './layout/ColumnsLayout';
 import { DOCK_ACTION, DOCK_COLUMN, DropDock } from './layout/DropDock';
 import { columnMetrics, resolveLayout, visualSlot } from './layout/metrics';
@@ -19,15 +35,21 @@ import { StackedLayout } from './layout/StackedLayout';
 import { SwimlaneLayout } from './layout/SwimlaneLayout';
 import { UndoBanner } from './layout/UndoBanner';
 import { visibleModel } from './layout/visible';
+import { HeaderSheet } from './sheet/HeaderSheet';
 import { MoveSheet } from './sheet/MoveSheet';
+import { SelectionBar } from './layout/SelectionBar';
+import { normalizeProps } from './deprecations';
+import { externalMovesBetween } from './layout/externalMoves';
 import { hapticsFor } from './haptics';
 import { columnStats, formatCompact, limitState, plannerDay, sumValues } from './insights';
 import { defaultLabels, motionPresets, resolveTheme } from './theme';
 import { moveTargetOf, useBoardController } from './useBoardController';
+import { inBoardOrder } from './session';
 import { useReducedMotion } from './useReducedMotion';
 import type { BoardLabels, BoardProps, CardAction, CardActionEvent } from './types';
 
 const NO_IDS: readonly string[] = [];
+const EMPTY_SET: ReadonlySet<string> = new Set();
 const NO_ACTIONS: readonly CardAction[] = [];
 /** A pinch that ends below this scale opens the overview; above the inverse it closes it. */
 const PINCH_IN = 0.8;
@@ -56,11 +78,46 @@ function useCollapsedList(controlled: readonly string[] | undefined, onChange: (
 }
 
 /**
+ * The selection, controlled or not, published through a store so only the
+ * cards whose state changes re-render. Cards that leave the board drop out.
+ */
+function useSelection<T>(
+  controlled: readonly string[] | undefined,
+  onChange: ((ids: string[]) => void) | undefined,
+  enabled: boolean,
+  model: BoardModel<T>,
+) {
+  const [own, setOwn] = useState<readonly string[]>(NO_IDS);
+  const raw = enabled ? (controlled ?? own) : NO_IDS;
+  const list = useMemo(() => raw.filter((id) => model.locations.has(id)), [model.locations, raw]);
+  const [store] = useState(() => createValueStore<ReadonlySet<string>>(new Set()));
+  useLayoutEffect(() => {
+    const previous = store.get();
+    if (previous.size === list.length && list.every((id) => previous.has(id))) return;
+    store.set(new Set(list));
+  }, [list, store]);
+  const live = useRef({ list, controlled, onChange, enabled });
+  live.current = { list, controlled, onChange, enabled };
+  const set = useCallback((ids: readonly string[]) => {
+    const current = live.current;
+    if (!current.enabled) return;
+    const next = [...new Set(ids)];
+    if (next.length === current.list.length && next.every((id, index) => current.list[index] === id)) return;
+    if (current.controlled === undefined) setOwn(next);
+    current.onChange?.(next);
+  }, []);
+  const toggle = useCallback((id: string) => set(toggleIn(live.current.list, id)), [set]);
+  const get = useCallback(() => live.current.list, []);
+  return { store, list, set, toggle, get };
+}
+
+/**
  * A board derived from flat items. The board is a projection: it never
  * edits your data. Moves arrive in `onMove` as operations you apply (or
  * reject); until your items show a move, the board shows it as an overlay.
  */
-export function Board<T>(props: BoardProps<T>) {
+export function Board<T>(rawProps: BoardProps<T>) {
+  const props = normalizeProps(rawProps);
   const scheme = useColorScheme();
   const appearance = props.appearance ?? 'auto';
   const dark = appearance === 'dark' || (appearance === 'auto' && scheme === 'dark');
@@ -96,15 +153,16 @@ export function Board<T>(props: BoardProps<T>) {
   const requested = props.layout ?? 'auto';
   // The planner is the multi layout with day headers, a Today button and sideways loading.
   const planner = requested === 'planner';
-  // A matrix needs lanes for its rows; without them it is a fit board.
+  // A matrix needs lanes for its rows and room for each of them; otherwise it is drawn as swimlanes (or fit, without lanes).
+  const matrixRoom = hasLanes && matrixFits(fullModel.lanes.length, root.height, baseTheme.columnGap);
   const baseMode = resolveLayout(
-    requested === 'matrix' && !hasLanes ? 'fit' : planner ? 'multi' : requested,
+    requested === 'matrix' && !matrixRoom ? 'fit' : planner ? 'multi' : requested,
     root.width,
     props.autoBreakpoint,
   );
   const overviewAvailable = props.overview === true && !hasLanes && baseMode !== 'stacked';
   const [overviewOwn, setOverviewOwn] = useState(false);
-  const overview = overviewAvailable && overviewOwn;
+  const overview = overviewAvailable && (props.overviewOpen ?? overviewOwn);
   // The overview is the fit layout with small cards, so every column (or most) fits on screen.
   const mode = overview ? 'fit' : baseMode;
   const pagerIndicator = mode === 'paged' ? (props.pagerIndicator ?? 'tabs') : 'none';
@@ -120,7 +178,9 @@ export function Board<T>(props: BoardProps<T>) {
 
   const theme = useMemo(() => (overview ? overviewTheme(baseTheme) : baseTheme), [baseTheme, overview]);
 
-  const [collapsedLanes, toggleLane] = useCollapsedList(props.collapsedLanes, props.onCollapsedLanesChange);
+  const [collapsedLanesOwn, toggleLane] = useCollapsedList(props.collapsedLanes, props.onCollapsedLanesChange);
+  const canCollapseLanes = props.collapsibleLanes !== false;
+  const collapsedLanes = canCollapseLanes ? collapsedLanesOwn : EMPTY_SET;
   const [collapsedColumns, toggleColumn] = useCollapsedList(props.collapsedColumns, props.onCollapsedColumnsChange);
   const canCollapseColumns = mode !== 'paged' && mode !== 'matrix' && (props.collapsibleColumns ?? mode === 'stacked');
 
@@ -131,33 +191,49 @@ export function Board<T>(props: BoardProps<T>) {
       return canCollapseColumns && column != null && collapsedColumns.has(column.id) ? '1' : '0';
     })
     .join('');
+  // Built from the four tokens it reads, not the theme object: an inline `theme={{…}}` is a new object every render.
+  const { columnWidth, columnGap, collapsedColumnWidth, minColumnWidth } = theme;
   const metrics = useMemo(
     () =>
       columnMetrics(
         mode,
         boardWidth,
         [...collapsedKey].map((flag) => flag === '1'),
-        theme,
+        { columnWidth, columnGap, collapsedColumnWidth, minColumnWidth },
       ),
-    [boardWidth, collapsedKey, mode, theme],
+    [boardWidth, collapsedColumnWidth, collapsedKey, columnGap, columnWidth, minColumnWidth, mode],
   );
 
   const scrollX = useSharedValue(0);
   const horizontalScrollGesture = useMemo(() => Gesture.Native(), []);
   const [page] = useState(() => createValueStore(0));
+  const [lastColumn] = useState<{ current: string | null }>(() => ({ current: null }));
   const scrollApi = useRef<ScrollApi | null>(null);
 
   const readOnly = props.readOnly === true;
   const sheetMode = readOnly ? false : (props.moveModes?.sheet ?? 'auto');
-  const [sheetItem, setSheetItem] = useState<string | null>(null);
-  if (readOnly && sheetItem !== null) setSheetItem(null);
+  const selectable = !readOnly && props.selectable !== false;
+  const selection = useSelection(props.selection, props.onSelectionChange, selectable, fullModel);
+  // The pieces are stable; the object around them is not, so callbacks list the pieces.
+  const { get: selectionGet, set: selectionSet } = selection;
+  const [sheetItems, setSheetItems] = useState<readonly string[] | null>(null);
+  if (readOnly && sheetItems !== null) setSheetItems(null);
+  /** The sheet for a card, or for the whole selection when the card is in it. */
   const openMoveSheet = useCallback(
     (itemId: string) => {
-      if (sheetMode !== false) setSheetItem(itemId);
+      if (sheetMode === false) return;
+      const selected = selectionGet();
+      setSheetItems(
+        selected.length > 1 && selected.includes(itemId)
+          ? [itemId, ...selected.filter((id) => id !== itemId)]
+          : [itemId],
+      );
     },
-    [sheetMode],
+    [selectionGet, sheetMode],
   );
-  const closeMoveSheet = useCallback(() => setSheetItem(null), []);
+  const closeMoveSheet = useCallback(() => setSheetItems(null), []);
+  const [headerSheetTarget, setHeaderSheet] = useState<HeaderSheetTarget | null>(null);
+  const closeHeaderSheet = useCallback(() => setHeaderSheet(null), []);
 
   const [highlight] = useState(() => createValueStore<{ readonly itemId: string } | null>(null));
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -170,23 +246,36 @@ export function Board<T>(props: BoardProps<T>) {
   // Where to return when the overview closes, and a column to scroll to once the board is back.
   const returnColumn = useRef<string | null>(null);
   const [revealColumn, setRevealColumn] = useState<string | null>(null);
-  const live = useRef({ overviewAvailable, overview, onOverviewChange: props.onOverviewChange });
-  live.current = { overviewAvailable, overview, onOverviewChange: props.onOverviewChange };
-  const setOverview = useCallback(
-    (open: boolean, columnId?: string) => {
-      const current = live.current;
-      if (!current.overviewAvailable || current.overview === open) return;
-      if (open) {
-        const columnsNow = controller.model.columns;
-        returnColumn.current = columnsNow[visualSlot(page.get(), columnsNow.length, rtl)]?.id ?? null;
-      } else {
-        setRevealColumn(columnId ?? returnColumn.current);
-      }
-      setOverviewOwn(open);
-      current.onOverviewChange?.(open);
-    },
-    [controller.model.columns, page, rtl],
-  );
+  const live = useRef({
+    overviewAvailable,
+    overview,
+    onOverviewChange: props.onOverviewChange,
+    controlled: props.overviewOpen !== undefined,
+  });
+  live.current = {
+    overviewAvailable,
+    overview,
+    onOverviewChange: props.onOverviewChange,
+    controlled: props.overviewOpen !== undefined,
+  };
+  const setOverview = useCallback((open: boolean, columnId?: string) => {
+    const current = live.current;
+    if (!current.overviewAvailable || current.overview === open) return;
+    if (!open) setRevealColumn(columnId ?? returnColumn.current);
+    if (!current.controlled) setOverviewOwn(open);
+    current.onOverviewChange?.(open);
+  }, []);
+  // Remember where the board was whenever the overview opens, controlled or not.
+  const wasOverview = useRef(overview);
+  if (overview && !wasOverview.current) {
+    const columnsNow = controller.model.columns;
+    returnColumn.current = lastColumn.current ?? columnsNow[visualSlot(page.get(), columnsNow.length, rtl)]?.id ?? null;
+  }
+  if (!overview && wasOverview.current && revealColumn === null && returnColumn.current) {
+    // Closed by the app through `overviewOpen`: go back to where the board was.
+    setRevealColumn(returnColumn.current);
+  }
+  wasOverview.current = overview;
   useEffect(() => {
     if (overview || revealColumn === null) return;
     const frame = requestAnimationFrame(() => {
@@ -196,7 +285,9 @@ export function Board<T>(props: BoardProps<T>) {
     return () => cancelAnimationFrame(frame);
   }, [overview, revealColumn]);
 
-  const { moveTo, undo, canUndo } = controller;
+  const { moveTo, moveManyTo, undo, canUndo } = controller;
+  const setSelection = selection.set;
+  const getSelection = selection.get;
   useImperativeHandle(
     props.ref,
     () => ({
@@ -212,13 +303,27 @@ export function Board<T>(props: BoardProps<T>) {
         }, HIGHLIGHT_MS);
       },
       moveItem: moveTo,
+      moveItems: moveManyTo,
       openMoveSheet,
       closeMoveSheet,
-      undo,
+      undo: () => undo(),
       canUndo,
       setOverview,
+      setSelection,
+      getSelection,
     }),
-    [canUndo, closeMoveSheet, highlight, moveTo, openMoveSheet, setOverview, undo],
+    [
+      canUndo,
+      closeMoveSheet,
+      getSelection,
+      highlight,
+      moveManyTo,
+      moveTo,
+      openMoveSheet,
+      setOverview,
+      setSelection,
+      undo,
+    ],
   );
 
   const cardActions = readOnly ? NO_ACTIONS : (props.cardActions ?? NO_ACTIONS);
@@ -232,15 +337,103 @@ export function Board<T>(props: BoardProps<T>) {
     [canPerformAction, cardActions, fullController.itemsById],
   );
   const runCardAction = useCallback(
-    (itemId: string, key: string, source: CardActionEvent<unknown>['source']) => {
+    (itemId: string, key: string, source: CardActionEvent<unknown>['source'], itemIds?: readonly string[]) => {
       const item = fullController.itemsById.get(itemId);
       const location = fullController.model.locations.get(itemId);
       if (item == null || !location || !cardActionsFor(itemId).some((action) => action.key === key)) return false;
-      events.current.onCardAction?.({ action: key, itemId, item, from: moveTargetOf(location.cellId), source });
+      const selected = selectionGet();
+      const targets = itemIds ?? (selected.includes(itemId) ? selected : [itemId]);
+      const ids = targets.filter((id) => id === itemId || cardActionsFor(id).some((action) => action.key === key));
+      events.current.onCardAction?.({
+        action: key,
+        itemId,
+        item,
+        from: moveTargetOf(location.cellId),
+        source,
+        itemIds: ids.includes(itemId) ? ids : [itemId, ...ids],
+      });
+      if (ids.length > 1) selectionSet([]);
       return true;
     },
-    [cardActionsFor, fullController.itemsById, fullController.model.locations],
+    [cardActionsFor, fullController.itemsById, fullController.model.locations, selectionGet, selectionSet],
   );
+
+  // Column and lane order is the app's: the board reports a new order and waits for `groupBy` to show it.
+  const announce = useCallback((message: string) => AccessibilityInfo.announceForAccessibility(message), []);
+  const moveColumn = useCallback(
+    (columnId: string, toIndex: number) => {
+      const ids = events.current.groupBy.columns.values.map((column) => column.id);
+      const from = ids.indexOf(columnId);
+      const to = Math.max(0, Math.min(ids.length - 1, toIndex));
+      if (from < 0 || from === to) return;
+      ids.splice(from, 1);
+      ids.splice(to, 0, columnId);
+      events.current.onColumnOrderChange?.(ids);
+      const label = events.current.groupBy.columns.values[from]?.label ?? columnId;
+      announce(labels.columnMoved({ column: label, position: to + 1, count: ids.length }));
+    },
+    [announce, labels],
+  );
+  const moveLane = useCallback(
+    (laneId: string, toIndex: number) => {
+      const lanes = events.current.groupBy.lanes;
+      if (!lanes) return;
+      const ids = lanes.values.map((lane) => lane.id);
+      const from = ids.indexOf(laneId);
+      const to = Math.max(0, Math.min(ids.length - 1, toIndex));
+      if (from < 0 || from === to) return;
+      ids.splice(from, 1);
+      ids.splice(to, 0, laneId);
+      events.current.onLaneOrderChange?.(ids);
+      const label = lanes.values[from]?.label ?? laneId;
+      announce(labels.laneMoved({ lane: label, position: to + 1, count: ids.length }));
+    },
+    [announce, labels],
+  );
+  const reorderColumns = !readOnly && props.onColumnOrderChange != null;
+  const reorderLanes = !readOnly && hasLanes && props.onLaneOrderChange != null;
+  const openHeaderSheet = useCallback((target: HeaderSheetTarget) => setHeaderSheet(target), []);
+  const headerSheet = useCallback(
+    (kind: HeaderSheetTarget['kind'], id: string) =>
+      (kind === 'column' ? reorderColumns : reorderLanes) && id !== NO_VALUE_ID
+        ? () => setHeaderSheet({ kind, id })
+        : undefined,
+    [reorderColumns, reorderLanes],
+  );
+
+  // Cards the data moved by itself flash once, and a screen reader hears where they went.
+  const [externalMoves] = useState(() => createValueStore<ReadonlyMap<string, object>>(new Map()));
+  const previousModel = useRef<{ model: BoardModel<T>; isPending: (itemId: string) => boolean } | null>(null);
+  const flashMoves = props.highlightExternalMoves !== false;
+  const flashTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(
+    () => () => {
+      for (const timer of flashTimers.current) clearTimeout(timer);
+    },
+    [],
+  );
+  useEffect(() => {
+    const before = previousModel.current;
+    previousModel.current = { model: fullModel, isPending: fullController.isPending };
+    if (!flashMoves || !before || before.model === fullModel) return;
+    const moved = externalMovesBetween(before.model, fullModel, before.isPending, fullController.isPending);
+    if (moved.length === 0) return;
+    const next = new Map(externalMoves.get());
+    for (const itemId of moved) next.set(itemId, {});
+    externalMoves.set(next);
+    const first = moved[0]!;
+    const cell = fullModel.cellById.get(fullModel.locations.get(first)?.cellId ?? '');
+    if (cell && moved.length === 1) {
+      announce(labels.externallyMoved({ item: fullController.itemLabel(first), column: cell.column.label }));
+    }
+    const timer = setTimeout(() => {
+      flashTimers.current.delete(timer);
+      const current = new Map(externalMoves.get());
+      for (const itemId of moved) current.delete(itemId);
+      externalMoves.set(current);
+    }, HIGHLIGHT_MS);
+    flashTimers.current.add(timer);
+  }, [announce, externalMoves, flashMoves, fullController, fullModel, labels]);
 
   const loadingColumns = useMemo(() => new Set(props.loadingColumns ?? NO_IDS), [props.loadingColumns]);
   const columnTotals = props.columnTotals;
@@ -260,7 +453,7 @@ export function Board<T>(props: BoardProps<T>) {
       const read = getItemValue as ((item: unknown) => number | null | undefined) | undefined;
       const value = items ? sumValues(items, read) : (stats.get(columnId)?.value ?? null);
       return {
-        limit,
+        limit: limit ?? null,
         limitState: limitState(total, limit),
         value,
         valueLabel: value == null ? null : (formatValue ?? formatCompact)(value),
@@ -298,6 +491,7 @@ export function Board<T>(props: BoardProps<T>) {
       scrollX,
       horizontalScrollGesture,
       page,
+      lastColumn,
       scrollApi,
       sheetMode,
       swipeEnabled,
@@ -322,8 +516,33 @@ export function Board<T>(props: BoardProps<T>) {
       describeCard,
       planner,
       durationScale,
+      selectable,
+      selection: selection.store,
+      setSelection,
+      toggleSelected: selection.toggle,
+      openHeaderSheet,
+      headerSheet,
+      reorderColumns,
+      reorderLanes,
+      moveColumn,
+      moveLane,
+      canCollapseLanes,
+      externalMoves,
     }),
     [
+      selectable,
+      selection.store,
+      setSelection,
+      selection.toggle,
+      openHeaderSheet,
+      headerSheet,
+      reorderColumns,
+      reorderLanes,
+      moveColumn,
+      moveLane,
+      canCollapseLanes,
+      externalMoves,
+      lastColumn,
       describeColumn,
       describeCard,
       planner,
@@ -361,15 +580,46 @@ export function Board<T>(props: BoardProps<T>) {
     ],
   );
 
-  const { moveItem, canDropTo, itemsById, model } = controller;
+  const { moveItem, moveItems, canDropTo, itemsById, model } = controller;
   const canDrag = props.canDrag;
-  const onTransfer = useCallback(
-    (event: TransferIntent) => moveItem(event.itemId, event.toCellId, event.toIndex, 'drag'),
-    [moveItem],
+  const canDragItem = useCallback(
+    (itemId: string) => {
+      if (readOnly) return false;
+      const item = itemsById.get(itemId);
+      return item != null && (canDrag ? canDrag(item) : true);
+    },
+    [canDrag, itemsById, readOnly],
   );
-  const onReorder = useCallback(
-    (event: ReorderIntent) => moveItem(event.itemId, event.cellId, event.toIndex, 'drag'),
-    [moveItem],
+  /** The cards a drag of this card carries: the selection when it is in it. */
+  const riders = useCallback(
+    (itemId: string) => {
+      const selected = selectionGet();
+      if (selected.length < 2 || !selected.includes(itemId)) return null;
+      // Cards that cannot be dragged stay put; the dragged one always goes.
+      return selected.filter((id) => id === itemId || canDragItem(id));
+    },
+    [canDragItem, selectionGet],
+  );
+  /** Drops the dragged card, with the rest of the selection gathered around it. */
+  const drop = useCallback(
+    (itemId: string, cellId: string, index: number) => {
+      const many = riders(itemId);
+      if (!many) return moveItem(itemId, cellId, index, 'drag');
+      const moved = moveItems(many, cellId, index, 'drag', itemId) > 0;
+      if (moved) selectionSet([]);
+      return moved;
+    },
+    [moveItem, moveItems, riders, selectionSet],
+  );
+  const onTransfer = useCallback((event: TransferIntent) => drop(event.itemId, event.toCellId, event.toIndex), [drop]);
+  const onReorder = useCallback((event: ReorderIntent) => drop(event.itemId, event.cellId, event.toIndex), [drop]);
+  // A batch drag may land where the dragged card already is, if the others still move.
+  const canDropBatch = useCallback(
+    (itemId: string, cellId: string) => {
+      const many = riders(itemId);
+      return many ? many.some((id) => canDropTo(id, cellId)) : canDropTo(itemId, cellId);
+    },
+    [canDropTo, riders],
   );
   const isDragValid = useCallback(
     (itemId: string, sourceCellId: string) => model.locations.get(itemId)?.cellId === sourceCellId,
@@ -379,31 +629,31 @@ export function Board<T>(props: BoardProps<T>) {
     ({ itemId, sourceCellId, zoneId }: { itemId: string; sourceCellId: string; zoneId: string }) => {
       if (zoneId.startsWith(DOCK_COLUMN)) {
         const target = makeCellId(parseCellId(sourceCellId).laneKey, zoneId.slice(DOCK_COLUMN.length));
-        return moveItem(itemId, target, 0, 'drag');
+        return drop(itemId, target, 0);
       }
       if (zoneId.startsWith(DOCK_ACTION)) return runCardAction(itemId, zoneId.slice(DOCK_ACTION.length), 'dock');
       return false;
     },
-    [moveItem, runCardAction],
+    [drop, runCardAction],
   );
-  const onDragStart = useCallback(({ itemId, cellId }: { itemId: string; cellId: string }) => {
-    hapticsFor(events.current.haptics)?.('lift');
-    events.current.onDragStart?.({ itemId, from: moveTargetOf(cellId) });
-  }, []);
+  const onDragStart = useCallback(
+    ({ itemId, cellId }: { itemId: string; cellId: string }) => {
+      hapticsFor(events.current.haptics)?.('lift');
+      const many = riders(itemId);
+      events.current.onDragStart?.({
+        itemId,
+        from: moveTargetOf(cellId),
+        itemIds: many ? inBoardOrder(fullModel, many) : [itemId],
+      });
+    },
+    [fullModel, riders],
+  );
   const onDragOver = useCallback(({ itemId, cellId, index }: { itemId: string; cellId: string; index: number }) => {
     events.current.onDragOver?.({ itemId, target: moveTargetOf(cellId), index });
   }, []);
   const onDragEnd = useCallback((event: { itemId: string; cancelled: boolean }) => {
     events.current.onDragEnd?.(event);
   }, []);
-  const canDragItem = useCallback(
-    (itemId: string) => {
-      if (readOnly) return false;
-      const item = itemsById.get(itemId);
-      return item != null && (canDrag ? canDrag(item) : true);
-    },
-    [canDrag, itemsById, readOnly],
-  );
   const onLongPressMenu = useCallback(({ itemId }: { itemId: string }) => openMoveSheet(itemId), [openMoveSheet]);
   const renderHover = useCallback((itemId: string) => <HoverCard itemId={itemId} />, []);
   const colors = useMemo(() => ({ outline: theme.accent, reject: theme.reject }), [theme]);
@@ -465,7 +715,7 @@ export function Board<T>(props: BoardProps<T>) {
                   onLongPressMenu={longPressSheet ? onLongPressMenu : undefined}
                   onZoneDrop={dockOn ? onZoneDrop : undefined}
                   canDrag={canDragItem}
-                  canDrop={canDropTo}
+                  canDrop={canDropBatch}
                   enabled={!readOnly && props.moveModes?.drag !== false}
                   longPressDelay={props.longPressDelay ?? 200}
                   handleOnly={handleOnly}
@@ -500,8 +750,10 @@ export function Board<T>(props: BoardProps<T>) {
             </View>
           ) : null}
           {props.undo && ready ? <UndoBanner /> : null}
+          {selectable && ready ? <SelectionBar /> : null}
         </DragProvider>
-        <MoveSheet itemId={sheetItem} onClose={closeMoveSheet} />
+        <MoveSheet itemIds={sheetItems} onClose={closeMoveSheet} />
+        <HeaderSheet target={headerSheetTarget} onClose={closeHeaderSheet} />
       </BoardContext>
     </GestureHandlerRootView>
   );

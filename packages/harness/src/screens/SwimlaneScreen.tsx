@@ -68,7 +68,7 @@ export function SwimlaneScreen({
         onMove={store.onMove}
         renderCard={renderCard}
         layout={layout}
-        cellLimit={limit}
+        laneCellLimit={limit}
         collapsedLanes={collapsed}
         onCollapsedLanesChange={setCollapsed}
         labels={labels}

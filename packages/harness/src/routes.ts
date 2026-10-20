@@ -20,6 +20,7 @@ import {
   Square,
   Star,
   Undo2,
+  Users,
   Zap,
   type LucideIcon,
 } from 'lucide-react-native';
@@ -35,6 +36,7 @@ export type Route =
   | 'swimlanes-stacked'
   | 'matrix'
   | 'phone-moves'
+  | 'team'
   | 'insights'
   | 'planner'
   | 'live'
@@ -124,6 +126,12 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
         title: 'Insights',
         detail: 'WIP limits, value sums, spotlight, card ageing, theme and motion presets.',
         badge: ChartColumn,
+      },
+      {
+        route: 'team',
+        title: 'Team board',
+        detail: 'Select several cards and move them together, reorder columns and lanes, see a teammate’s move.',
+        badge: Users,
       },
       {
         route: 'phone-moves',

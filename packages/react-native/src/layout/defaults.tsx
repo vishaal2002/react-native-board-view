@@ -135,10 +135,11 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
   labels: BoardLabels;
 }) {
   const { column, total, collapsed, toggleCollapsed, compact, limit, limitState: state, valueLabel, day } = info;
+  const { openColumnSheet } = info;
   const summary = labels.columnSummary({
     column: column.label,
     total,
-    limit: limit ?? null,
+    limit,
     limitState: state,
     valueLabel,
     date: day ? formatDay(day.date, 'long') : null,
@@ -158,12 +159,16 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
       {column.label}
     </Text>
   );
-  const count =
-    limit != null && state !== 'none' ? (
-      <LimitPill total={total} limit={limit} state={state} theme={theme} />
-    ) : (
-      <CountPill count={total} theme={theme} />
-    );
+  // The title's label already reads the count, limit and sum: the pills stay silent.
+  const count = (
+    <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+      {limit != null && state !== 'none' ? (
+        <LimitPill total={total} limit={limit} state={state} theme={theme} />
+      ) : (
+        <CountPill count={total} theme={theme} />
+      )}
+    </View>
+  );
   const value = valueLabel ? (
     <Text
       numberOfLines={1}
@@ -175,7 +180,14 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
     </Text>
   ) : null;
   const meter =
-    limit != null && state !== 'none' ? <LimitMeter total={total} limit={limit} state={state} theme={theme} /> : null;
+    limit != null && state !== 'none' ? (
+      <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <LimitMeter total={total} limit={limit} state={state} theme={theme} />
+      </View>
+    ) : null;
+  const menu = openColumnSheet ? (
+    <HeaderMenuButton color={theme.mutedText} onPress={openColumnSheet} label={`${labels.openMenu}, ${column.label}`} />
+  ) : null;
   const toggle = toggleCollapsed ? (
     <Pressable
       onPress={toggleCollapsed}
@@ -200,6 +212,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
             {count}
             {value}
             <View style={styles.spacer} />
+            {menu}
             {toggle}
           </View>
         </View>
@@ -215,6 +228,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
         {count}
         <View style={styles.spacer} />
         {value}
+        {menu}
         {toggle}
       </View>
       {meter}
@@ -253,19 +267,11 @@ export const DefaultLaneHeader = memo(function DefaultLaneHeader({
   theme: BoardTheme;
   labels: BoardLabels;
 }) {
-  const { lane, count, collapsed, toggleCollapsed } = info;
-  return (
-    <Pressable
-      onPress={toggleCollapsed}
-      accessibilityRole="button"
-      accessibilityState={{ expanded: !collapsed }}
-      accessibilityLabel={collapsed ? labels.expandLane(lane.label) : labels.collapseLane(lane.label)}
-      style={({ pressed }) => [
-        styles.laneHeader,
-        { backgroundColor: theme.laneHeaderBackground, borderRadius: theme.radius - 4, opacity: pressed ? 0.8 : 1 },
-      ]}
-    >
-      <Chevron direction={collapsed ? 'right' : 'down'} color={theme.mutedText} size={7} />
+  const { lane, count, collapsed, toggleCollapsed, openLaneSheet } = info;
+  const surface = [styles.laneHeader, { backgroundColor: theme.laneHeaderBackground, borderRadius: theme.radius - 4 }];
+  const body = (
+    <>
+      {toggleCollapsed ? <Chevron direction={collapsed ? 'right' : 'down'} color={theme.mutedText} size={7} /> : null}
       {lane.color ? <View style={[styles.dot, { backgroundColor: lane.color }]} /> : null}
       <Text numberOfLines={1} style={[styles.laneTitle, { color: theme.text }, font(theme)]}>
         {lane.label}
@@ -273,9 +279,58 @@ export const DefaultLaneHeader = memo(function DefaultLaneHeader({
       <CountPill count={count} theme={theme} />
       <View style={styles.spacer} />
       <DistributionBar shares={info.distribution} theme={theme} />
-    </Pressable>
+    </>
+  );
+  const menu = openLaneSheet ? (
+    <HeaderMenuButton color={theme.mutedText} onPress={openLaneSheet} label={`${labels.openMenu}, ${lane.label}`} />
+  ) : null;
+  if (!toggleCollapsed) {
+    return (
+      <View style={surface}>
+        <View
+          accessible
+          accessibilityRole="header"
+          accessibilityLabel={`${lane.label}, ${count}`}
+          style={styles.laneBody}
+        >
+          {body}
+        </View>
+        {menu}
+      </View>
+    );
+  }
+  return (
+    <View style={surface}>
+      <Pressable
+        onPress={toggleCollapsed}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: !collapsed }}
+        accessibilityLabel={`${collapsed ? labels.expandLane(lane.label) : labels.collapseLane(lane.label)}, ${count}`}
+        style={({ pressed }) => [styles.laneBody, { opacity: pressed ? 0.7 : 1 }]}
+      >
+        {body}
+      </Pressable>
+      {menu}
+    </View>
   );
 });
+
+/** The "…" on a column or lane header that opens its sheet, when they can be reordered. 44pt with its slop. */
+function HeaderMenuButton({ color, onPress, label }: { color: string; onPress: () => void; label: string }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={6}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.headerMenu, pressed ? styles.menuPressed : null]}
+    >
+      <View style={[styles.menuDot, { backgroundColor: color }]} />
+      <View style={[styles.menuDot, { backgroundColor: color }]} />
+      <View style={[styles.menuDot, { backgroundColor: color }]} />
+    </Pressable>
+  );
+}
 
 export function DefaultEmptyCell({ theme, labels }: { theme: BoardTheme; labels: BoardLabels }) {
   return (
@@ -380,7 +435,24 @@ const styles = StyleSheet.create({
   columnTitleCompact: { fontSize: 14, fontWeight: '700', lineHeight: 18 },
   compactRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 28 },
   iconButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  laneHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, minHeight: 40 },
+  laneHeader: { flexDirection: 'row', alignItems: 'center', minHeight: 44 },
+  laneBody: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    minHeight: 44,
+  },
+  headerMenu: {
+    width: 36,
+    height: 32,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   laneTitle: { fontSize: 14, fontWeight: '700', flexShrink: 1 },
   value: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'], flexShrink: 0 },
   meter: { height: 3, marginHorizontal: 12, marginBottom: 6, borderRadius: 2, overflow: 'hidden' },
@@ -408,7 +480,7 @@ const styles = StyleSheet.create({
   },
   menuPressed: { backgroundColor: 'rgba(127, 127, 127, 0.18)' },
   menuDot: { width: 4, height: 4, borderRadius: 2 },
-  showMore: { paddingVertical: 10, alignItems: 'center' },
+  showMore: { minHeight: 44, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
   loading: { paddingVertical: 14, alignItems: 'center', justifyContent: 'center' },
   showMoreText: { fontSize: 13, fontWeight: '600' },
   strip: { flex: 1, alignItems: 'center', paddingTop: 12, gap: 10 },

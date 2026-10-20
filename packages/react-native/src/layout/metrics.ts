@@ -170,6 +170,27 @@ export function slotAtX(metrics: ColumnMetrics, contentX: number): number {
   return metrics.slots.findIndex((slot) => contentX >= slot.x && contentX < slot.x + slot.width);
 }
 
+/**
+ * The column a scroll offset is on: the first one at least half on screen.
+ * Gaps and padding never count as "no column".
+ */
+export function leadingSlot(metrics: ColumnMetrics, offset: number): number {
+  const { slots } = metrics;
+  if (slots.length === 0) return 0;
+  const at = slots.findIndex((slot) => slot.x + slot.width / 2 > offset);
+  return at < 0 ? slots.length - 1 : at;
+}
+
+/** Same geometry: a theme object that changed identity but not its tokens must not move the board. */
+export function sameMetrics(a: ColumnMetrics, b: ColumnMetrics): boolean {
+  if (a === b) return true;
+  if (a.mode !== b.mode || a.contentWidth !== b.contentWidth || a.slots.length !== b.slots.length) return false;
+  return a.slots.every((slot, index) => {
+    const other = b.slots[index];
+    return other != null && other.x === slot.x && other.width === slot.width && other.collapsed === slot.collapsed;
+  });
+}
+
 /** Visual slots to render for a scroll offset: what is on screen plus `buffer` on each side. */
 export function visibleSlots(
   metrics: ColumnMetrics,

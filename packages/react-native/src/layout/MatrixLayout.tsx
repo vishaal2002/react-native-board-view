@@ -2,12 +2,19 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { cellId as makeCellId } from 'board-view-core';
 import { useBoard } from '../context';
-import { ColumnList, type ListApi } from './ColumnsLayout';
-import { CountPill } from './defaults';
+import { COMPACT_HEADER_WIDTH, ColumnList, type ListApi } from './ColumnsLayout';
+import { DefaultColumnHeader } from './defaults';
 import { MATRIX_GUTTER, visualSlot } from './metrics';
 
 /** Minimum height of a matrix cell's list, so a crowded grid still shows a card or two. */
-const MIN_CELL = 96;
+export const MIN_CELL = 96;
+/** Height the column headers take, for deciding before layout whether the lanes fit. */
+export const MATRIX_HEADER_ESTIMATE = 56;
+
+/** Whether every lane gets at least `MIN_CELL` of height; the board draws swimlanes when they do not. */
+export function matrixFits(lanes: number, height: number, gap: number): boolean {
+  return MATRIX_HEADER_ESTIMATE + gap + Math.max(1, lanes) * (MIN_CELL + gap) <= height;
+}
 
 /**
  * Swimlane boards as a grid: lanes are rows, columns are columns, and every
@@ -22,6 +29,8 @@ export function MatrixLayout() {
   const lanes = controller.model.lanes;
   const lists = useRef(new Map<string, ListApi>());
   const pendingReveal = useRef(new Map<string, number>());
+  // Every lane's cell of a column reaches its end together: the column reports it once.
+  const endTimes = useRef(new Map<string, number>());
   const [headerHeight, setHeaderHeight] = useState(0);
   const onHeaderLayout = (event: LayoutChangeEvent) => setHeaderHeight(event.nativeEvent.layout.height);
   const live = useRef(controller);
@@ -47,7 +56,10 @@ export function MatrixLayout() {
 
   return (
     <View style={styles.fill}>
-      <View style={[styles.headers, { paddingTop: gap }]} onLayout={onHeaderLayout}>
+      <View
+        style={[styles.headers, { paddingTop: gap, paddingLeft: MATRIX_GUTTER, gap, direction: 'ltr' }]}
+        onLayout={onHeaderLayout}
+      >
         {metrics.slots.map((slot, visual) => {
           const column = columns[visualSlot(visual, columns.length, rtl)];
           if (!column) return null;
@@ -55,17 +67,24 @@ export function MatrixLayout() {
             (sum, lane) => sum + (controller.model.cellById.get(makeCellId(lane.id, column.id))?.items.length ?? 0),
             0,
           );
+          const total = board.columnTotal(column.id, count);
+          // The same header as every other layout: custom renderers, limits, sums and the column sheet.
+          const info = {
+            column,
+            count,
+            total,
+            collapsed: false,
+            compact: slot.width < COMPACT_HEADER_WIDTH,
+            openColumnSheet: board.headerSheet('column', column.id),
+            ...board.describeColumn(column.id, total),
+          };
           return (
-            <View
-              key={column.id}
-              accessibilityRole="header"
-              style={[styles.header, { left: slot.x, width: slot.width }]}
-            >
-              <View style={[styles.dot, { backgroundColor: column.color ?? theme.mutedText }]} />
-              <Text style={[styles.headerText, { color: theme.text }, font]} numberOfLines={1}>
-                {column.label}
-              </Text>
-              <CountPill count={board.columnTotal(column.id, count)} theme={theme} />
+            <View key={column.id} style={{ width: slot.width }}>
+              {board.props.renderColumnHeader ? (
+                board.props.renderColumnHeader(info)
+              ) : (
+                <DefaultColumnHeader info={info} theme={theme} labels={labels} />
+              )}
             </View>
           );
         })}
@@ -77,7 +96,9 @@ export function MatrixLayout() {
             return (
               <Fragment key={lane.id}>
                 <View
+                  accessible
                   accessibilityRole="header"
+                  accessibilityLabel={lane.label}
                   style={[styles.gutter, { top, height: rowHeight, width: MATRIX_GUTTER }]}
                 >
                   <Text
@@ -122,6 +143,7 @@ export function MatrixLayout() {
                         getScrollX={zero}
                         lists={lists}
                         pendingReveal={pendingReveal}
+                        endTimes={endTimes}
                       />
                     </View>
                   );
@@ -141,18 +163,7 @@ const zero = () => 0;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  headers: { height: 44, flexDirection: 'row' },
-  header: {
-    position: 'absolute',
-    bottom: 0,
-    height: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 6,
-  },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  headerText: { flex: 1, fontSize: 14, fontWeight: '800' },
+  headers: { flexDirection: 'row', alignItems: 'flex-end' },
   gutter: { position: 'absolute', left: 0, alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
   laneText: { fontSize: 12, fontWeight: '800', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.6 },
   cell: { position: 'absolute', overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },

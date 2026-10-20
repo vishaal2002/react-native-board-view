@@ -19,6 +19,7 @@ import { RulesScreen } from './screens/RulesScreen';
 import { ScaleScreen } from './screens/ScaleScreen';
 import { ShowcaseScreen } from './screens/ShowcaseScreen';
 import { SwimlaneScreen } from './screens/SwimlaneScreen';
+import { TeamScreen } from './screens/TeamScreen';
 import { ThemeScreen } from './screens/ThemeScreen';
 import { AppearanceProvider, usePalette } from './ui';
 
@@ -72,6 +73,9 @@ function Router({ host }: { host: string }) {
       break;
     case 'matrix':
       screen = <MatrixScreen onBack={back} />;
+      break;
+    case 'team':
+      screen = <TeamScreen onBack={back} />;
       break;
     case 'phone-moves':
       screen = <PhoneMovesScreen onBack={back} />;

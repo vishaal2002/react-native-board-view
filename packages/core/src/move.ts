@@ -2,7 +2,7 @@ import { NO_LANE_ID, NO_VALUE_ID, createOpId, parseCellId } from './ids';
 import { readAxisValue } from './group';
 import { placeForMove } from './indexSemantics';
 import { fractionalRank } from './rank';
-import type { BoardModel, GroupAxis, GroupBy, MoveOperation, MoveSource, RankStrategy } from './types';
+import type { BoardModel, GroupAxis, GroupBy, MoveBatch, MoveOperation, MoveSource, RankStrategy } from './types';
 
 export interface PlanMoveInput<T> {
   /** The board as displayed, pending overlays included. */
@@ -20,6 +20,8 @@ export interface PlanMoveInput<T> {
   opId?: string;
   /** What started the move. Default 'api'. */
   source?: MoveSource;
+  /** Marks the op as part of a batch of moves. */
+  batch?: MoveBatch;
 }
 
 function bucketValue(bucket: string): string | null {
@@ -67,7 +69,7 @@ export function planMove<T>(input: PlanMoveInput<T>): MoveOperation | null {
   }
 
   const place = placeForMove(target.ranked, itemId, toIndex, input.strategy ?? fractionalRank);
-  return {
+  const op: MoveOperation = {
     opId: input.opId ?? createOpId(),
     id: itemId,
     changes,
@@ -77,6 +79,7 @@ export function planMove<T>(input: PlanMoveInput<T>): MoveOperation | null {
     nextId: place.nextId,
     source: input.source ?? 'api',
   };
+  return input.batch ? { ...op, batch: input.batch } : op;
 }
 
 /** Applies a move to an app record with the board's own `applyKey` / default field writer. */

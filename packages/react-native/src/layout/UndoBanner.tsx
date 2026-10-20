@@ -22,6 +22,7 @@ export function UndoBanner() {
   const dragging = adapter.useDragSource() !== null;
   const screenReader = useScreenReader();
   const [shown, setShown] = useState<UndoEntry | null>(null);
+  const selecting = useStoreValue(board.selection).size > 0;
   const timeoutMs = typeof props.undo === 'object' ? (props.undo.timeoutMs ?? DEFAULT_TIMEOUT) : DEFAULT_TIMEOUT;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -39,14 +40,21 @@ export function UndoBanner() {
     };
   }, [entry, screenReader, timeoutMs]);
 
-  if (!shown || dragging) return null;
-  const cell = controller.model.cellById.get(shown.toCellId);
+  // A drag dismisses the banner for good, not just while the card is up.
+  useEffect(() => {
+    if (dragging) setShown(null);
+  }, [dragging]);
+
+  const first = shown?.moves[0];
+  if (!shown || !first || dragging || selecting) return null;
+  const cell = controller.model.cellById.get(first.toCellId);
   if (!cell) return null;
   const font = theme.fontFamily ? { fontFamily: theme.fontFamily } : null;
   const message = labels.undoBanner({
-    item: controller.itemLabel(shown.itemId),
+    item: controller.itemLabel(first.itemId),
     column: cell.column.label,
-    lane: parseCellId(shown.toCellId).laneKey === NO_LANE_ID ? null : cell.lane.label,
+    lane: parseCellId(first.toCellId).laneKey === NO_LANE_ID ? null : cell.lane.label,
+    count: shown.moves.length,
   });
 
   return (
@@ -63,7 +71,8 @@ export function UndoBanner() {
         <Pressable
           onPress={() => {
             setShown(null);
-            controller.undo();
+            // This move, not whatever is newest: the banner names it.
+            controller.undo(shown.id);
           }}
           accessibilityRole="button"
           accessibilityLabel={`${labels.undo}. ${message}`}

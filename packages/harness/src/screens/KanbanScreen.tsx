@@ -147,7 +147,7 @@ export function KanbanScreen({ onBack, initialLayout = 'auto' }: { onBack: () =>
         readOnly={readOnly}
         columnId={columnId}
         onColumnChange={setColumnId}
-        onEndReached={onEndReached}
+        onColumnEndReached={onEndReached}
         appearance={palette.dark ? 'dark' : 'light'}
       />
     </Screen>

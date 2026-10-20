@@ -1,13 +1,13 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type Animated from 'react-native-reanimated';
 import { useAnimatedRef, useAnimatedScrollHandler } from 'react-native-reanimated';
 import { useUiTargetId } from './uiScroll';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useBoard } from '../context';
 import type { ScrollerHandle } from '../engine/types';
-import { offsetForSlot, pageAt, slotAtX, visibleSlots, visualSlot } from './metrics';
+import { leadingSlot, offsetForSlot, pageAt, sameMetrics, visibleSlots, visualSlot } from './metrics';
 
-/** `onColumnsEndReached` fires within this share of the board width from either end. */
+/** `onEdgeReached` fires within this share of the board width from either end. */
 const EDGE_FRACTION = 0.5;
 
 /**
@@ -18,6 +18,7 @@ const EDGE_FRACTION = 0.5;
 export function useHorizontalScroller() {
   const board = useBoard();
   const { metrics, boardWidth, scrollX, page, adapter, autoScroll, rtl, reducedMotion, controller, props } = board;
+  const { lastColumn } = board;
   const columns = controller.model.columns;
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const targetId = useUiTargetId();
@@ -26,26 +27,35 @@ export function useHorizontalScroller() {
     boardWidth,
     columns,
     onColumnChange: props.onColumnChange,
-    onColumnsEndReached: props.onColumnsEndReached,
+    onEdgeReached: props.onEdgeReached,
   });
   live.current = {
     metrics,
     boardWidth,
     columns,
     onColumnChange: props.onColumnChange,
-    onColumnsEndReached: props.onColumnsEndReached,
+    onEdgeReached: props.onEdgeReached,
   };
   // The content width each edge last fired for: an edge fires again only once columns were added.
   const edgesFired = useRef<{ start: number | null; end: number | null }>({ start: null, end: null });
+  // A finger or a fling is moving the board. Columns added in front shift everything, and the board scrolls
+  // to keep its column; a fling in progress (iOS) overrides that scroll. So `start` waits for rest.
+  const moving = useRef({ dragging: false, momentum: false });
 
   const [initialOffset] = useState(() => {
-    const seed = props.columnId ?? props.initialColumnId;
+    // A remount (rotation across the auto breakpoint, the overview closing) keeps the column the user was on.
+    const seed = props.columnId ?? lastColumn.current ?? props.initialColumnId;
     const at = seed ? columns.findIndex((column) => column.id === seed) : -1;
     if (at < 0 && !rtl) return 0;
     const slot = at < 0 ? metrics.slots.length - 1 : visualSlot(at, columns.length, rtl);
     return offsetForSlot(metrics, slot, boardWidth);
   });
   const offset = useRef(initialOffset);
+  // iOS sends no scroll event for the initial `contentOffset`: start the shared offset there, so pinned
+  // headers and the planner's Today button see where the board opened.
+  useLayoutEffect(() => {
+    scrollX.value = initialOffset;
+  }, [initialOffset, scrollX]);
   const [range, setRange] = useState(() => visibleSlots(metrics, initialOffset, boardWidth));
   // The column id we just reported from a user swipe. The parent writes it
   // back into `columnId`, and that echo must not start another scroll.
@@ -60,48 +70,84 @@ export function useHorizontalScroller() {
       const current = live.current;
       const next = visibleSlots(current.metrics, x, current.boardWidth);
       setRange((previous) => (previous.first === next.first && previous.last === next.last ? previous : next));
-      const reached = current.onColumnsEndReached;
+      const reached = current.onEdgeReached;
+      const width = current.metrics.contentWidth;
       if (reached && current.metrics.scrollable) {
-        const width = current.metrics.contentWidth;
         const near = current.boardWidth * EDGE_FRACTION;
         const visualEdge = x <= near ? 'left' : x >= width - current.boardWidth - near ? 'right' : null;
         // The logical start is the first column: on the right in right-to-left layouts.
         const edge = visualEdge === null ? null : (visualEdge === 'left') !== rtl ? 'start' : 'end';
-        if (edge && edgesFired.current[edge] !== width) {
+        const resting = !moving.current.dragging && !moving.current.momentum;
+        if (edge && edgesFired.current[edge] !== width && (edge === 'end' || resting)) {
           edgesFired.current[edge] = width;
           reached(edge);
         }
+      } else if (reached && current.columns.length > 0 && edgesFired.current.end !== width) {
+        // Everything fits: the end is already on screen, so a short planner can grow until it scrolls.
+        edgesFired.current.end = width;
+        reached('end');
       }
-      if (current.metrics.mode !== 'paged') return;
-      const slot = pageAt(current.metrics, x);
+      const slot = current.metrics.mode === 'paged' ? pageAt(current.metrics, x) : leadingSlot(current.metrics, x);
       if (pendingSlot.current !== null && slot !== pendingSlot.current) return;
       pendingSlot.current = null;
+      const column = current.columns[visualSlot(slot, current.columns.length, rtl)];
+      // The overview is its own scroller: where it sits says nothing about where the board was.
+      if (column && !board.overview) lastColumn.current = column.id;
       if (slot === page.get()) return;
       page.set(slot);
-      const column = current.columns[visualSlot(slot, current.columns.length, rtl)];
       if (column) {
         echoed.current = column.id;
         current.onColumnChange?.(column.id);
       }
     },
-    [page, rtl],
+    [board.overview, lastColumn, page, rtl],
   );
 
   const releasePending = useCallback(() => {
     pendingSlot.current = null;
+    moving.current.dragging = true;
   }, []);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** A drag or a fling ended. A fling starts just after its drag ends, so look again a moment later. */
+  const onMotion = useCallback(
+    (kind: 'dragEnd' | 'momentumBegin' | 'momentumEnd') => {
+      if (kind === 'dragEnd') moving.current.dragging = false;
+      else moving.current.momentum = kind === 'momentumBegin';
+      if (kind === 'momentumBegin') return;
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+      settleTimer.current = setTimeout(() => {
+        if (!moving.current.dragging && !moving.current.momentum) sync(offset.current);
+      }, 80);
+    },
+    [sync],
+  );
+  useEffect(
+    () => () => {
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+    },
+    [],
+  );
 
   const onScroll = useAnimatedScrollHandler(
     {
       onBeginDrag: () => {
         scheduleOnRN(releasePending);
       },
+      onEndDrag: () => {
+        scheduleOnRN(onMotion, 'dragEnd');
+      },
+      onMomentumBegin: () => {
+        scheduleOnRN(onMotion, 'momentumBegin');
+      },
+      onMomentumEnd: () => {
+        scheduleOnRN(onMotion, 'momentumEnd');
+      },
       onScroll: (event) => {
         scrollX.value = event.contentOffset.x;
         scheduleOnRN(sync, event.contentOffset.x);
       },
     },
-    [releasePending, sync],
+    [onMotion, releasePending, sync],
   );
 
   const scrollTo = useCallback(
@@ -144,13 +190,13 @@ export function useHorizontalScroller() {
   useLayoutEffect(() => {
     const before = previous.current;
     previous.current = { metrics, boardWidth, columns };
-    if (before.metrics === metrics && before.boardWidth === boardWidth) {
+    if (before.boardWidth === boardWidth && before.columns === columns && sameMetrics(before.metrics, metrics)) {
       sync(offset.current);
       return;
     }
     // Columns were added or removed (days prepended in the planner): keep the same column on screen.
     if (before.columns !== columns && before.boardWidth === boardWidth) {
-      const slotBefore = Math.max(0, slotAtX(before.metrics, offset.current + before.metrics.paddingStart));
+      const slotBefore = leadingSlot(before.metrics, offset.current);
       const anchor = before.columns[visualSlot(slotBefore, before.columns.length, rtl)];
       const at = anchor ? columns.findIndex((column) => column.id === anchor.id) : -1;
       if (anchor && at >= 0) {
@@ -166,16 +212,23 @@ export function useHorizontalScroller() {
         return;
       }
     }
+    if (before.boardWidth === boardWidth && before.metrics.mode === metrics.mode && metrics.mode !== 'paged') {
+      // Same width, new geometry (a column collapsed or expanded): keep the offset, clamped to the content.
+      const next = Math.min(Math.max(0, metrics.contentWidth - boardWidth), offset.current);
+      if (Math.abs(next - offset.current) > 0.5) scrollTo(next, false);
+      sync(next);
+      return;
+    }
     const slot =
       before.metrics.mode === 'paged'
         ? pageAt(before.metrics, offset.current)
-        : Math.max(0, slotAtX(before.metrics, offset.current + before.metrics.paddingStart));
+        : leadingSlot(before.metrics, offset.current);
     const next = offsetForSlot(metrics, Math.min(slot, metrics.slots.length - 1), boardWidth);
     if (Math.abs(next - offset.current) > 0.5) scrollTo(next, false);
     sync(next);
   }, [boardWidth, columns, metrics, rtl, scrollTo, sync]);
 
-  const columnKey = columns.map((column) => column.id).join('\0');
+  // Only a new `columnId` scrolls: columns changing (days added, empty ones hidden) must not pull the board back to it.
   const columnId = props.columnId;
   useLayoutEffect(() => {
     if (!columnId) return;
@@ -192,7 +245,7 @@ export function useHorizontalScroller() {
     pendingSlot.current = slot;
     if (page.get() !== slot) page.set(slot);
     scrollTo(x, !reducedMotion);
-  }, [columnId, columnKey, page, reducedMotion, rtl, scrollTo]);
+  }, [columnId, page, reducedMotion, rtl, scrollTo]);
 
   const getOffset = useCallback(() => offset.current, []);
 
