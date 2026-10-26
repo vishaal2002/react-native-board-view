@@ -1297,7 +1297,6 @@ function DragOverlay({
     (over, previous) => {
       if (over !== previous) zoneProgress.value = withTiming(over ? 1 : 0, { duration: reducedMotion ? 0 : 140 });
     },
-    [reducedMotion],
   );
   // 0 at rest, 1 lifted. Scale and tilt are read from it, so both stay plain numbers in the style.
   const liftProgress = useSharedValue(0);
@@ -1306,7 +1305,6 @@ function DragOverlay({
     (lifted, previous) => {
       if (lifted !== previous) liftProgress.value = withTiming(lifted ? 1 : 0, { duration: 140 });
     },
-    [reducedMotion],
   );
 
   const hoverStyle = useAnimatedStyle(() => {

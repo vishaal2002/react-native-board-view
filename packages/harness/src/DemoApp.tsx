@@ -8,6 +8,7 @@ import { ChecklistScreen } from './screens/ChecklistScreen';
 import { CustomScreen } from './screens/CustomScreen';
 import { EmptyCellsScreen } from './screens/EmptyCellsScreen';
 import { HomeScreen } from './screens/HomeScreen';
+import { HostsScreen } from './screens/HostsScreen';
 import { KanbanScreen } from './screens/KanbanScreen';
 import { LiveDataScreen } from './screens/LiveDataScreen';
 import { InsightsScreen } from './screens/InsightsScreen';
@@ -109,6 +110,9 @@ function Router({ host }: { host: string }) {
       break;
     case 'empty':
       screen = <EmptyCellsScreen onBack={back} />;
+      break;
+    case 'hosts':
+      screen = <HostsScreen onBack={back} />;
       break;
     case 'checklist':
       screen = <ChecklistScreen onBack={back} onOpen={open} />;

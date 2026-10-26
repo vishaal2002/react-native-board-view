@@ -77,7 +77,7 @@ npx expo install react-native-board-view react-native-reanimated react-native-wo
 
 **Bare React Native:** `npm install` the same packages, add `react-native-worklets/plugin` last in `babel.config.js`, and rebuild the app.
 
-**Expo:** use a [development build](https://docs.expo.dev/develop/development-builds/introduction/). Expo Go is untested.
+**Expo:** use a [development build](https://docs.expo.dev/develop/development-builds/introduction/), or Expo Go from SDK 58. <sup>1.1</sup> Expo Go was checked on Android only.
 
 ## Quick start
 
@@ -595,7 +595,7 @@ const renderCard = ({
 | 20 lanes × 6              | One drop, cards re-render  | 480    | 4      |
 | 20 lanes × 6              | Move sheet, tap to showing | 450 ms | 100 ms |
 
-Swimlanes still miss the 0–3% target. Each lane row draws every column's cards when it scrolls in.
+Swimlanes still missed the 0–3% target in 0.8.1: each lane row drew every column's cards when it scrolled in. <sup>1.1</sup> A lane row now draws only the columns on screen and one on each side. On the 20 lanes × 6 board that is 535 native views instead of 835 (emulator). The phone's frame numbers for 1.1 are still to measure.
 
 **On the emulator.** Release build on a Pixel 9 Pro emulator (arm64, 60 Hz). The host Mac was on battery. These are not phone numbers.
 
@@ -725,6 +725,8 @@ Every prop, type, token and label is in the [API reference](https://github.com/v
 - [Seeding](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#seeding-ranks) and [rebalancing](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#keeping-ranks-short-rebalancing) ranks
 - [Sorted or filtered views](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#sorted-or-filtered-views)
 - [Haptics](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#haptics)
+
+**For coding agents.** <sup>1.1</sup> [`llms.txt`](https://github.com/vishaal2002/react-native-board-view/blob/main/llms.txt) lists these docs. The package ships a skill with the rules and recipes at `node_modules/react-native-board-view/skills/board-view/SKILL.md`, for Claude Code, Cursor and Copilot.
 
 ## Status
 

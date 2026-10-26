@@ -45,7 +45,6 @@ export function PlannerToday() {
     (next, previous) => {
       if (next !== previous) scheduleOnRN(setAway, next);
     },
-    [boardWidth, end, start],
   );
 
   if (!slot || !away || dragging) return null;

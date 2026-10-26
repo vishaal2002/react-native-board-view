@@ -1,6 +1,7 @@
 import { FlashList, type FlashListRef, type ListRenderItemInfo } from '@shopify/flash-list';
 import { createContext, memo, use, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -12,10 +13,12 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { cellId as makeCellId, type BoardCell, type GroupValue } from 'board-view-core';
 import { laneDistribution } from '../insights';
+import { useAccessibilityServices, useScreenReader } from '../useReducedMotion';
 import { useBoard, useStoreValue, type BoardContextValue } from '../context';
 import { rawInsertionIndex, slotIndexAt, type Rect, type Slot, type SlotSource } from '../engine/geometry';
 import { PLACEHOLDER_ID, type CellGeometry, type ScrollerHandle } from '../engine/types';
 import { BoardCard } from './BoardCard';
+import { createCellHeights, type CellHeights } from './cellHeights';
 import {
   Chevron,
   CountPill,
@@ -48,6 +51,7 @@ interface LanesContextValue {
   scroller: ScrollerHandle;
   limitOf: (cellId: string) => number;
   showMore: (cellId: string) => void;
+  heights: CellHeights;
 }
 
 const LanesContext = createContext<LanesContextValue | null>(null);
@@ -61,9 +65,11 @@ function useLanes(): LanesContextValue {
 /**
  * Swimlanes: lanes are the virtualized unit (one vertical FlashList of
  * lanes inside the sideways board scroller). Cells are plain views capped
- * at `cellLimit` cards with "Show more". Column headers sit above the lane
- * list inside the sideways scroller, so they stay aligned; lane headers stay
- * pinned to the left edge while the board scrolls.
+ * at `cellLimit` cards with "Show more". A lane row draws only the cells in
+ * the scroller's column window; the rest are empty frames of their last
+ * height. Column headers sit above the lane list inside the sideways
+ * scroller, so they stay aligned; lane headers stay pinned to the left edge
+ * while the board scrolls.
  */
 // Memoized: it takes no props, so a board render that leaves the context alone (a sheet opening) skips it.
 export const SwimlaneLayout = memo(function SwimlaneLayout() {
@@ -154,9 +160,25 @@ export const SwimlaneLayout = memo(function SwimlaneLayout() {
     [cellLimit],
   );
 
+  // Heights measured under another theme or card width would size the empty frames wrongly.
+  const cardWidth = metrics.slots.find((slot) => !slot.collapsed)?.width ?? 0;
+  const [measured, setMeasured] = useState(() => ({ theme: board.theme, cardWidth, heights: createCellHeights() }));
+  if (measured.theme !== board.theme || measured.cardWidth !== cardWidth) {
+    setMeasured({ theme: board.theme, cardWidth, heights: createCellHeights() });
+  }
+  const heights = measured.heights;
   const lanesContext = useMemo<LanesContextValue>(
-    () => ({ listRef, scrollY, frame, getScrollX: scroller.getOffset, scroller: laneScroller, limitOf, showMore }),
-    [laneScroller, limitOf, scroller.getOffset, showMore],
+    () => ({
+      listRef,
+      scrollY,
+      frame,
+      getScrollX: scroller.getOffset,
+      scroller: laneScroller,
+      limitOf,
+      showMore,
+      heights,
+    }),
+    [heights, laneScroller, limitOf, scroller.getOffset, showMore],
   );
 
   const live = useRef({ controller, lanes, columns, rtl, toSlot: scroller.toSlot, cellLimit });
@@ -187,11 +209,28 @@ export const SwimlaneLayout = memo(function SwimlaneLayout() {
     };
   }, [scrollApi]);
 
+  const source = adapter.useDragSource();
+  const dragging = source !== null;
+  const keepCellId = source?.cellId ?? null;
+  // Screen readers and switch access move focus to cards off screen, so every cell stays drawn while one runs.
+  const screenReader = useScreenReader();
+  const services = useAccessibilityServices();
+  const windowed = Platform.OS === 'android' ? !services : !screenReader;
+  const first = windowed ? scroller.range.first : 0;
+  const last = windowed ? scroller.range.last : metrics.slots.length - 1;
   const renderLane = useCallback(
     ({ item, index }: ListRenderItemInfo<GroupValue>) => (
-      <LaneRow lane={item} laneIndex={index} limits={limits} cellLimit={cellLimit} />
+      <LaneRow
+        lane={item}
+        laneIndex={index}
+        limits={limits}
+        cellLimit={cellLimit}
+        first={first}
+        last={last}
+        keepCellId={keepCellId}
+      />
     ),
-    [cellLimit, limits],
+    [cellLimit, first, keepCellId, last, limits],
   );
   // The lane whose header has scrolled off the top: a copy of it stays pinned there.
   const sticky = props.stickyHeaders !== false;
@@ -237,10 +276,9 @@ export const SwimlaneLayout = memo(function SwimlaneLayout() {
     const frame = requestAnimationFrame(() => pinAt(scrollY.current));
     return () => cancelAnimationFrame(frame);
   }, [collapsedLanes, lanes, pinAt]);
-  const dragging = adapter.useDragSource() !== null;
   const extraData = useMemo(
-    () => [controller.model, collapsedLanes, limits, metrics],
-    [collapsedLanes, controller.model, limits, metrics],
+    () => [controller.model, collapsedLanes, limits, metrics, first, last, keepCellId],
+    [collapsedLanes, controller.model, first, keepCellId, last, limits, metrics],
   );
   const onContentSizeChange = useCallback((_width: number, height: number) => {
     contentHeight.current = height;
@@ -273,6 +311,7 @@ export const SwimlaneLayout = memo(function SwimlaneLayout() {
           overScrollMode={metrics.mode === 'paged' ? 'never' : 'auto'}
           contentOffset={{ x: scroller.initialOffset, y: 0 }}
           onScroll={scroller.onScroll}
+          onContentSizeChange={scroller.onContentSizeChange}
           scrollEventThrottle={16}
         >
           <View style={[styles.fill, { paddingTop: verticalPadding, direction: rtl ? 'rtl' : 'ltr' }]}>
@@ -430,11 +469,19 @@ const LaneRow = memo(function LaneRow({
   laneIndex,
   limits,
   cellLimit,
+  first,
+  last,
+  keepCellId,
 }: {
   lane: GroupValue;
   laneIndex: number;
   limits: ReadonlyMap<string, number>;
   cellLimit: number;
+  /** Visual slots whose cells are drawn: the columns on screen and one on each side. */
+  first: number;
+  last: number;
+  /** The lifted card's cell, drawn wherever it is. */
+  keepCellId: string | null;
 }) {
   const board = useBoard();
   const { controller, metrics, collapsedLanes, rtl, page } = board;
@@ -456,6 +503,9 @@ const LaneRow = memo(function LaneRow({
             const column = columns[visualSlot(visual, columns.length, rtl)];
             const cell = column ? controller.model.cellById.get(makeCellId(lane.id, column.id)) : undefined;
             if (!cell) return null;
+            const limit = limits.get(cell.cellId) ?? cellLimit;
+            const drawn = (visual >= first && visual <= last) || slot.collapsed || cell.cellId === keepCellId;
+            if (!drawn) return <CellStandIn key={cell.cellId} cell={cell} slot={slot} limit={limit} />;
             return (
               <SwimCell
                 key={cell.cellId}
@@ -463,7 +513,7 @@ const LaneRow = memo(function LaneRow({
                 slot={slot}
                 laneIndex={laneIndex}
                 rowY={rowY}
-                limit={limits.get(cell.cellId) ?? cellLimit}
+                limit={limit}
                 showFooter={showsCellFooter(metrics.mode, visual, currentPage)}
               />
             );
@@ -605,10 +655,32 @@ const SwimCell = memo(function SwimCell({
   live.current = { board, lanes, cell, rows, placeholderAt, slot, laneIndex, rowY, height };
   const geometry = useMemo(() => swimGeometry(live, slotsByKey), []);
 
-  const onLayout = useCallback((event: LayoutChangeEvent) => setHeight(event.nativeEvent.layout.height), []);
-  const onSlotLayout = useCallback((key: string, top: number, slotHeight: number) => {
-    slotsByKey.current.set(key, { top, height: slotHeight });
+  // Keeps the rows' heights once every drawn row has reported one.
+  const record = useCallback(() => {
+    const current = live.current;
+    const getId = current.board.props.getItemId;
+    const rowHeights: number[] = [];
+    for (const row of current.rows) {
+      const found = slotsByKey.current.get(rowKey(row, getId));
+      if (!found) return;
+      rowHeights.push(found.height);
+    }
+    current.lanes.heights.record(current.cell.cellId, rowHeights);
   }, []);
+  const onLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      setHeight(event.nativeEvent.layout.height);
+      record();
+    },
+    [record],
+  );
+  const onSlotLayout = useCallback(
+    (key: string, top: number, slotHeight: number) => {
+      slotsByKey.current.set(key, { top, height: slotHeight });
+      record();
+    },
+    [record],
+  );
   const onPlaceholderLayout = useCallback(
     (event: LayoutChangeEvent) =>
       onSlotLayout(PLACEHOLDER_ID, event.nativeEvent.layout.y, event.nativeEvent.layout.height),
@@ -620,7 +692,7 @@ const SwimCell = memo(function SwimCell({
     styles.cell,
     {
       width: slot.width,
-      minHeight: theme.cellMinHeight + theme.cellPadding * 2,
+      minHeight: cellMinHeight(theme),
       padding: theme.cellPadding,
       paddingBottom: Math.max(0, theme.cellPadding - theme.cardGap),
       backgroundColor: theme.columnBackground,
@@ -696,6 +768,42 @@ const SwimCell = memo(function SwimCell({
           })
         : null}
     </adapter.Cell>
+  );
+});
+
+type CellTheme = BoardContextValue['theme'];
+const cellMinHeight = (theme: CellTheme) => theme.cellMinHeight + theme.cellPadding * 2;
+/** A cell's height less its cards: top and bottom padding and the border. */
+const cellChrome = (theme: CellTheme) =>
+  theme.cellPadding + Math.max(0, theme.cellPadding - theme.cardGap) + StyleSheet.hairlineWidth * 2;
+
+/** A cell outside the column window: its frame at the height it would have, with no cards to create. */
+const CellStandIn = memo(function CellStandIn({
+  cell,
+  slot,
+  limit,
+}: {
+  cell: BoardCell<unknown>;
+  slot: ColumnSlot;
+  limit: number;
+}) {
+  const { theme } = useBoard();
+  const { heights } = useLanes();
+  const cards = Math.min(cell.items.length, limit);
+  const height = heights.estimate(cell.cellId, cards, cellChrome(theme), cellMinHeight(theme));
+  return (
+    <View
+      style={[
+        styles.cell,
+        {
+          width: slot.width,
+          minHeight: height,
+          backgroundColor: theme.columnBackground,
+          borderColor: theme.columnBorder,
+          borderRadius: theme.radius,
+        },
+      ]}
+    />
   );
 });
 

@@ -87,6 +87,7 @@ export const ColumnsLayout = memo(function ColumnsLayout() {
         overScrollMode={paged ? 'never' : 'auto'}
         contentOffset={{ x: scroller.initialOffset, y: 0 }}
         onScroll={scroller.onScroll}
+        onContentSizeChange={scroller.onContentSizeChange}
         scrollEventThrottle={16}
       >
         {metrics.slots.map((slot, visual) => {

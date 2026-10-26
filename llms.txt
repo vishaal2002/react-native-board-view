@@ -1,0 +1,69 @@
+# react-native-board-view
+
+> Kanban, swimlane and week-planner boards for React Native and Expo. You pass a flat array of items and say which field makes the columns. The board shows each move at once, calls your `onMove`, and rolls the card back if `onMove` throws or times out. It never creates, edits, fetches or stores items.
+
+Two packages: `react-native-board-view` (the `Board` component, `CardView`, `DragHandle`, a test kit at `react-native-board-view/testing`, and a re-export of the core) and `board-view-core` (grouping, fractional ranks, move planning and the move queue, with no React, so it also runs on a Node server). 1.x needs React Native 0.83 or later on the New Architecture, React 19, Reanimated 4.1 to 4.x, Worklets 0.5 to 0.x, Gesture Handler 2.28 to 3.x and FlashList 2.0.2 to 2.x. Expo needs a development build, or Expo Go from SDK 58. Web, the old architecture and Reanimated 3 are not supported. Coding agents should read the skill shipped in the package first: `node_modules/react-native-board-view/skills/board-view/SKILL.md`.
+
+## Start here
+
+- [Agent skill](https://github.com/vishaal2002/react-native-board-view/blob/main/packages/react-native/skills/board-view/SKILL.md): How to add a board correctly, the one rule, common tasks and mistakes to avoid.
+- [Install](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#install): The install command, peer versions, and setup for bare React Native and Expo.
+- [Quick start](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#quick-start): A complete board with `onMove`, `applyMove` and `CardView`, plus ranks, stable props and the gesture root.
+- [How a move works](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#how-a-move-works): The optimistic overlay, `settleTimeoutMs`, `inflightTimeoutMs`, rollback and the fields of a `MoveOperation`.
+- [Layouts](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#layouts): `auto`, `paged`, `multi`, `fit`, `stacked`, `matrix` and `planner`, and swimlanes through `groupBy.lanes`.
+
+## Guides
+
+- [Ways to move a card](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#ways-to-move-a-card): Long-press drag, handles, the Move sheet, the dock, selection, screen readers and moves from code.
+- [Drag handles](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#drag-handles): `moveModes={{ drag: 'handle' }}`, rules with `canDrag` and `canDrop`, `readOnly` and haptics.
+- [Drop dock and undo](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#drop-dock-and-undo): `cardActions`, `onCardAction` and the undo banner.
+- [Several cards at once](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#several-cards-at-once): Multi-select, and how a batch reaches `onMove`.
+- [Reorder columns and lanes](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#reorder-columns-and-lanes): `onColumnOrderChange` and `onLaneOrderChange`.
+- [Your data at a glance](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#your-data-at-a-glance): WIP limits, sums, spotlight and ageing.
+- [Week planner](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#week-planner): `layout="planner"`, `dayColumns` and `onEdgeReached`.
+- [Loading data](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#loading-data): Load more per column and pull to refresh.
+- [Moving cards from code](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#moving-cards-from-code): `moveItem` and `scrollToItem` on the ref.
+- [Testing your board](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#testing-your-board): `createBoardTester` in Jest or Vitest, with no rendering.
+- [Theming](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#theming): Appearance, density, tokens, presets, motion and `cardMarks`.
+- [Accessibility](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#accessibility): Screen-reader actions, announcements, focus, keyboard and pointer.
+- [The core, on your server too](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#the-core-on-your-server-too): `board-view-core` in Node.
+
+## Recipes
+
+- [The rule for every recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#the-rule-for-every-recipe): What `onMove` must do: persist, make `items` show the move, throw on failure.
+- [Plain fetch and local state](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#plain-fetch-and-local-state): `op.opId` as an idempotency key, and server-assigned ranks.
+- [Columns loaded in pages](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#columns-loaded-in-pages): `onColumnEndReached`, `loadingColumns`, `columnTotals` and refresh.
+- [Moving cards from code](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#moving-cards-from-code): A card button that calls `moveItem`.
+- [Undo](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#undo): The built-in undo, and undo as a data change.
+- [TanStack Query](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#tanstack-query): `useMutation` without `onMutate` or a snapshot.
+- [React 19 useOptimistic](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#react-19-useoptimistic): Why not to layer it on board moves.
+- [Local-first stores](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#local-first-stores-watermelondb-powersync-zero-legend-state): WatermelonDB, PowerSync, Zero and Legend State.
+- [Asking for input before a move](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#asking-for-input-before-a-move-required-fields): Required fields, with `inflightTimeoutMs={0}`.
+- [Rules and WIP limits](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#rules-locked-cards-allowed-transitions-wip-limits): Locked cards, allowed transitions and limits.
+- [Seeding ranks](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#seeding-ranks): `seedRanks` for records without a rank.
+- [Rebalancing ranks](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#keeping-ranks-short-rebalancing): `shouldRebalance` and `rebalanceRanks` on the server.
+- [One implementation on the client and the server](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#one-implementation-on-the-client-and-the-server): `projectBoard` and `planMove` in Node.
+- [Haptics](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#haptics): Drag events wired to `expo-haptics`.
+- [Sorted or filtered views](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#sorted-or-filtered-views): Filter `items` in the app, and boards sorted by something other than rank.
+
+## Reference
+
+- [API reference](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md): Every prop, ref method, render info, component, theme token, label, event type, the test kit and the core exports.
+- [Board props](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#board-props): Types and defaults for each prop.
+- [Ref handle](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#ref-handle-boardhandle): `BoardHandle` methods.
+- [Event and operation types](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#event-and-operation-types): `MoveOperation`, `MoveContext`, `MoveTarget`, `MoveDestination` and `MoveTimeoutError`.
+- [Testing kit](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#testing-kit): `BoardTesterOptions` and `BoardTester`.
+- [Core exports](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#core-exports-board-view-core): `board-view-core` functions and types.
+- [Support policy](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/support.md): What semantic versioning covers, and the supported React Native, Expo and peer versions.
+- [Migrating to 1.0](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/migrating.md): Renamed props and new required fields when coming from 0.x.
+- [Changelog](https://github.com/vishaal2002/react-native-board-view/blob/main/CHANGELOG.md): Every release, with breaking changes listed.
+
+## Optional
+
+- [Status](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#status): What has run on devices and screen readers, and what is out of scope.
+- [Performance](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#performance): Frame numbers on a phone and the emulator.
+- [Benchmarks](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/benchmarks.md): How performance is measured.
+- [Release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md): The device checks each release passes.
+- [Roadmap](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/roadmap.md): What comes next.
+- [Why the drag engine is our own](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/decisions/0001-own-drag-engine.md): The decision record.
+- [Contributing](https://github.com/vishaal2002/react-native-board-view/blob/main/CONTRIBUTING.md): Running the demo apps and the tests.

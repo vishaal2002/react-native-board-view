@@ -7,6 +7,7 @@ import {
   Grid2x2,
   Grid3x3,
   LayoutGrid,
+  Layers,
   List,
   ListChecks,
   ListTree,
@@ -49,6 +50,7 @@ export type Route =
   | 'scale'
   | 'autoscroll'
   | 'empty'
+  | 'hosts'
   | 'checklist';
 
 export interface DemoEntry {
@@ -204,6 +206,12 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
         badge: MoveHorizontal,
       },
       { route: 'empty', title: 'Empty cells', detail: 'S2: drops into empty cells land at index 0.', badge: Square },
+      {
+        route: 'hosts',
+        title: 'Inside other screens',
+        detail: 'S8: the board in a pager, a bottom sheet and a scroll view.',
+        badge: Layers,
+      },
       {
         route: 'checklist',
         title: 'Spike checklist',

@@ -282,3 +282,27 @@ import * as Haptics from 'expo-haptics';
   ```
 
   Or show the board without drag (`moveModes={{ drag: false }}`) and keep the Move sheet.
+
+## Inside other screens (pagers, bottom sheets, scroll views)
+
+Since 1.1 these three hosts pass the S8 gate on Android: page swipes, card drags and the host's own gesture, 50 tries each, with no misfires. The demo's "Inside other screens" screen has all three.
+
+**A tab pager** (`react-native-pager-view`, which Material top tabs use). Nothing to set. Page swipes stay in the board, and card drags never turn the tab. At the board's first and last column a swipe stays in the board too, and does not move to the next tab: React Native's sideways scroll views keep the touch inside a pager. Use the tab bar to switch tabs, or give the board a tab at either end.
+
+**A bottom sheet** (`@gorhom/bottom-sheet` 5). Three settings:
+
+```tsx
+<BottomSheet
+  snapPoints={snapPoints}
+  enableDynamicSizing={false} // the board fills the sheet; it has no height to size the sheet by
+  enableContentPanningGesture={false} // the sheet moves by its handle, so columns keep their scroll
+>
+  <View style={{ flex: 1 }}>
+    <Board /* … */ />
+  </View>
+</BottomSheet>
+```
+
+Use a plain `View`, not `BottomSheetView`: `BottomSheetView` gives a `flex: 1` child no height, and the board draws nothing. With content panning on, a swipe up on a column opens the sheet instead of scrolling the column.
+
+**A scroll view.** Give the board a fixed height, such as `style={{ height: 520 }}` on a wrapping `View`. A swipe on a column scrolls the column, and a swipe elsewhere scrolls the screen. Card drags never scroll the screen. On Android this needs 1.1, which lets the board's lists scroll inside yours.

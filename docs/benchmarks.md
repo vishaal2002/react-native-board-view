@@ -177,6 +177,17 @@ A check that 1.0 kept 0.8.1's numbers: the same vivo V2158, release build, same 
 
 All within 0.8.1's ranges. The 20 lanes × 6 board is still above the 0–3% target, as in 0.8.1.
 
+## 2026-10-26: 1.1 lane window on the emulator
+
+Release builds on the Pixel 9 Pro emulator, one with the 1.1 column window in lanes and one with it turned off, on the 20 lanes × 6 board in the paged layout. Native views counted with `dumpsys activity top`.
+
+| Build      | Native views |
+| ---------- | ------------ |
+| Window off | 735–835      |
+| Window on  | 435–535      |
+
+With an accessibility service running, every cell is drawn again: 735 views on, 435 off, in the same run. Frame times on the emulator were about 90% janky for both builds, the host being throttled, so they say nothing. The phone's numbers for 1.1 are still to measure.
+
 ## Still to measure (release gates)
 
 | Device                                        | Build   | Workload                |

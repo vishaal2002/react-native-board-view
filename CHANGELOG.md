@@ -2,6 +2,21 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**. From 1.0, what counts as breaking is in the [support policy](docs/support.md).
 
+## 1.1.0
+
+`react-native-board-view` 1.1.0. `board-view-core` stays at 1.0.0.
+
+- **Lanes draw only the columns on screen.** In swimlanes, a lane row draws the cells of the columns on screen and one on each side. The others are empty frames at the height their cards last had, so lanes keep their height as the board pages. The 20 lanes × 6 board drops from about 835 native views to 535. While a screen reader runs, or any accessibility service on Android, every cell is drawn as before, so focus can reach other columns.
+- **Inside other screens.** The board works in a tab pager, a bottom sheet and a scroll view. A new release gate, S8, checks all three, and a [recipe](docs/recipes.md#inside-other-screens-pagers-bottom-sheets-scroll-views) gives the settings a bottom sheet needs. The demo has an "Inside other screens" screen.
+- **Expo Go.** The board runs in Expo Go from SDK 58. It was checked on Android.
+- **For coding agents.** [`llms.txt`](llms.txt) lists the docs, and the package ships a skill at `skills/board-view/SKILL.md`.
+
+### Fixed
+
+- On Android, a swipe on a column inside your app's scroll view scrolled the whole screen instead of the column. The board's lists now scroll inside yours.
+- With `layout="paged"`, rotating the phone or resizing the window on Android left the board between two columns, with the column on screen cut off. It now lands on the same column.
+- Reanimated 4.7 warned "Dependencies should only be used on the web" three times when a board mounted.
+
 ## 1.0.0
 
 `react-native-board-view` 1.0.0 and `board-view-core` 1.0.0. Publish core first: the board depends on it. Core has no changes since 0.3.0.

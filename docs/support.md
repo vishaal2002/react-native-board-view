@@ -26,17 +26,17 @@ Only the latest 1.x minor gets fixes. 0.x gets none: see [Migrating to 1.0](migr
 
 ## React Native and Expo
 
-| Dependency                     | 1.x supports                                                 |
-| ------------------------------ | ------------------------------------------------------------ |
-| `react-native`                 | 0.83 or later, New Architecture                              |
-| `react`                        | 19 or later                                                  |
-| `react-native-reanimated`      | 4.1 to 4.x                                                   |
-| `react-native-worklets`        | 0.5 to 0.x                                                   |
-| `react-native-gesture-handler` | 2.28 to 3.x                                                  |
-| `@shopify/flash-list`          | 2.0.2 to 2.x                                                 |
-| Expo                           | SDKs with React Native 0.83 or later, in a development build |
+| Dependency                     | 1.x supports                                                                      |
+| ------------------------------ | --------------------------------------------------------------------------------- |
+| `react-native`                 | 0.83 or later, New Architecture                                                   |
+| `react`                        | 19 or later                                                                       |
+| `react-native-reanimated`      | 4.1 to 4.x                                                                        |
+| `react-native-worklets`        | 0.5 to 0.x                                                                        |
+| `react-native-gesture-handler` | 2.28 to 3.x                                                                       |
+| `@shopify/flash-list`          | 2.0.2 to 2.x                                                                      |
+| Expo                           | SDKs with React Native 0.83 or later, in a development build; Expo Go from SDK 58 |
 
-These minimums hold for all of 1.x. A new React Native or Expo release is supported once the demo app builds and passes the [release gates](spike.md) on it; that support ships in a minor or patch release. The old architecture, Reanimated 3, Expo Go and web are not supported.
+These minimums hold for all of 1.x. A new React Native or Expo release is supported once the demo app builds and passes the [release gates](spike.md) on it; that support ships in a minor or patch release. The old architecture, Reanimated 3 and web are not supported. Expo Go runs the board from SDK 58, whose Reanimated, Worklets, Gesture Handler and FlashList are inside the ranges above; 1.1 checked it on Android only.
 
 ## Where it has been tested
 

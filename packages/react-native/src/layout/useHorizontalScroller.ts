@@ -9,6 +9,8 @@ import { leadingSlot, offsetForSlot, pageAt, sameMetrics, visibleSlots, visualSl
 
 /** `onEdgeReached` fires within this share of the board width from either end. */
 const EDGE_FRACTION = 0.5;
+/** How long after a resize its scroll is applied again when the content grows. */
+const RESIZE_SETTLE_MS = 1000;
 
 /**
  * Horizontal board scroller shared by the column and swimlane layouts.
@@ -103,8 +105,12 @@ export function useHorizontalScroller() {
     [board.overview, lastColumn, page, rtl],
   );
 
+  // Where a resize scrolled to. Android can move the board again as the content view takes its new size,
+  // so for a moment after a resize the board scrolls back there. A user scroll drops it.
+  const resized = useRef<{ x: number; at: number } | null>(null);
   const releasePending = useCallback(() => {
     pendingSlot.current = null;
+    resized.current = null;
     moving.current.dragging = true;
   }, []);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,28 +134,6 @@ export function useHorizontalScroller() {
     [],
   );
 
-  const onScroll = useAnimatedScrollHandler(
-    {
-      onBeginDrag: () => {
-        scheduleOnRN(releasePending);
-      },
-      onEndDrag: () => {
-        scheduleOnRN(onMotion, 'dragEnd');
-      },
-      onMomentumBegin: () => {
-        scheduleOnRN(onMotion, 'momentumBegin');
-      },
-      onMomentumEnd: () => {
-        scheduleOnRN(onMotion, 'momentumEnd');
-      },
-      onScroll: (event) => {
-        scrollX.value = event.contentOffset.x;
-        scheduleOnRN(sync, event.contentOffset.x);
-      },
-    },
-    [onMotion, releasePending, sync],
-  );
-
   const scrollTo = useCallback(
     (x: number, animated: boolean) => {
       offset.current = x;
@@ -158,9 +142,50 @@ export function useHorizontalScroller() {
     [scrollRef],
   );
 
+  /** Android moved the board after a resize: scroll back to the resize's column. */
+  const holdResize = useCallback((): boolean => {
+    const target = resized.current;
+    if (!target) return false;
+    if (moving.current.dragging || Date.now() - target.at > RESIZE_SETTLE_MS) {
+      resized.current = null;
+      return false;
+    }
+    if (Math.abs(target.x - offset.current) > 0.5) scrollTo(target.x, false);
+    sync(target.x);
+    return true;
+  }, [scrollTo, sync]);
+  const onNativeScroll = useCallback(
+    (x: number) => {
+      offset.current = x;
+      if (Math.abs(x - (resized.current?.x ?? x)) > 0.5 && holdResize()) return;
+      sync(x);
+    },
+    [holdResize, sync],
+  );
+
+  const onScroll = useAnimatedScrollHandler({
+    onBeginDrag: () => {
+      scheduleOnRN(releasePending);
+    },
+    onEndDrag: () => {
+      scheduleOnRN(onMotion, 'dragEnd');
+    },
+    onMomentumBegin: () => {
+      scheduleOnRN(onMotion, 'momentumBegin');
+    },
+    onMomentumEnd: () => {
+      scheduleOnRN(onMotion, 'momentumEnd');
+    },
+    onScroll: (event) => {
+      scrollX.value = event.contentOffset.x;
+      scheduleOnRN(onNativeScroll, event.contentOffset.x);
+    },
+  });
+
   const toSlot = useCallback(
     (slot: number, animated: boolean) => {
       const current = live.current;
+      resized.current = null;
       scrollTo(offsetForSlot(current.metrics, slot, current.boardWidth), animated);
     },
     [scrollTo],
@@ -226,7 +251,12 @@ export function useHorizontalScroller() {
     const next = offsetForSlot(metrics, Math.min(slot, metrics.slots.length - 1), boardWidth);
     if (Math.abs(next - offset.current) > 0.5) scrollTo(next, false);
     sync(next);
+    if (before.boardWidth !== boardWidth) resized.current = { x: next, at: Date.now() };
   }, [boardWidth, columns, metrics, rtl, scrollTo, sync]);
+
+  const onContentSizeChange = useCallback(() => {
+    holdResize();
+  }, [holdResize]);
 
   // Only a new `columnId` scrolls: columns changing (days added, empty ones hidden) must not pull the board back to it.
   const columnId = props.columnId;
@@ -243,11 +273,12 @@ export function useHorizontalScroller() {
     const x = offsetForSlot(current.metrics, slot, current.boardWidth);
     if (Math.abs(x - offset.current) <= 0.5) return;
     pendingSlot.current = slot;
+    resized.current = null;
     if (page.get() !== slot) page.set(slot);
     scrollTo(x, !reducedMotion);
   }, [columnId, page, reducedMotion, rtl, scrollTo]);
 
   const getOffset = useCallback(() => offset.current, []);
 
-  return { scrollRef, onScroll, range, initialOffset, scrollTo, toSlot, getOffset };
+  return { scrollRef, onScroll, onContentSizeChange, range, initialOffset, scrollTo, toSlot, getOffset };
 }

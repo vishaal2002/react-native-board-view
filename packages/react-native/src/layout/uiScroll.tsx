@@ -43,7 +43,8 @@ function UiScrollView({
     },
     [animatedRef, ref],
   );
-  return <Animated.ScrollView {...rest} ref={merged} />;
+  // Android scrolls a list inside the app's own scroll view only when it opts in.
+  return <Animated.ScrollView nestedScrollEnabled {...rest} ref={merged} />;
 }
 
 /**
