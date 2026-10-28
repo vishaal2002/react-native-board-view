@@ -6,7 +6,7 @@ import type { ColumnMetrics } from './layout/metrics';
 import type { BoardController } from './useBoardController';
 import type { GroupValue } from 'board-view-core';
 import type { LimitState, PlannerDay } from './insights';
-import type { BoardLabels, BoardProps, BoardTheme, CardAction, CardActionEvent } from './types';
+import type { BoardLabels, BoardProps, BoardTheme, CardAction, CardActionEvent, CardDropEvent } from './types';
 
 export { createValueStore, type ValueStore } from './store';
 import type { ValueStore } from './store';
@@ -70,6 +70,12 @@ export interface BoardContextValue<T = unknown> {
     source: CardActionEvent<unknown>['source'],
     itemIds?: readonly string[],
   ) => boolean;
+  /** `onCardDrop` is set: cards can be dropped onto other cards. */
+  readonly cardDrops: boolean;
+  /** Whether `onCardDrop` may get this card dropped onto that one. */
+  readonly canDropOnCard: (itemId: string, targetId: string) => boolean;
+  /** Calls `onCardDrop`. False when either card is gone or the drop is refused. */
+  readonly dropOnCard: (itemId: string, targetId: string, source: CardDropEvent<unknown>['source']) => boolean;
   /** `selectable` is on: cards can join a selection. */
   readonly selectable: boolean;
   /** The selected cards, in the order they were picked. Empty when nothing is selected. */

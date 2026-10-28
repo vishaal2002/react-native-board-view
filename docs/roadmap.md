@@ -10,7 +10,7 @@ Updated 2026-10-26. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped
 | 0.8.1   | Performance (shipped)           | Cards redraw only for their own data; first real-phone numbers          |
 | 1.0.0   | Stable (built)                  | Device gates, deprecations removed, `cardMarks`                         |
 | 1.1.0   | Fits anywhere (built)           | Lanes that virtualize columns, boards inside sheets and pagers, Expo Go |
-| 1.2.0   | Moves that ask first (draft)    | Drop gates, drop on a card, drop targets and sources outside the board  |
+| 1.2.0   | Moves that ask first (built)    | Drop gates, drop on a card, drop targets and sources outside the board  |
 | 1.3.0   | Flow at a glance (draft)        | Column rail, ageing per column, blocked cards, animated regroup         |
 | 1.4.0   | Live boards (draft)             | Remote changes mid-drag, presence, rank jitter, a queue that persists   |
 | 1.5.0   | Agent-ready (draft)             | Typed board commands, suggestions to accept or decline, skills          |
@@ -151,7 +151,11 @@ The plan as drafted:
 | P1       | Windows that resize         | Android 17 ignores orientation and resize locks on screens 600 dp and wider, and iOS 27 apps resize under the scene life cycle. `auto` must change layout while a window resizes, and keep the column on screen. A gate for a foldable, iPad windowing and Android desktop windows.                                                     |
 | P1       | Docs site and agent docs    | The guide planned for after 1.0, with a video per feature. `llms.txt`, and a `skills/board-view/SKILL.md` in the package with the recipes, as Gesture Handler and Expo now ship.                                                                                                                                                        |
 
-### 1.2.0: moves that ask first
+### 1.2.0: moves that ask first (built)
+
+As built, 2026-10-28: drop gates, `confirmInto`, drop onto a card (with "Drop onto a card…" in the Move sheet) and drop targets outside the board. Not built, moved to 1.3: drag sources outside the board and drag to create, which need the engine to start a drag with no card on the board, and landing effects.
+
+The plan as drafted:
 
 Today a card moves or it does not. 1.2 lets a move ask the user something, land on another card, or leave the board. The board still never creates, edits or deletes items: each of these reports to the app.
 

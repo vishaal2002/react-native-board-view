@@ -312,6 +312,24 @@ const actions: CardAction[] = [
 
 **Undo.** `undo` shows a banner after each move a person makes: "Moved “Fix login” to Done · Undo". `board.undo()` works without the banner. Undo goes through `onMove` like any move, with `source: 'undo'`, and puts the card back at its old position. A move the data has since changed, or one that was rolled back, is skipped. The banner hides after `undo.timeoutMs` (5000), or stays until dismissed while a screen reader runs.
 
+## Moves that ask first
+
+![New in 1.2](https://img.shields.io/badge/new%20in-1.2-2F6FEB)
+
+**A form before a move.** `gateMove` holds a move until the user answers, such as a resolution for Done. The cards wait, pending, where they land, and `renderMoveGate` draws your form in the board's sheet. `onMove` runs once the user submits, with the answer in `context.answer`; cancelling sends the cards back. `confirmInto={['done']}` asks "Move to Done?" with the board's own sheet. Undo is never held.
+
+```tsx
+<Board
+  gateMove={(moves) => (moves.some((m) => m.op.changes.status === 'done') ? 'resolution' : null)}
+  renderMoveGate={({ submit, cancel }) => <ResolutionForm onPick={submit} onCancel={cancel} />}
+  onMove={async (op, { answer }) => api.move(op, answer)}
+/>
+```
+
+**Drop onto a card.** With `onCardDrop`, resting a lifted card on another card for a moment outlines that card, and letting go reports the drop. Nothing moves: a merge, a link or a subtask is your call. The Move sheet gets "Drop onto a card…" for screen readers and anyone not dragging.
+
+**Drop outside the board.** `BoardDropTarget`s inside a `BoardDropScope` take cards from the board: a calendar slot, an avatar, a trash can. See the [API reference](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#boarddropscope-and-boarddroptarget-12).
+
 ## Several cards at once
 
 ![New in 0.8](https://img.shields.io/badge/new%20in-0.8-2F6FEB)

@@ -758,3 +758,102 @@ describe('resolveDestination', () => {
     expect(resolveDestination(flatModel, 'a', { columnId: 'zzz' }, false)).toBeNull();
   });
 });
+
+describe('gates', () => {
+  it('holds a gated move, pending in its new place, and calls onMove only with the answer', async () => {
+    const onMove = vi.fn<(op: MoveOperation, context: MoveContext & { answer?: unknown }) => void>();
+    const gateMove = vi.fn(() => ({ ask: 'resolution' }));
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove, gateMove }),
+    });
+
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    expect(gateMove).toHaveBeenCalledWith([expect.objectContaining({ item: seed[0], op: expect.anything() })]);
+    expect(result.current.gate).toMatchObject({ request: { ask: 'resolution' }, toCellId: done });
+    expect(idsIn(result.current.model, done)).toEqual(['a', 'c']);
+    expect(result.current.isPending('a')).toBe(true);
+    await act(async () => undefined);
+    expect(onMove).not.toHaveBeenCalled();
+
+    act(() => result.current.submitGate('fixed'));
+    await act(async () => undefined);
+    expect(result.current.gate).toBeNull();
+    expect(onMove).toHaveBeenCalledTimes(1);
+    expect(onMove.mock.calls[0]![1].answer).toBe('fixed');
+    expect(result.current.canUndo()).toBe(true);
+  });
+
+  it('sends the card back on cancel, never calls onMove, and leaves nothing to undo', async () => {
+    const onMove = vi.fn();
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove, gateMove: () => true }),
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    act(() => result.current.cancelGate());
+    await act(async () => undefined);
+    expect(result.current.gate).toBeNull();
+    expect(idsIn(result.current.model, todo)).toEqual(['a', 'b']);
+    expect(result.current.isPending('a')).toBe(false);
+    expect(onMove).not.toHaveBeenCalled();
+    expect(result.current.canUndo()).toBe(false);
+    expect(announce).toHaveBeenCalledWith(defaultLabels.moveCancelled);
+  });
+
+  it('refuses other moves while one is held', () => {
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ gateMove: () => true }),
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    let second = true;
+    act(() => {
+      second = result.current.moveItem('b', done, 0, 'drag');
+    });
+    expect(second).toBe(false);
+    expect(idsIn(result.current.model, todo)).toEqual(['b']);
+  });
+
+  it('asks to confirm moves into confirmInto columns only, and lets gateMove decide first', async () => {
+    const onMove = vi.fn();
+    const { result, rerender } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove, confirmInto: ['done'] }),
+    });
+    act(() => {
+      result.current.moveItem('b', todo, 0, 'drag');
+    });
+    expect(result.current.gate).toBeNull();
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    expect(result.current.gate?.request).toBe('confirm');
+    act(() => result.current.cancelGate());
+
+    rerender(props({ onMove, confirmInto: ['done'], gateMove: () => 'form' }));
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    expect(result.current.gate?.request).toBe('form');
+  });
+
+  it('never holds an undo', async () => {
+    const onMove = vi.fn();
+    const gateMove = vi.fn((moves: readonly { op: MoveOperation }[]) => (moves[0]!.op.source === 'drag' ? null : true));
+    const { result } = renderHook((p: Props) => useBoardController(p, defaultLabels), {
+      initialProps: props({ onMove, gateMove }),
+    });
+    act(() => {
+      result.current.moveItem('a', done, 0, 'drag');
+    });
+    await act(async () => undefined);
+    act(() => {
+      result.current.undo();
+    });
+    expect(result.current.gate).toBeNull();
+    expect(gateMove).toHaveBeenCalledTimes(1);
+  });
+});

@@ -7,6 +7,8 @@ export type { CardTag, CardViewProps } from './CardView';
 export { compactMetrics, darkTheme, defaultLabels, lightTheme, motionPresets, themePresets } from './theme';
 export { addDays, dayColumns, formatCompact, parseDayId, toDayId } from './insights';
 export type { DayColumnsOptions, LaneShare, LimitState, PlannerDay } from './insights';
+export { BoardDropScope, BoardDropTarget } from './layout/DropTargets';
+export type { BoardDropTargetProps } from './layout/DropTargets';
 export type {
   BatchAnnouncementContext,
   BoardHandle,
@@ -15,8 +17,13 @@ export type {
   BoardProps,
   BoardTheme,
   CardAccessibilityContext,
+  BoardDropTargetEvent,
+  BoardMoveContext,
   CardAction,
   CardActionEvent,
+  CardDropEvent,
+  GatedMove,
+  MoveGateInfo,
   ColumnSummaryContext,
   LimitBehavior,
   MotionPreset,

@@ -316,4 +316,13 @@ export const defaultLabels: BoardLabels = {
   laneSheetTitle: (lane) => `Lane “${lane}”`,
   externallyMoved: ({ item, column }) => `${item} moved to ${column}`,
   openMenu: 'Options',
+  confirmMoveTitle: ({ item, count, column }) =>
+    count > 1 ? `Move ${count} cards to ${column}?` : `Move “${item}” to ${column}?`,
+  confirmMove: 'Move',
+  moveCancelled: 'Move cancelled',
+  dropOnto: 'Drop onto a card…',
+  dropOntoTitle: (item) => `Drop “${item}” onto…`,
+  searchCards: 'Search cards',
+  noCardsMatch: 'No cards match',
+  droppedOnto: ({ item, target }) => `Dropped ${item} onto ${target}`,
 };

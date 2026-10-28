@@ -73,6 +73,14 @@ export interface DragBoardProps {
    * when the drop is refused; the card then goes home.
    */
   onZoneDrop?(event: { itemId: string; sourceCellId: string; zoneId: string }): boolean;
+  /**
+   * Released over another card the pointer rested on for `cardDropDelayMs`.
+   * Nothing moves and the card goes home. Without it, cards are never targets.
+   */
+  onCardDrop?(event: { itemId: string; targetId: string }): void;
+  canDropOnCard?(itemId: string, targetId: string): boolean;
+  /** How long the pointer rests on the middle of a card before that card becomes the target. */
+  cardDropDelayMs?: number;
   canDrag?(itemId: string): boolean;
   canDrop?(itemId: string, toCellId: string): boolean;
   /**
@@ -169,6 +177,8 @@ export interface ZoneGeometry {
   getRect(): Rect | null;
   /** Called with the lifted card's id. */
   accepts(itemId: string): boolean;
+  /** Outside the board (`BoardDropTarget`): it does not cover the lists, so the lists' edges ignore it. */
+  readonly outside?: boolean;
 }
 
 export interface DragCellProps {

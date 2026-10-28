@@ -3,6 +3,7 @@ import { BackHandler, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { Route } from './routes';
 import { AccessibilityScreen } from './screens/AccessibilityScreen';
+import { AskFirstScreen } from './screens/AskFirstScreen';
 import { AutoScrollScreen } from './screens/AutoScrollScreen';
 import { ChecklistScreen } from './screens/ChecklistScreen';
 import { CustomScreen } from './screens/CustomScreen';
@@ -110,6 +111,9 @@ function Router({ host }: { host: string }) {
       break;
     case 'empty':
       screen = <EmptyCellsScreen onBack={back} />;
+      break;
+    case 'ask':
+      screen = <AskFirstScreen onBack={back} />;
       break;
     case 'hosts':
       screen = <HostsScreen onBack={back} />;

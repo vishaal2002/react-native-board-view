@@ -31,6 +31,8 @@ const DISMISS_DISTANCE = 110;
 const DISMISS_VELOCITY = 900;
 /** Boards with more columns than this get a search field. */
 const SEARCH_FROM = 6;
+/** The most cards "Drop onto…" lists at once; search narrows the rest. */
+const PICKER_LIMIT = 60;
 
 function font(theme: BoardTheme): StyleProp<TextStyle> {
   return theme.fontFamily ? { fontFamily: theme.fontFamily } : null;
@@ -53,6 +55,8 @@ export function MoveSheet({ itemIds, onClose }: { itemIds: readonly string[] | n
   const [laneId, setLaneId] = useState<string | null>(null);
   const [position, setPosition] = useState<Position>('top');
   const [query, setQuery] = useState('');
+  // "Drop onto…": the sheet lists cards instead of places.
+  const [picking, setPicking] = useState(false);
   const offset = useSharedValue(OFFSCREEN);
   const backdrop = useSharedValue(0);
 
@@ -63,6 +67,7 @@ export function MoveSheet({ itemIds, onClose }: { itemIds: readonly string[] | n
       setLaneId(null);
       setPosition('top');
       setQuery('');
+      setPicking(false);
       const open = reducedMotion ? 0 : Math.round(OPEN_MS * board.durationScale);
       offset.value = withTiming(0, { duration: open, easing: Easing.out(Easing.cubic) });
       backdrop.value = withTiming(1, { duration: open });
@@ -254,7 +259,11 @@ export function MoveSheet({ itemIds, onClose }: { itemIds: readonly string[] | n
                       accessibilityRole="header"
                       numberOfLines={2}
                     >
-                      {many ? labels.moveManyTitle(ids.length) : labels.moveSheetTitle(controller.itemLabel(id))}
+                      {picking
+                        ? labels.dropOntoTitle(many ? labels.selectedCount(ids.length) : controller.itemLabel(id))
+                        : many
+                          ? labels.moveManyTitle(ids.length)
+                          : labels.moveSheetTitle(controller.itemLabel(id))}
                     </Text>
                     {selectable ? (
                       <Pressable
@@ -293,189 +302,225 @@ export function MoveSheet({ itemIds, onClose }: { itemIds: readonly string[] | n
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
               >
-                <View style={[styles.quick, many ? styles.none : null]}>
-                  {quick.map((entry) => (
-                    <Pressable
-                      key={entry.key}
-                      disabled={entry.disabled}
-                      onPress={entry.run}
-                      accessibilityRole="button"
-                      accessibilityLabel={entry.label}
-                      accessibilityState={{ disabled: entry.disabled }}
-                      style={({ pressed }) => [
-                        styles.quickButton,
-                        {
-                          backgroundColor: pressed ? theme.sheetDivider : theme.columnBackground,
-                          opacity: entry.disabled ? 0.4 : 1,
-                        },
-                      ]}
-                    >
-                      <Chevron direction={entry.chevron} color={theme.text} size={7} />
-                      <Text style={[styles.quickText, { color: theme.text }, font(theme)]} numberOfLines={1}>
-                        {entry.text}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                {lanes.length > 0 ? (
-                  <>
-                    <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.lane}</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-                      {lanes.map((entry) => {
-                        const selected = entry.id === lane;
-                        const own = entry.id === current.laneKey;
-                        return (
-                          <Pressable
-                            key={entry.id}
-                            onPress={() => setLaneId(entry.id)}
-                            accessibilityRole="radio"
-                            accessibilityState={{ selected }}
-                            accessibilityLabel={own ? `${entry.label}, ${labels.current}` : entry.label}
-                            style={[
-                              styles.chip,
-                              { borderColor: selected ? theme.accent : theme.sheetDivider },
-                              selected ? { backgroundColor: theme.accent } : null,
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.chipText,
-                                { color: selected ? theme.cardBackground : theme.text },
-                                font(theme),
-                              ]}
-                            >
-                              {own ? `• ${entry.label}` : entry.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  </>
-                ) : null}
-
-                <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.position}</Text>
-                <View
-                  style={[styles.segment, { backgroundColor: theme.columnBackground }]}
-                  accessibilityRole="radiogroup"
-                >
-                  {(['top', 'bottom'] as const).map((value) => {
-                    const selected = value === position;
-                    return (
-                      <Pressable
-                        key={value}
-                        onPress={() => setPosition(value)}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        style={[styles.segmentItem, selected ? { backgroundColor: theme.sheetBackground } : null]}
-                      >
-                        <Text
-                          style={[styles.segmentText, { color: selected ? theme.text : theme.mutedText }, font(theme)]}
-                        >
-                          {value === 'top' ? labels.top : labels.bottom}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.column}</Text>
-                {searchable ? (
-                  <TextInput
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder={labels.searchColumns}
-                    placeholderTextColor={theme.mutedText}
-                    accessibilityLabel={labels.searchColumns}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    clearButtonMode="while-editing"
-                    returnKeyType="done"
-                    style={[
-                      styles.search,
-                      { color: theme.text, backgroundColor: theme.columnBackground, borderColor: theme.sheetDivider },
-                      font(theme),
-                    ]}
+                {picking ? (
+                  <DropOntoList
+                    ids={ids}
+                    onDrop={(targetId) => {
+                      board.dropOnCard(id, targetId, 'sheet');
+                      onClose();
+                    }}
                   />
                 ) : null}
-                {columns.length === 0 ? (
-                  <Text style={[styles.empty, { color: theme.mutedText }, font(theme)]}>{labels.noColumnsMatch}</Text>
-                ) : null}
-                {columns.map((column) => {
-                  const target = makeCellId(lane, column.id);
-                  const targetCell = controller.model.cellById.get(target);
-                  const isCurrent = !many && location.cellId === target;
-                  const allowed = targetCell != null && canTake(target);
-                  // A full column in block mode: say why the row is disabled.
-                  const full =
-                    !allowed &&
-                    props.limitBehavior === 'block' &&
-                    (() => {
-                      const state = board.describeColumn(
-                        column.id,
-                        board.columnTotal(column.id, columnCount(column.id)),
-                      ).limitState;
-                      return state === 'at' || state === 'over';
-                    })();
-                  return (
-                    <Pressable
-                      key={column.id}
-                      disabled={!allowed}
-                      onPress={() => choose(column)}
-                      accessibilityRole="button"
-                      accessibilityState={{ disabled: !allowed }}
-                      accessibilityLabel={`${labels.moveToColumnAction(column.label)}${laneLabel ? `, ${labels.lane} ${laneLabel}` : ''}, ${position === 'top' ? labels.top : labels.bottom}${isCurrent ? `, ${labels.current}` : ''}${full ? `, ${labels.full}` : ''}`}
-                      style={({ pressed }) => [
-                        styles.row,
-                        { borderColor: theme.sheetDivider, opacity: allowed ? 1 : 0.4 },
-                        isCurrent ? { backgroundColor: theme.columnBackground } : null,
-                        pressed ? { backgroundColor: theme.sheetDivider } : null,
-                      ]}
-                    >
-                      <View style={[styles.dot, { backgroundColor: column.color ?? theme.mutedText }]} />
-                      <Text style={[styles.rowText, { color: theme.text }, font(theme)]} numberOfLines={1}>
-                        {column.label}
-                      </Text>
-                      {isCurrent ? (
-                        <Text style={[styles.current, { color: theme.accent }, font(theme)]}>{labels.current}</Text>
-                      ) : null}
-                      {full ? (
-                        <Text style={[styles.current, { color: theme.warning }, font(theme)]}>{labels.full}</Text>
-                      ) : null}
-                      <CountPill count={targetCell?.items.length ?? 0} theme={theme} />
-                    </Pressable>
-                  );
-                })}
-
-                {actions.length > 0 ? (
-                  <>
-                    <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.actions}</Text>
-                    {actions.map((action) => (
+                <View style={picking ? styles.none : null}>
+                  <View style={[styles.quick, many ? styles.none : null]}>
+                    {quick.map((entry) => (
                       <Pressable
-                        key={action.key}
-                        onPress={() => {
-                          board.runCardAction(id, action.key, 'sheet', many ? ids : undefined);
-                          if (many) board.setSelection([]);
-                          onClose();
-                        }}
+                        key={entry.key}
+                        disabled={entry.disabled}
+                        onPress={entry.run}
                         accessibilityRole="button"
+                        accessibilityLabel={entry.label}
+                        accessibilityState={{ disabled: entry.disabled }}
                         style={({ pressed }) => [
-                          styles.row,
-                          { borderColor: theme.sheetDivider },
-                          pressed ? { backgroundColor: theme.sheetDivider } : null,
+                          styles.quickButton,
+                          {
+                            backgroundColor: pressed ? theme.sheetDivider : theme.columnBackground,
+                            opacity: entry.disabled ? 0.4 : 1,
+                          },
                         ]}
                       >
-                        {action.icon ? <View style={styles.icon}>{action.icon}</View> : null}
-                        <Text
-                          style={[styles.rowText, { color: action.color ?? theme.text }, font(theme)]}
-                          numberOfLines={1}
-                        >
-                          {action.label}
+                        <Chevron direction={entry.chevron} color={theme.text} size={7} />
+                        <Text style={[styles.quickText, { color: theme.text }, font(theme)]} numberOfLines={1}>
+                          {entry.text}
                         </Text>
                       </Pressable>
                     ))}
-                  </>
-                ) : null}
+                  </View>
+
+                  {lanes.length > 0 ? (
+                    <>
+                      <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.lane}</Text>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.chips}
+                      >
+                        {lanes.map((entry) => {
+                          const selected = entry.id === lane;
+                          const own = entry.id === current.laneKey;
+                          return (
+                            <Pressable
+                              key={entry.id}
+                              onPress={() => setLaneId(entry.id)}
+                              accessibilityRole="radio"
+                              accessibilityState={{ selected }}
+                              accessibilityLabel={own ? `${entry.label}, ${labels.current}` : entry.label}
+                              style={[
+                                styles.chip,
+                                { borderColor: selected ? theme.accent : theme.sheetDivider },
+                                selected ? { backgroundColor: theme.accent } : null,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.chipText,
+                                  { color: selected ? theme.cardBackground : theme.text },
+                                  font(theme),
+                                ]}
+                              >
+                                {own ? `• ${entry.label}` : entry.label}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    </>
+                  ) : null}
+
+                  <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.position}</Text>
+                  <View
+                    style={[styles.segment, { backgroundColor: theme.columnBackground }]}
+                    accessibilityRole="radiogroup"
+                  >
+                    {(['top', 'bottom'] as const).map((value) => {
+                      const selected = value === position;
+                      return (
+                        <Pressable
+                          key={value}
+                          onPress={() => setPosition(value)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected }}
+                          style={[styles.segmentItem, selected ? { backgroundColor: theme.sheetBackground } : null]}
+                        >
+                          <Text
+                            style={[
+                              styles.segmentText,
+                              { color: selected ? theme.text : theme.mutedText },
+                              font(theme),
+                            ]}
+                          >
+                            {value === 'top' ? labels.top : labels.bottom}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.column}</Text>
+                  {searchable ? (
+                    <TextInput
+                      value={query}
+                      onChangeText={setQuery}
+                      placeholder={labels.searchColumns}
+                      placeholderTextColor={theme.mutedText}
+                      accessibilityLabel={labels.searchColumns}
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      clearButtonMode="while-editing"
+                      returnKeyType="done"
+                      style={[
+                        styles.search,
+                        { color: theme.text, backgroundColor: theme.columnBackground, borderColor: theme.sheetDivider },
+                        font(theme),
+                      ]}
+                    />
+                  ) : null}
+                  {columns.length === 0 ? (
+                    <Text style={[styles.empty, { color: theme.mutedText }, font(theme)]}>{labels.noColumnsMatch}</Text>
+                  ) : null}
+                  {columns.map((column) => {
+                    const target = makeCellId(lane, column.id);
+                    const targetCell = controller.model.cellById.get(target);
+                    const isCurrent = !many && location.cellId === target;
+                    const allowed = targetCell != null && canTake(target);
+                    // A full column in block mode: say why the row is disabled.
+                    const full =
+                      !allowed &&
+                      props.limitBehavior === 'block' &&
+                      (() => {
+                        const state = board.describeColumn(
+                          column.id,
+                          board.columnTotal(column.id, columnCount(column.id)),
+                        ).limitState;
+                        return state === 'at' || state === 'over';
+                      })();
+                    return (
+                      <Pressable
+                        key={column.id}
+                        disabled={!allowed}
+                        onPress={() => choose(column)}
+                        accessibilityRole="button"
+                        accessibilityState={{ disabled: !allowed }}
+                        accessibilityLabel={`${labels.moveToColumnAction(column.label)}${laneLabel ? `, ${labels.lane} ${laneLabel}` : ''}, ${position === 'top' ? labels.top : labels.bottom}${isCurrent ? `, ${labels.current}` : ''}${full ? `, ${labels.full}` : ''}`}
+                        style={({ pressed }) => [
+                          styles.row,
+                          { borderColor: theme.sheetDivider, opacity: allowed ? 1 : 0.4 },
+                          isCurrent ? { backgroundColor: theme.columnBackground } : null,
+                          pressed ? { backgroundColor: theme.sheetDivider } : null,
+                        ]}
+                      >
+                        <View style={[styles.dot, { backgroundColor: column.color ?? theme.mutedText }]} />
+                        <Text style={[styles.rowText, { color: theme.text }, font(theme)]} numberOfLines={1}>
+                          {column.label}
+                        </Text>
+                        {isCurrent ? (
+                          <Text style={[styles.current, { color: theme.accent }, font(theme)]}>{labels.current}</Text>
+                        ) : null}
+                        {full ? (
+                          <Text style={[styles.current, { color: theme.warning }, font(theme)]}>{labels.full}</Text>
+                        ) : null}
+                        <CountPill count={targetCell?.items.length ?? 0} theme={theme} />
+                      </Pressable>
+                    );
+                  })}
+
+                  {actions.length > 0 ? (
+                    <>
+                      <Text style={[styles.section, { color: theme.mutedText }, font(theme)]}>{labels.actions}</Text>
+                      {actions.map((action) => (
+                        <Pressable
+                          key={action.key}
+                          onPress={() => {
+                            board.runCardAction(id, action.key, 'sheet', many ? ids : undefined);
+                            if (many) board.setSelection([]);
+                            onClose();
+                          }}
+                          accessibilityRole="button"
+                          style={({ pressed }) => [
+                            styles.row,
+                            { borderColor: theme.sheetDivider },
+                            pressed ? { backgroundColor: theme.sheetDivider } : null,
+                          ]}
+                        >
+                          {action.icon ? <View style={styles.icon}>{action.icon}</View> : null}
+                          <Text
+                            style={[styles.rowText, { color: action.color ?? theme.text }, font(theme)]}
+                            numberOfLines={1}
+                          >
+                            {action.label}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </>
+                  ) : null}
+                  {board.cardDrops ? (
+                    <Pressable
+                      onPress={() => setPicking(true)}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.row,
+                        styles.dropOnto,
+                        { borderColor: theme.sheetDivider },
+                        pressed ? { backgroundColor: theme.sheetDivider } : null,
+                      ]}
+                    >
+                      <Text style={[styles.rowText, { color: theme.text }, font(theme)]} numberOfLines={1}>
+                        {labels.dropOnto}
+                      </Text>
+                      <Chevron direction="right" color={theme.mutedText} size={7} />
+                    </Pressable>
+                  ) : null}
+                </View>
               </ScrollView>
 
               <Pressable
@@ -493,6 +538,73 @@ export function MoveSheet({ itemIds, onClose }: { itemIds: readonly string[] | n
         </KeyboardAvoidingView>
       </GestureHandlerRootView>
     </Modal>
+  );
+}
+
+/** "Drop onto…": the cards these may be dropped onto, in board order, with a search. */
+function DropOntoList({ ids, onDrop }: { ids: readonly string[]; onDrop: (targetId: string) => void }) {
+  const board = useBoard();
+  const { controller, theme, labels } = board;
+  const [query, setQuery] = useState('');
+  const needle = query.trim().toLocaleLowerCase();
+  const first = ids[0];
+  const targets = useMemo(() => {
+    const found: { id: string; label: string; column: string }[] = [];
+    if (first == null) return found;
+    for (const cell of controller.model.cells) {
+      for (const ref of cell.ranked) {
+        if (ids.includes(ref.id) || !board.canDropOnCard(first, ref.id)) continue;
+        const label = controller.itemLabel(ref.id);
+        if (needle && !label.toLocaleLowerCase().includes(needle)) continue;
+        found.push({ id: ref.id, label, column: cell.column.label });
+        if (found.length >= PICKER_LIMIT) return found;
+      }
+    }
+    return found;
+  }, [board, controller, first, ids, needle]);
+
+  return (
+    <View>
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder={labels.searchCards}
+        placeholderTextColor={theme.mutedText}
+        accessibilityLabel={labels.searchCards}
+        autoCorrect={false}
+        autoCapitalize="none"
+        clearButtonMode="while-editing"
+        returnKeyType="done"
+        style={[
+          styles.search,
+          { color: theme.text, backgroundColor: theme.columnBackground, borderColor: theme.sheetDivider },
+          font(theme),
+        ]}
+      />
+      {targets.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.mutedText }, font(theme)]}>{labels.noCardsMatch}</Text>
+      ) : null}
+      {targets.map((target) => (
+        <Pressable
+          key={target.id}
+          onPress={() => onDrop(target.id)}
+          accessibilityRole="button"
+          accessibilityLabel={`${target.label}, ${target.column}`}
+          style={({ pressed }) => [
+            styles.row,
+            { borderColor: theme.sheetDivider },
+            pressed ? { backgroundColor: theme.sheetDivider } : null,
+          ]}
+        >
+          <Text style={[styles.rowText, { color: theme.text }, font(theme)]} numberOfLines={1}>
+            {target.label}
+          </Text>
+          <Text style={[styles.current, { color: theme.mutedText }, font(theme)]} numberOfLines={1}>
+            {target.column}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -523,6 +635,7 @@ const styles = StyleSheet.create({
   },
   selectText: { fontSize: 15, fontWeight: '700' },
   none: { display: 'none' },
+  dropOnto: { marginTop: 12 },
   subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
   body: { flexGrow: 0, flexShrink: 1 },
   bodyContent: { paddingBottom: 4 },

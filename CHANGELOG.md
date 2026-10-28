@@ -2,6 +2,18 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**. From 1.0, what counts as breaking is in the [support policy](docs/support.md).
 
+## 1.2.0
+
+`react-native-board-view` 1.2.0. `board-view-core` stays at 1.0.0.
+
+- **Moves that ask first.** `gateMove` holds a move until the user answers. The cards wait, pending, where they land, while `renderMoveGate` shows your form in the board's sheet. Submitting queues the move, and `onMove` gets the answer in `context.answer`; cancelling sends the cards back. A gate is not counted against `inflightTimeoutMs`. While a move waits, other moves are refused. Undo is never held.
+- **`confirmInto`.** Column ids whose moves ask "Move to Done?" first, in the board's own sheet.
+- **Drop onto a card.** `onCardDrop`: rest a lifted card on the middle of another card for `cardDropDelayMs` (450 ms) and that card is outlined; letting go reports the drop and moves nothing. `canDropOnCard` refuses pairs. The Move sheet gets "Drop onto a card…", a searchable list of cards.
+- **Drop targets outside the board.** `BoardDropScope` and `BoardDropTarget`: any view can take a lifted card, with `onDrop`, `accepts`, and children that can draw themselves lit while a card is over them.
+- **Test kit.** `createBoardTester` takes `gateMove` and `confirmInto`, with `gate()`, `submitGate()` and `cancelGate()`.
+- **Types and labels.** `GatedMove`, `MoveGateInfo`, `BoardMoveContext`, `CardDropEvent`, `BoardDropTargetEvent`. Labels `confirmMoveTitle`, `confirmMove`, `moveCancelled`, `dropOnto`, `dropOntoTitle`, `searchCards`, `noCardsMatch` and `droppedOnto`.
+- **Zone drops** reach the board whether or not the dock is on.
+
 ## 1.1.0
 
 `react-native-board-view` 1.1.0. `board-view-core` stays at 1.0.0.

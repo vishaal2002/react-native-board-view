@@ -8,6 +8,7 @@ import {
   Grid3x3,
   LayoutGrid,
   Layers,
+  MessageCircleQuestion,
   List,
   ListChecks,
   ListTree,
@@ -51,6 +52,7 @@ export type Route =
   | 'autoscroll'
   | 'empty'
   | 'hosts'
+  | 'ask'
   | 'checklist';
 
 export interface DemoEntry {
@@ -158,6 +160,12 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
         title: 'Optimistic moves & rollback',
         detail: 'Server delay and failure rate. Cards move instantly and come back on rejection.',
         badge: Undo2,
+      },
+      {
+        route: 'ask',
+        title: 'Moves that ask first',
+        detail: 'A form before Done, a confirmation into Review, drops onto cards and onto views outside the board.',
+        badge: MessageCircleQuestion,
       },
       {
         route: 'rules',

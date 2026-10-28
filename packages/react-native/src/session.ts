@@ -18,7 +18,7 @@ import {
   type MoveSource,
 } from 'board-view-core';
 import { createValueStore, type ValueStore } from './store';
-import type { BoardLabels, BoardProps, MoveDestination, MoveTarget } from './types';
+import type { BoardLabels, BoardMoveContext, BoardProps, MoveDestination, MoveTarget } from './types';
 
 /** One card of an undoable move: where it came from and where it went. */
 export interface UndoMove {
@@ -137,6 +137,23 @@ export interface SessionEnv<T> {
   announce(message: string): void;
 }
 
+/** A move `gateMove` or `confirmInto` holds until the user answers. Its cards show, pending, where they land. */
+export interface HeldMove {
+  readonly ops: readonly MoveOperation[];
+  /** What `gateMove` returned, or `'confirm'`. */
+  readonly request: unknown;
+  /** The cell the last card lands in. */
+  readonly toCellId: string;
+}
+
+/** `overlays` with a held move's ops added, merged the way the queue merges them. */
+export function withHeld(overlays: readonly MoveOperation[], held: HeldMove | null): readonly MoveOperation[] {
+  if (!held) return overlays;
+  let merged = overlays as MoveOperation[];
+  for (const op of held.ops) merged = withOverlay(merged, op);
+  return merged;
+}
+
 export interface MoveSession<T> {
   /** The board right now, moves queued since the last render included. */
   live(): BoardModel<T>;
@@ -164,6 +181,14 @@ export interface MoveSession<T> {
   onEvent(event: MoveQueueEvent): void;
   readonly focusRequest: ValueStore<string | null>;
   readonly lastMove: ValueStore<UndoEntry | null>;
+  /** The move waiting for its gate. While one waits, other moves are refused. */
+  readonly held: ValueStore<HeldMove | null>;
+  /** Queues the held move, with `answer` for `onMove`. */
+  submitGate(answer?: unknown): void;
+  /** Drops the held move: its cards go back. */
+  cancelGate(): void;
+  /** The gate's answer for an op, once, as `onMove` is called. */
+  takeAnswer(opId: string): unknown;
 }
 
 const warned = new Set<string>();
@@ -316,6 +341,10 @@ export function inBoardOrder<T>(model: BoardModel<T>, itemIds: readonly string[]
 export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
   const focusRequest = createValueStore<string | null>(null);
   const lastMove = createValueStore<UndoEntry | null>(null);
+  const held = createValueStore<HeldMove | null>(null);
+  // Finishes the held move: queues it, records undo and the announcement.
+  let commitHeld: (() => void) | null = null;
+  const answers = new Map<string, unknown>();
   let history: UndoEntry[] = [];
   // "Moved" is announced once the app accepts the move, so it never reports a move that rolls back.
   const announcements = new Map<string, string>();
@@ -361,8 +390,39 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
    * already in the queue but not yet on screen, so a second move in the same
    * tick plans against a fresh projection instead of stale neighbours.
    */
+  let withHeldCache: {
+    overlays: readonly MoveOperation[];
+    held: HeldMove | null;
+    merged: readonly MoveOperation[];
+  } | null = null;
   function current(): Projection<T> {
-    return projectionOf(env.queue().getSnapshot().overlays, env.items());
+    const overlays = env.queue().getSnapshot().overlays;
+    const waiting = held.get();
+    if (!withHeldCache || withHeldCache.overlays !== overlays || withHeldCache.held !== waiting) {
+      withHeldCache = { overlays, held: waiting, merged: withHeld(overlays, waiting) };
+    }
+    return projectionOf(withHeldCache.merged, env.items());
+  }
+
+  /** What holds these moves: `gateMove`'s answer, `'confirm'` for a `confirmInto` column, or null. */
+  function gateFor(ops: readonly MoveOperation[], model: BoardModel<T>): unknown {
+    const props = env.props();
+    if (props.gateMove) {
+      const moves = ops.flatMap((op) => {
+        const item = env.itemsById().get(op.id);
+        return item == null ? [] : [{ op, item }];
+      });
+      const request = props.gateMove(moves);
+      if (request != null) return request;
+    }
+    const confirm = props.confirmInto;
+    if (!confirm || confirm.length === 0) return null;
+    const into = ops.some((op) => {
+      const at = model.locations.get(op.id);
+      const cell = at ? model.cellById.get(at.cellId) : undefined;
+      return cell != null && Object.hasOwn(op.changes, props.groupBy.columns.key) && confirm.includes(cell.columnKey);
+    });
+    return into ? 'confirm' : null;
   }
 
   function itemLabel(itemId: string): string {
@@ -396,7 +456,8 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
    */
   function run(steps: readonly Step[], source: MoveSource): MoveOperation[] {
     const props = env.props();
-    if (props.readOnly || steps.length === 0) return [];
+    // One question at a time: nothing else moves while a held move waits.
+    if (props.readOnly || steps.length === 0 || held.get() != null) return [];
     const start = current();
     let state: { model: BoardModel<T>; overlays: readonly MoveOperation[] } = start;
     const planned: { op: MoveOperation; from: { cellId: string; index: number } }[] = [];
@@ -491,33 +552,44 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
             }),
       );
     }
-    const queue = env.queue();
-    for (const op of ops) queue.enqueue(op);
-    // The plan already projected the board these moves leave: keep it rather than project it again.
-    const queued = queue.getSnapshot().overlays;
-    const inputs = inputsNow();
-    if (
-      state.model !== start.model &&
-      state.overlays.length === queued.length &&
-      sameOverlays(state.overlays, queued, env.itemsById(), inputs)
-    ) {
-      cache = { model: state.model, overlays: queued, items: env.items(), inputs };
+    const record = () => {
+      if (source !== 'undo') {
+        const moves = planned.map(({ op, from }, index) => ({
+          opId: ops[index]!.opId,
+          itemId: op.id,
+          fromCellId: from.cellId,
+          fromIndex: from.index,
+          toCellId: state.model.locations.get(op.id)?.cellId ?? from.cellId,
+        }));
+        const entry: UndoEntry = { id: ops[0]!.opId, moves, source };
+        history = [...history.slice(1 - UNDO_DEPTH), entry];
+        setLast(entry);
+      }
+      // Moves made without a finger on the card keep the screen reader on it.
+      if (source === 'sheet' || source === 'accessibility' || source === 'undo') focusRequest.set(ops[0]!.id);
+    };
+    const commit = () => {
+      const queue = env.queue();
+      for (const op of ops) queue.enqueue(op);
+      // The plan already projected the board these moves leave: keep it rather than project it again.
+      const queued = queue.getSnapshot().overlays;
+      const inputs = inputsNow();
+      if (
+        state.model !== start.model &&
+        state.overlays.length === queued.length &&
+        sameOverlays(state.overlays, queued, env.itemsById(), inputs)
+      ) {
+        cache = { model: state.model, overlays: queued, items: env.items(), inputs };
+      }
+      record();
+    };
+    const request = source === 'undo' ? null : gateFor(ops, state.model);
+    if (request != null) {
+      commitHeld = commit;
+      held.set({ ops, request, toCellId: landedAt?.cellId ?? planned.at(-1)!.from.cellId });
+      return ops;
     }
-
-    if (source !== 'undo') {
-      const moves = planned.map(({ op, from }, index) => ({
-        opId: ops[index]!.opId,
-        itemId: op.id,
-        fromCellId: from.cellId,
-        fromIndex: from.index,
-        toCellId: state.model.locations.get(op.id)?.cellId ?? from.cellId,
-      }));
-      const entry: UndoEntry = { id: ops[0]!.opId, moves, source };
-      history = [...history.slice(1 - UNDO_DEPTH), entry];
-      setLast(entry);
-    }
-    // Moves made without a finger on the card keep the screen reader on it.
-    if (source === 'sheet' || source === 'accessibility' || source === 'undo') focusRequest.set(ops[0]!.id);
+    commit();
     return ops;
   }
 
@@ -651,6 +723,30 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
     },
     focusRequest,
     lastMove,
+    held,
+    submitGate(answer) {
+      const waiting = held.get();
+      const commit = commitHeld;
+      if (!waiting || !commit) return;
+      commitHeld = null;
+      if (answer !== undefined) for (const op of waiting.ops) answers.set(op.opId, answer);
+      held.set(null);
+      commit();
+    },
+    cancelGate() {
+      const waiting = held.get();
+      if (!waiting) return;
+      commitHeld = null;
+      for (const op of waiting.ops) announcements.delete(op.opId);
+      held.set(null);
+      env.announce(env.labels().moveCancelled);
+      focusRequest.set(waiting.ops[0]!.id);
+    },
+    takeAnswer(opId) {
+      const answer = answers.get(opId);
+      answers.delete(opId);
+      return answer;
+    },
   };
 }
 
@@ -684,7 +780,11 @@ export function createSessionQueue<T>(
   env: { props(): BoardProps<T>; itemsById(): ReadonlyMap<string, T>; getRank(): (item: T) => string },
 ): MoveQueue {
   return createMoveQueue({
-    onMove: (op, context) => env.props().onMove(op, context),
+    onMove: (op, context) => {
+      const answer = session().takeAnswer(op.opId);
+      const full: BoardMoveContext = answer === undefined ? context : { ...context, answer };
+      return env.props().onMove(op, full);
+    },
     readItem: (itemId) => {
       const item = env.itemsById().get(itemId);
       return item == null ? null : readItemSnapshot(item, env.props().groupBy, env.getRank());

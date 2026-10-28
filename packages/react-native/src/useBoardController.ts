@@ -7,13 +7,15 @@ import {
   defaultGetRank,
   fullColumnsOf,
   uniqueById,
+  withHeld,
+  type HeldMove,
   type UndoEntry,
 } from './session';
 import type { ValueStore } from './store';
 import type { BoardLabels, BoardProps, MoveDestination } from './types';
 
 export { moveTargetOf, resolveDestination } from './session';
-export type { UndoEntry, UndoMove } from './session';
+export type { HeldMove, UndoEntry, UndoMove } from './session';
 
 export interface BoardController<T> {
   readonly model: BoardModel<T>;
@@ -54,6 +56,10 @@ export interface BoardController<T> {
   canUndo(): boolean;
   /** The newest undoable move, or null once it is undone, rolled back or cancelled. */
   readonly lastMove: ValueStore<UndoEntry | null>;
+  /** The move waiting for `gateMove` or `confirmInto`. Its cards are drawn, pending, where they land. */
+  readonly gate: HeldMove | null;
+  submitGate(answer?: unknown): void;
+  cancelGate(): void;
 }
 
 export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels): BoardController<T> {
@@ -93,6 +99,8 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   }, [env, queue, retired, session]);
 
   const snapshot = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
+  const gate = useSyncExternalStore(session.held.subscribe, session.held.get, session.held.get);
+  const overlays = useMemo(() => withHeld(snapshot.overlays, gate), [gate, snapshot.overlays]);
 
   useEffect(() => {
     queue.reconcile();
@@ -100,21 +108,18 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
 
   const model = useMemo(
     () =>
-      session.projection(snapshot.overlays, unique, {
+      session.projection(overlays, unique, {
         getItemId,
         getRank,
         groupBy,
         strategy: rankStrategy,
         noValue: labels.noValue,
       }),
-    [session, unique, snapshot.overlays, getItemId, getRank, groupBy, rankStrategy, labels.noValue],
+    [session, unique, overlays, getItemId, getRank, groupBy, rankStrategy, labels.noValue],
   );
 
-  const pendingIds = useMemo(() => new Set(snapshot.overlays.map((op) => op.id)), [snapshot.overlays]);
-  const fullNow = useMemo(
-    () => fullColumnsOf(model, props, itemsById, snapshot.overlays),
-    [itemsById, model, props, snapshot.overlays],
-  );
+  const pendingIds = useMemo(() => new Set(overlays.map((op) => op.id)), [overlays]);
+  const fullNow = useMemo(() => fullColumnsOf(model, props, itemsById, overlays), [itemsById, model, props, overlays]);
   // The same set until a column fills or empties, so cards that read it redraw only then.
   const fullRef = useRef(fullNow);
   if (!sameSet(fullRef.current, fullNow)) fullRef.current = fullNow;
@@ -136,8 +141,11 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
       undo: session.undo,
       canUndo: session.canUndo,
       lastMove: session.lastMove,
+      gate,
+      submitGate: session.submitGate,
+      cancelGate: session.cancelGate,
     }),
-    [fullColumns, itemsById, model, pendingIds, session],
+    [fullColumns, gate, itemsById, model, pendingIds, session],
   );
 }
 

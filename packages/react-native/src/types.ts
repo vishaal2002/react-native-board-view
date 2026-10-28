@@ -91,6 +91,53 @@ export interface CardActionEvent<T> {
   readonly itemIds: readonly string[];
 }
 
+/** One card of a move held by `gateMove`. */
+export interface GatedMove<T> {
+  readonly op: MoveOperation;
+  readonly item: T;
+}
+
+/** What `renderMoveGate` gets while a held move waits for the user. */
+export interface MoveGateInfo<T> {
+  /** What `gateMove` returned, or `'confirm'` for a column in `confirmInto`. */
+  readonly request: unknown;
+  /** Every card of the move: one, or a whole batch. */
+  readonly moves: readonly GatedMove<T>[];
+  /** Where the cards are going. */
+  readonly to: MoveTarget;
+  /** Queues the moves. `answer` reaches `onMove` as `context.answer`. */
+  readonly submit: (answer?: unknown) => void;
+  /** Sends the cards back where they were. */
+  readonly cancel: () => void;
+}
+
+/** `onMove`'s context: the queue's signal, and the answer when the move was held by `gateMove`. */
+export interface BoardMoveContext extends MoveContext {
+  /** What the gate submitted. Undefined when the move was not held. */
+  readonly answer?: unknown;
+}
+
+/** A lifted card was dropped onto another card. Nothing moved. */
+export interface CardDropEvent<T> {
+  readonly itemId: string;
+  readonly item: T;
+  readonly targetId: string;
+  readonly target: T;
+  /** Every card dragged: the selected cards when the card is part of a selection, else just this one. */
+  readonly itemIds: readonly string[];
+  readonly source: 'drag' | 'sheet';
+}
+
+/** A lifted card was dropped on a `BoardDropTarget`. Nothing moved. */
+export interface BoardDropTargetEvent<T> {
+  readonly targetId: string;
+  readonly itemId: string;
+  readonly item: T;
+  /** Every card dragged: the selected cards when the card is part of a selection, else just this one. */
+  readonly itemIds: readonly string[];
+  readonly from: MoveTarget;
+}
+
 /** What the drop dock shows while a card is lifted. */
 export interface DropDockOptions {
   /**
@@ -416,6 +463,21 @@ export interface BoardLabels {
   externallyMoved: (context: { readonly item: string; readonly column: string }) => string;
   /** Screen-reader action and hint on a card that a keyboard or pointer can open the sheet with. */
   openMenu: string;
+  /** Title of the board's own confirmation for `confirmInto`. */
+  confirmMoveTitle: (context: { readonly item: string; readonly count: number; readonly column: string }) => string;
+  /** Its button. */
+  confirmMove: string;
+  /** Announced when a held move is cancelled. */
+  moveCancelled: string;
+  /** Move sheet row and screen-reader action that drops the card onto another card (`onCardDrop`). */
+  dropOnto: string;
+  /** Title of the card picker it opens. */
+  dropOntoTitle: (item: string) => string;
+  /** Placeholder of the picker's search. */
+  searchCards: string;
+  noCardsMatch: string;
+  /** Announced after a card is dropped onto another. */
+  droppedOnto: (context: { readonly item: string; readonly target: string }) => string;
 }
 
 /** Imperative controls, through the `ref` prop. */
@@ -470,9 +532,10 @@ export interface BoardProps<T> {
    * accepted; reject to roll the card back. The overlay stays until `items`
    * shows the move (or `settleTimeoutMs` passes), so `setState` timing never
    * matters. Pass `context.signal` to your request: it aborts when the move
-   * times out (`inflightTimeoutMs`) or the board unmounts.
+   * times out (`inflightTimeoutMs`) or the board unmounts. A move held by
+   * `gateMove` arrives once the user submits, with the answer in `context.answer`.
    */
-  onMove: (op: MoveOperation, context: MoveContext) => Promise<void> | void;
+  onMove: (op: MoveOperation, context: BoardMoveContext) => Promise<void> | void;
   /** A move was rejected (or timed out) and rolled back. The board already announces it to screen readers. */
   onMoveError?: (op: MoveOperation, error: unknown) => void;
   onDragStart?: (event: DragStartEvent) => void;
@@ -486,6 +549,28 @@ export interface BoardProps<T> {
   canPerformAction?: (item: T, action: string) => boolean;
   /** A card action was chosen. The board does not change the item. */
   onCardAction?: (event: CardActionEvent<T>) => void;
+  /**
+   * Holds a move to ask the user first, such as a field the new column
+   * needs. Return anything but null or undefined to hold it: the cards wait,
+   * dimmed, in their new place while `renderMoveGate` shows in the board's
+   * sheet, and `onMove` is called only once the user submits. Called once
+   * per move, with every card of a batch. Undo is never held.
+   */
+  gateMove?: (moves: readonly GatedMove<T>[]) => unknown;
+  /** The form for a held move, drawn in the board's sheet. Without it, the board asks to confirm. */
+  renderMoveGate?: (info: MoveGateInfo<T>) => ReactNode;
+  /** Column ids whose moves ask to confirm first, such as Done or Lost. `gateMove` is asked first. */
+  confirmInto?: readonly string[];
+  /**
+   * A lifted card rested on another card and was dropped there. Nothing
+   * moves: the app decides what it means, such as a merge, a link or a
+   * subtask. Turns on dropping onto cards, and "Drop onto…" in the Move sheet.
+   */
+  onCardDrop?: (event: CardDropEvent<T>) => void;
+  /** Whether a card may be dropped onto another. Default: every card but itself. */
+  canDropOnCard?: (item: T, target: T) => boolean;
+  /** How long a lifted card rests on another before that card becomes the target, in ms. Default 450. */
+  cardDropDelayMs?: number;
   /**
    * A tray that slides up once a lifted card moves: column chips that move the
    * card without scrolling, and your `cardActions`. The lists end above it.

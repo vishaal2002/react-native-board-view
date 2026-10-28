@@ -27,6 +27,28 @@ const items: Task[] = [
 const base = { items, getItemId: (task: Task) => task.id, getItemLabel: (task: Task) => task.title, groupBy };
 
 describe('createBoardTester', () => {
+  it('holds a gated move until it is answered or cancelled', async () => {
+    const onMove = vi.fn();
+    const board = createBoardTester({ ...base, onMove, confirmInto: ['done'] });
+    expect(board.drag('a', { columnId: 'done' })).toBe(true);
+    expect(board.gate()).toBe('confirm');
+    expect(board.isPending('a')).toBe(true);
+    await board.settle();
+    expect(onMove).not.toHaveBeenCalled();
+    board.submitGate('ok');
+    await board.settle();
+    expect(onMove).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a' }),
+      expect.objectContaining({ answer: 'ok' }),
+    );
+
+    expect(board.drag('b', { columnId: 'done' })).toBe(true);
+    board.cancelGate();
+    expect(board.gate()).toBeNull();
+    expect(board.column('todo')).toEqual(['b']);
+    board.dispose();
+  });
+
   it('drags a card and hands onMove the op', async () => {
     const onMove = vi.fn();
     const board = createBoardTester({ ...base, onMove });

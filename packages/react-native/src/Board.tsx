@@ -38,6 +38,8 @@ import { StackedLayout } from './layout/StackedLayout';
 import { SwimlaneLayout } from './layout/SwimlaneLayout';
 import { UndoBanner } from './layout/UndoBanner';
 import { visibleModel } from './layout/visible';
+import { OUTSIDE_TARGET, OutsideTargets, dropOnOutsideTarget, useDropScope } from './layout/DropTargets';
+import { GateSheet } from './sheet/GateSheet';
 import { HeaderSheet } from './sheet/HeaderSheet';
 import { MoveSheet } from './sheet/MoveSheet';
 import { SelectionBar } from './layout/SelectionBar';
@@ -48,7 +50,7 @@ import { defaultLabels, motionPresets, resolveTheme } from './theme';
 import { moveTargetOf, useBoardController } from './useBoardController';
 import { inBoardOrder, rulesAllow } from './session';
 import { useAccessibilityServices, useReducedMotion } from './useReducedMotion';
-import type { BoardLabels, BoardProps, CardAction, CardActionEvent } from './types';
+import type { BoardLabels, BoardProps, CardAction, CardActionEvent, CardDropEvent } from './types';
 
 const NO_IDS: readonly string[] = [];
 const EMPTY_SET: ReadonlySet<string> = new Set();
@@ -202,6 +204,9 @@ export function Board<T>(props: BoardProps<T>) {
   const pagerIndicator = mode === 'paged' ? (props.pagerIndicator ?? 'tabs') : 'none';
   // Measured, not assumed: pager chrome grows with the user's text size.
   const [bodyHeight, setBodyHeight] = useState(0);
+  // Board coordinates start here: outside drop targets are measured against it.
+  const bodyRef = useRef<View>(null);
+  const dropScope = useDropScope();
   const onBodyLayout = useCallback((event: LayoutChangeEvent) => {
     setBodyHeight(event.nativeEvent.layout.height);
   }, []);
@@ -394,6 +399,41 @@ export function Board<T>(props: BoardProps<T>) {
 
   // Column and lane order is the app's: the board reports a new order and waits for `groupBy` to show it.
   const announce = useCallback((message: string) => AccessibilityInfo.announceForAccessibility(message), []);
+
+  // A card dropped onto another: nothing moves, the app decides what it means.
+  const canDropOnCard = useCallback(
+    (itemId: string, targetId: string) => {
+      const item = fullController.itemsById.get(itemId);
+      const target = fullController.itemsById.get(targetId);
+      return (
+        item != null && target != null && itemId !== targetId && (events.current.canDropOnCard?.(item, target) ?? true)
+      );
+    },
+    [fullController.itemsById],
+  );
+  const dropOnCard = useCallback(
+    (itemId: string, targetId: string, source: CardDropEvent<unknown>['source']) => {
+      const item = fullController.itemsById.get(itemId);
+      const target = fullController.itemsById.get(targetId);
+      if (item == null || target == null || !canDropOnCard(itemId, targetId)) return false;
+      const selected = selectionGet();
+      const ids =
+        selected.length > 1 && selected.includes(itemId) ? selected.filter((id) => id !== targetId) : [itemId];
+      events.current.onCardDrop?.({ itemId, item, targetId, target, itemIds: ids, source });
+      announce(
+        labels.droppedOnto({ item: fullController.itemLabel(itemId), target: fullController.itemLabel(targetId) }),
+      );
+      if (ids.length > 1) selectionSet([]);
+      return true;
+    },
+    [announce, canDropOnCard, fullController, labels, selectionGet, selectionSet],
+  );
+  const onCardDrop = useCallback(
+    ({ itemId, targetId }: { itemId: string; targetId: string }) => {
+      dropOnCard(itemId, targetId, 'drag');
+    },
+    [dropOnCard],
+  );
   const moveColumn = useCallback(
     (columnId: string, toIndex: number) => {
       const ids = events.current.groupBy.columns.values.map((column) => column.id);
@@ -645,6 +685,9 @@ export function Board<T>(props: BoardProps<T>) {
       allLanes,
       cardActionsFor,
       runCardAction,
+      cardDrops: props.onCardDrop != null,
+      canDropOnCard,
+      dropOnCard,
       overview,
       setOverview,
       setDockInset,
@@ -688,6 +731,8 @@ export function Board<T>(props: BoardProps<T>) {
       allLanes,
       overview,
       runCardAction,
+      canDropOnCard,
+      dropOnCard,
       setOverview,
       autoScroll,
       boardHeight,
@@ -767,9 +812,23 @@ export function Board<T>(props: BoardProps<T>) {
         return drop(itemId, target, 0);
       }
       if (zoneId.startsWith(DOCK_ACTION)) return runCardAction(itemId, zoneId.slice(DOCK_ACTION.length), 'dock');
+      if (zoneId.startsWith(OUTSIDE_TARGET)) {
+        const item = fullController.itemsById.get(itemId);
+        if (item == null) return false;
+        const itemIds = riders(itemId) ?? [itemId];
+        const taken = dropOnOutsideTarget(dropScope, zoneId.slice(OUTSIDE_TARGET.length), {
+          targetId: zoneId.slice(OUTSIDE_TARGET.length),
+          itemId,
+          item,
+          itemIds: inBoardOrder(fullModel, itemIds),
+          from: moveTargetOf(sourceCellId),
+        });
+        if (taken && itemIds.length > 1) selectionSet([]);
+        return taken;
+      }
       return false;
     },
-    [drop, runCardAction],
+    [drop, dropScope, fullController.itemsById, fullModel, riders, runCardAction, selectionSet],
   );
   const onDragStart = useCallback(
     ({ itemId, cellId }: { itemId: string; cellId: string }) => {
@@ -839,7 +898,7 @@ export function Board<T>(props: BoardProps<T>) {
               ) : null}
               {ready && overview ? <OverviewBar /> : null}
               <GestureDetector gesture={pinch}>
-                <View style={styles.fill} onLayout={onBodyLayout} collapsable={false}>
+                <View ref={bodyRef} style={styles.fill} onLayout={onBodyLayout} collapsable={false}>
                   {ready ? (
                     <DragBoard
                       onTransfer={onTransfer}
@@ -850,7 +909,10 @@ export function Board<T>(props: BoardProps<T>) {
                       isDragValid={isDragValid}
                       revision={model}
                       onLongPressMenu={longPressSheet ? onLongPressMenu : undefined}
-                      onZoneDrop={dockOn ? onZoneDrop : undefined}
+                      onZoneDrop={onZoneDrop}
+                      onCardDrop={props.onCardDrop ? onCardDrop : undefined}
+                      canDropOnCard={canDropOnCard}
+                      cardDropDelayMs={props.cardDropDelayMs}
                       canDrag={canDragItem}
                       canDrop={canDropBatch}
                       enabled={!readOnly && props.moveModes?.drag !== false}
@@ -876,6 +938,7 @@ export function Board<T>(props: BoardProps<T>) {
                         )}
                       </LayoutFade>
                       {dockOn ? <DropDock /> : null}
+                      <OutsideTargets root={bodyRef} />
                       {planner && !overview ? <PlannerToday /> : null}
                     </DragBoard>
                   ) : null}
@@ -891,6 +954,7 @@ export function Board<T>(props: BoardProps<T>) {
             </DragProvider>
             <MoveSheet itemIds={sheetItems} onClose={closeMoveSheet} />
             <HeaderSheet target={headerSheetTarget} onClose={closeHeaderSheet} />
+            <GateSheet gate={fullController.gate} />
           </CardContext>
         </BoardContext>
       </ThemeContext>

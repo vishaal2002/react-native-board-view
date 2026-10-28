@@ -69,6 +69,10 @@ const ZONE_SHRINK = 0.6;
 const OFFSET_HISTORY = 6;
 /** A new drop slot must hold for this many frames before the placeholder moves. */
 const STABLE_FRAMES = 2;
+/** Default `cardDropDelayMs`: a pause on a card, longer than a drag passing over it. */
+const CARD_DROP_DELAY_MS = 450;
+/** `activeZone` while a card is the target, followed by its id. */
+const CARD_TARGET = 'card:';
 /** Frames to let lists lay out after the placeholder moves before reading geometry again. */
 const SETTLE_FRAMES = 2;
 const PLACEHOLDER_ANIMATION = LayoutAnimation.create(
@@ -428,6 +432,10 @@ interface ActiveDrag {
   overAllowed: boolean;
   /** The drop zone under the pointer, or ''. */
   zoneId: string;
+  /** The card the pointer rested on, which a drop now goes to (`onCardDrop`), or null. */
+  cardTarget: string | null;
+  /** A card under the pointer's middle band, and since when, before it becomes the target. */
+  cardCandidate: { itemId: string; since: number } | null;
 }
 
 function findCell(cells: Map<string, CellGeometry>, x: number, y: number): [string, CellGeometry, Rect] | null {
@@ -446,10 +454,11 @@ function findZone(zones: Map<string, ZoneGeometry>, x: number, y: number): [stri
   return null;
 }
 
-/** Top of the highest zone, so auto-scroll edges sit above a dock instead of under it. */
+/** Top of the highest zone over the lists, so auto-scroll edges sit above a dock instead of under it. */
 function zonesTop(zones: Map<string, ZoneGeometry>): number {
   let top = Infinity;
   for (const geometry of zones.values()) {
+    if (geometry.outside) continue;
     const rect = geometry.getRect();
     if (rect) top = Math.min(top, rect.y);
   }
@@ -616,6 +625,65 @@ function DragBoard(props: DragBoardProps) {
     [outerScroller, store],
   );
 
+  /**
+   * Resting on the middle of another card makes it the target: it is outlined
+   * instead of the cell, and the placeholder stays put, so the card under the
+   * finger does not slide away. Leaving the card ends it. True while one is.
+   */
+  const cardTargetAt = useCallback(
+    (active: ActiveDrag, geometry: CellGeometry, y: number): boolean => {
+      const current = propsRef.current;
+      if (!current.onCardDrop) return false;
+      const under = geometry.itemAt(y);
+      const card =
+        under && under.itemId !== active.itemId && (current.canDropOnCard?.(active.itemId, under.itemId) ?? true)
+          ? under
+          : null;
+      if (active.cardTarget != null && card?.itemId !== active.cardTarget) {
+        active.cardTarget = null;
+        active.outlineKey = '';
+      }
+      if (!card) {
+        active.cardCandidate = null;
+        return false;
+      }
+      if (active.cardTarget == null) {
+        const { rect } = card;
+        const middle = y > rect.y + rect.height / 4 && y < rect.y + (rect.height * 3) / 4;
+        if (!middle) {
+          active.cardCandidate = null;
+          return false;
+        }
+        if (active.cardCandidate?.itemId !== card.itemId) {
+          active.cardCandidate = { itemId: card.itemId, since: active.lastTime };
+          return false;
+        }
+        if (active.lastTime - active.cardCandidate.since < (current.cardDropDelayMs ?? CARD_DROP_DELAY_MS))
+          return false;
+        active.cardTarget = card.itemId;
+        active.cardCandidate = null;
+      }
+      const { rect } = card;
+      const key = `card|${card.itemId}|${Math.round(rect.x)}|${Math.round(rect.y)}`;
+      if (key !== active.outlineKey) {
+        active.outlineKey = key;
+        const horizontal = store.scrollers.horizontal;
+        const follow = horizontal != null && current.horizontalOffset != null;
+        outline.value = {
+          visible: true,
+          allowed: true,
+          ...rect,
+          x: follow ? rect.x + horizontal.getOffset() : rect.x,
+          follow,
+        };
+      }
+      active.candidate = null;
+      active.candidateFrames = 0;
+      return true;
+    },
+    [outline, store],
+  );
+
   const updateTarget = useCallback(() => {
     const active = drag.current;
     const placement = store.placement.current;
@@ -624,11 +692,6 @@ function DragBoard(props: DragBoardProps) {
     const { x, y } = active.pointer;
     // Zones sit above the lists, so a zone under the pointer hides the cell beneath it.
     const zone = findZone(store.zones, x, y);
-    const zoneId = zone ? zone[0] : '';
-    if (zoneId !== active.zoneId) {
-      active.zoneId = zoneId;
-      activeZone.value = zoneId;
-    }
     let hit = zone ? null : findCell(store.cells, x, y);
     let probeY = y;
     const edge = hit || zone ? null : edgeTarget(active);
@@ -636,6 +699,15 @@ function DragBoard(props: DragBoardProps) {
       hit = edge.hit;
       probeY = edge.y;
     }
+    // A card target counts as a zone: the lifted copy shrinks toward the finger so the target shows, and
+    // nothing scrolls under it.
+    const onCard = hit != null && !edge && cardTargetAt(active, hit[1], y);
+    const zoneId = zone ? zone[0] : onCard ? CARD_TARGET + active.cardTarget : '';
+    if (zoneId !== active.zoneId) {
+      active.zoneId = zoneId;
+      activeZone.value = zoneId;
+    }
+    if (onCard) return;
     // Crossing a gap keeps the placeholder where it is; a cell that refuses the card sends it home.
     let desired = { cellId: placement.cellId, index: placement.index };
     active.overAllowed = false;
@@ -706,7 +778,7 @@ function DragBoard(props: DragBoardProps) {
       !propsRef.current.reducedMotion && !scrolling,
     );
     propsRef.current.onDragOver?.({ itemId: active.itemId, cellId: desired.cellId, index: desired.index });
-  }, [activeZone, allowedIn, edgeTarget, outline, store]);
+  }, [activeZone, allowedIn, cardTargetAt, edgeTarget, outline, store]);
 
   const autoScroll = useCallback(
     (dt: number) => {
@@ -854,6 +926,8 @@ function DragBoard(props: DragBoardProps) {
         outlineKey: '',
         overAllowed: true,
         zoneId: '',
+        cardTarget: null,
+        cardCandidate: null,
       };
       setMoved(store, false);
       grab.value = { x: x - card.rect.x, y: y - card.rect.y };
@@ -941,6 +1015,22 @@ function DragBoard(props: DragBoardProps) {
         if (menu) current.onLongPressMenu?.({ itemId: active.itemId, cellId: active.sourceCellId });
         return;
       }
+      const goHome = () => settle(placeholderRect());
+      const returnHome = () => {
+        if (placement.cellId === active.sourceCellId && placement.index === active.sourceIndex) {
+          goHome();
+          return;
+        }
+        // Put the placeholder back at the source first, then fly there once it is laid out.
+        setPlacement(store, { ...placement, cellId: active.sourceCellId, index: active.sourceIndex }, false);
+        requestAnimationFrame(() => requestAnimationFrame(goHome));
+      };
+      if (active.cardTarget != null && !cancelled && !menu) {
+        returnHome();
+        current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
+        current.onCardDrop?.({ itemId: active.itemId, targetId: active.cardTarget });
+        return;
+      }
       const zone = findZone(store.zones, active.pointer.x, active.pointer.y);
       if (zone && !cancelled && !menu) {
         const [zoneId, geometry, rect] = zone;
@@ -995,14 +1085,7 @@ function DragBoard(props: DragBoardProps) {
         return;
       }
 
-      const goHome = () => settle(placeholderRect());
-      if (atHome) {
-        goHome();
-      } else {
-        // Put the placeholder back at the source first, then fly there once it is laid out.
-        setPlacement(store, { ...placement, cellId: active.sourceCellId, index: active.sourceIndex }, false);
-        requestAnimationFrame(() => requestAnimationFrame(goHome));
-      }
+      returnHome();
       current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
       if (menu) current.onLongPressMenu?.({ itemId: active.itemId, cellId: active.sourceCellId });
     },

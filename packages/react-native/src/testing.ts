@@ -48,6 +48,8 @@ export type BoardTesterOptions<T> = Pick<
   | 'settleTimeoutMs'
   | 'inflightTimeoutMs'
   | 'onMoveError'
+  | 'gateMove'
+  | 'confirmInto'
 > & {
   onMove?: BoardProps<T>['onMove'];
   labels?: Partial<BoardLabels>;
@@ -77,8 +79,14 @@ export interface BoardTester<T> {
   canMove(itemId: string, to: Pick<MoveDestination, 'columnId' | 'laneId'>): boolean;
   undo(): boolean;
   canUndo(): boolean;
-  /** True while a move of this card waits for `onMove` or for `items` to show it. */
+  /** True while a move of this card waits for `onMove`, for `items` to show it, or for its gate. */
   isPending(itemId: string): boolean;
+  /** What holds the waiting move (`gateMove`'s value, or `'confirm'`), or null when none waits. */
+  gate(): unknown;
+  /** Answers the waiting move's gate: its cards go to `onMove`, with `answer` as `context.answer`. */
+  submitGate(answer?: unknown): void;
+  /** Cancels the waiting move: its cards go back. */
+  cancelGate(): void;
   /** Replaces the app's items, as a re-render with new data would. */
   setItems(items: readonly T[]): void;
   /** The items the tester holds now. */
@@ -172,7 +180,11 @@ export function createBoardTester<T>(options: BoardTesterOptions<T>): BoardTeste
     },
     undo: () => session.undo(),
     canUndo: () => session.canUndo(),
-    isPending: (itemId) => queue.getOverlay(itemId) != null,
+    isPending: (itemId) =>
+      queue.getOverlay(itemId) != null || (session.held.get()?.ops.some((op) => op.id === itemId) ?? false),
+    gate: () => session.held.get()?.request ?? null,
+    submitGate: (answer) => session.submitGate(answer),
+    cancelGate: () => session.cancelGate(),
     setItems,
     items: () => items,
     moves,
