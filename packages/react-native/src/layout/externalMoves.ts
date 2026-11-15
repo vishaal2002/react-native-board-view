@@ -15,12 +15,34 @@ export function externalMovesBetween<T>(
 ): string[] {
   if (!before) return [];
   const moved: string[] = [];
-  for (const [itemId, location] of after.locations) {
-    const previous = before.locations.get(itemId);
-    if (!previous || previous.cellId === location.cellId) continue;
-    if (pendingBefore(itemId) || pendingNow(itemId)) continue;
-    moved.push(itemId);
-    if (moved.length > EXTERNAL_MOVE_LIMIT) return [];
+  for (const cell of after.cells) {
+    // A card that changed cell changed the cell it landed in, so a cell the projection kept has none.
+    if (before.cellById.get(cell.cellId) === cell) continue;
+    for (const { id: itemId } of cell.ranked) {
+      const previous = before.locations.get(itemId);
+      if (!previous || previous.cellId === cell.cellId) continue;
+      if (pendingBefore(itemId) || pendingNow(itemId)) continue;
+      moved.push(itemId);
+      if (moved.length > EXTERNAL_MOVE_LIMIT) return [];
+    }
   }
   return moved;
+}
+
+/**
+ * Cards whose cell or position differs between two boards. Only cells the
+ * projection rebuilt are read: a cell it kept has the same cards in the same
+ * places.
+ */
+export function changedBetween<T>(before: BoardModel<T>, after: BoardModel<T>): Set<string> {
+  const changed = new Set<string>();
+  if (before === after) return changed;
+  for (const cell of after.cells) {
+    if (before.cellById.get(cell.cellId) === cell) continue;
+    cell.ranked.forEach(({ id }, index) => {
+      const previous = before.locations.get(id);
+      if (previous?.cellId !== cell.cellId || previous.index !== index) changed.add(id);
+    });
+  }
+  return changed;
 }

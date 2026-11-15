@@ -2,6 +2,28 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**. From 1.0, what counts as breaking is in the [support policy](docs/support.md).
 
+## 1.3.0
+
+`react-native-board-view` 1.3.0 and `board-view-core` 1.1.0. Publish core first: the board depends on it.
+
+See everything, follow every change.
+
+- **Zoom from cards to bars.** `zoom`: pinch through four levels of detail. Your cards, compact cards in narrower columns, one-line titles, and a short colored bar per card, so hundreds of cards fit on a phone. Cards drag at every level. `zoomLevel`, `onZoomLevelChange`, `ref.setZoomLevel()` and `getItemColor`. While the fingers move, the board follows them a little before the level changes. `overview` still works: it is the card and title levels.
+- **Cards that fly.** `animateChanges`: a change made outside a drag (a new `groupBy`, a new order, a filter, a move from the sheet, undo, or a move from elsewhere) flies each card on screen to its new place instead of jumping. Cards that leave the screen head toward their new column and fade, and cards that come on screen fade in. Only cards whose cell or position changed fly. While a big change is still being drawn, the cards lift in place first. Off under reduced motion, and off by default.
+- **Since you were away.** `ref.snapshot()` returns where every card is, as plain JSON. Passed back as `initialSnapshot`, the board opens as it was, flies to the present, and shows a chip ("4 moved · 2 new") that screen readers hear too. New label: `caughtUp`.
+- **What a drop will do.** While a lifted card hovers another column, the default column headers show the count and limit the drop would leave, and `ColumnHeaderRenderInfo.incoming` gives custom headers the same number. `describeMove` adds a line in a pill under the lifted card ("Closes 2 subtasks").
+- **Experimental: gather.** `moveModes.gather`: while a card is lifted, a second finger taps other cards to bring them along, as a selection does. The drag then follows the finger that lifted the card.
+- **Experimental: throw.** `moveModes.throw`: flick a lifted card and it goes where it was heading, a drop-dock chip or the top of another column. The release speed is measured on the UI thread.
+- **Experimental: drag lens.** `dragLens`: on a paged phone board, lifting a card zooms out to every column, and the board zooms back in on the column where it lands.
+- **Projections rebuild only what changed.** The board projects through core's new `createProjector`, which rebuilds only the cells whose cards changed. A cell nothing touched keeps its object, so its list skips its render, and an update that changes nothing returns the same model. On a 20 lanes × 6 board of 1,200 cards, one move projects in about half the time (Node, median).
+- **Core: `createProjector`.** The same projection as `projectBoard`, kept between calls. A property test checks that the two always agree. Its `locations` is a `ReadonlyMap`, but not always a `Map`.
+- **Types.** `ZoomLevel`, `ZoomOptions`, `BoardSnapshot`, `CatchUpContext` and `MovePreview`. `CardRenderInfo.detail` and `ColumnHeaderRenderInfo.incoming` are optional fields.
+
+### Fixed
+
+- A pan that failed while another pan was dragging (the mouse pan, when a second finger touched down) ended that drag.
+- The drop dock's chips logged a Reanimated warning about `opacity` and a layout animation.
+
 ## 1.2.0
 
 `react-native-board-view` 1.2.0. `board-view-core` stays at 1.0.0.

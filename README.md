@@ -312,6 +312,63 @@ const actions: CardAction[] = [
 
 **Undo.** `undo` shows a banner after each move a person makes: "Moved “Fix login” to Done · Undo". `board.undo()` works without the banner. Undo goes through `onMove` like any move, with `source: 'undo'`, and puts the card back at its old position. A move the data has since changed, or one that was rolled back, is skipped. The banner hides after `undo.timeoutMs` (5000), or stays until dismissed while a screen reader runs.
 
+## Zoom, flights and catching up
+
+![New in 1.3](https://img.shields.io/badge/new%20in-1.3-2F6FEB)
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/flights.webp" alt="The board regroups from status to person, to priority and back. Each time, every card on screen flies from its old column to its new one instead of the board redrawing." width="250" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/zoom.webp" alt="Two-finger pinches step the board from full cards to compact cards, to one-line titles with every column on screen, to a colored bar per card, then back to full cards." width="250" /></td>
+    <td align="center" width="33%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/away.webp" alt="The board remounts in the arrangement it had before. Four cards fly to where a teammate moved them, two new cards fade in, and a chip at the top says 4 moved, 2 new." width="250" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>animateChanges</b><br /><sub>Regroups, sorts and syncs fly into place.</sub></td>
+    <td align="center"><b>zoom</b><br /><sub>Pinch from cards to titles to bars. Drag at every level.</sub></td>
+    <td align="center"><b>initialSnapshot</b><br /><sub>Opens as you left it, then catches up.</sub></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center" width="25%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/preview.webp" alt="A card is dragged over Review: both column counts change in the accent color and a pill under the card says Asks Bob for a review. Over Done the pill says Closes the task, and the card is dropped there." width="190" /></td>
+    <td align="center" width="25%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/gather.webp" alt="A card is lifted in a stacked list. A second finger taps two more cards, which fade and ride along. The three are dropped on the In progress chip, and a banner says Moved 3 cards to In progress." width="190" /></td>
+    <td align="center" width="25%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/lens.webp" alt="On a paged phone board a card is lifted, and the board zooms out to every column as titles. The card is carried to Done and dropped, and the board zooms back in on the Done page." width="190" /></td>
+    <td align="center" width="25%"><img src="https://raw.githubusercontent.com/vishaal2002/react-native-board-view/main/docs/media/throw.webp" alt="A card in Backlog is flicked to the right and let go over To do. It keeps going and lands on top of In progress, with an Undo banner." width="190" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>describeMove</b><br /><sub>What the drop will do, before it happens.</sub></td>
+    <td align="center"><b>gather</b> <sup>exp.</sup><br /><sub>A second finger brings cards along.</sub></td>
+    <td align="center"><b>dragLens</b> <sup>exp.</sup><br /><sub>Every column while a card is lifted.</sub></td>
+    <td align="center"><b>throw</b> <sup>exp.</sup><br /><sub>Flick a card where it should go.</sub></td>
+  </tr>
+</table>
+
+<sub>Release build of <code>apps/bare</code> on a Pixel 9 Pro emulator, the Flights demo screen. The chips above each board are demo controls, not part of <code>Board</code>.</sub>
+
+**Zoom from cards to bars.** `zoom` lets people pinch through four levels of detail: your cards, compact cards in narrower columns, one-line titles, and a short colored bar per card, so a board of hundreds of cards fits on a phone. Cards drag at every level, and the Move sheet and screen-reader actions stay. A pinch out goes one level further, a strong one two; a pinch in comes back. `getItemColor` colors titles and bars, `zoomLevel` and `onZoomLevelChange` control the level, and `ref.setZoomLevel('dot')` sets it from your own button. Boards without lanes, in the `paged`, `multi` and `fit` layouts. `overview` still works: it is the card and title levels.
+
+**Cards that fly.** With `animateChanges`, a change made outside a drag (a new `groupBy`, a new order, a filter, a move from the sheet, undo, or a teammate's move) flies each card on screen to its new place. Cards that leave the screen head for their new column and fade; cards that come on screen fade in. Off under reduced motion.
+
+**Since you were away.** `ref.snapshot()` returns where every card is, as plain JSON. Keep it, for example when the app goes to the background, and pass it back as `initialSnapshot`: the board opens as it was, then flies each card to where it is now, and a chip says what changed ("4 moved · 2 new"). Screen readers hear the same line.
+
+```tsx
+const board = useRef<BoardHandle>(null);
+// When the app goes to the background:
+storage.set('board', JSON.stringify(board.current?.snapshot()));
+// Next time:
+<Board
+  ref={board}
+  initialSnapshot={JSON.parse(storage.getString('board') ?? 'null') ?? undefined}
+  zoom
+  animateChanges
+/>;
+```
+
+**What a drop will do.** While a lifted card hovers another column, both headers show the count and limit the drop would leave (`incoming` in `renderColumnHeader`). `describeMove` adds a line in a pill under the card: "Closes 2 subtasks", "Asks Bob for a review".
+
+**Experimental: gather, throw and the drag lens.** `moveModes={{ gather: true }}`: while a card is lifted, a second finger taps other cards to bring them along. `moveModes={{ throw: true }}`: flick a lifted card and it goes where it was heading, a dock chip or the top of another column. `dragLens` on a paged phone board zooms out to every column while a card is lifted, and back in where it lands.
+
 ## Moves that ask first
 
 ![New in 1.2](https://img.shields.io/badge/new%20in-1.2-2F6FEB)
@@ -391,7 +448,7 @@ The No value column and lane are not in `groupBy`, so they have no "…".
   </tr>
 </table>
 
-`overview` lets people pinch in on the board to see every column at once, with small cards that still drag. Pinch out, tap a column's header, or press "Back to the board" to return, and the board opens at that column. `ref.setOverview(true)` opens it from your own button. It works on boards without lanes in the `paged`, `multi` and `fit` layouts. The pinch has not been tested on a device yet, so it may change.
+`overview` lets people pinch in on the board to see every column at once, with small cards that still drag. Pinch out, tap a column's header, or press "Back to the board" to return, and the board opens at that column. `ref.setOverview(true)` opens it from your own button. It works on boards without lanes in the `paged`, `multi` and `fit` layouts. <sup>1.3</sup> `zoom` is the same pinch with more levels: compact cards and a bar per card as well (see [Zoom, flights and catching up](#zoom-flights-and-catching-up)). The pinch was checked on the Android emulator in 1.3, not yet on a phone.
 
 ## Your data at a glance
 
@@ -636,26 +693,33 @@ To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filt
 
 **Data and moves**
 
-| Prop                                                    | Default          | Notes                                                                                                                                 |
-| ------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                                                                             |
-| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                                                                                 |
-| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                                                                            |
-| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                                                                                     |
-| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                                                                                          |
-| `cardActions`, `onCardAction`, `canPerformAction`       |                  | App actions in the dock, the sheet and screen-reader actions. <sup>0.6</sup>                                                          |
-| `selectable`                                            | `true`           | Multi-select. <sup>0.8</sup>                                                                                                          |
-| `selection`, `onSelectionChange`                        | board-managed    | The selected card ids, controlled. <sup>0.8</sup>                                                                                     |
-| `onColumnOrderChange`, `onLaneOrderChange`              |                  | Reorder from the header's "…". You update `groupBy`. <sup>0.8</sup>                                                                   |
-| `highlightExternalMoves`                                | `true`           | Flash cards your data moved by itself. <sup>0.8</sup>                                                                                 |
-| `dock`                                                  | `true`           | The drop dock. `false`, or `{ columns, actions }`. <sup>0.6</sup>                                                                     |
-| `haptics`                                               | `true`           | A tick on lift through your app's haptics module, `false`, or your own function. <sup>0.6</sup>                                       |
-| `undo`                                                  | `false`          | The undo banner. `true` or `{ timeoutMs }`. <sup>0.6</sup>                                                                            |
-| `readOnly`                                              | `false`          | Display only.                                                                                                                         |
-| `moveModes`                                             | drag and sheet   | `{ drag, sheet, longPressSheet, swipe }`. `drag` is `'auto'`, `'handle'` or `false`. See [Ways to move a card](#ways-to-move-a-card). |
-| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                                                                              |
-| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                                                                                    |
-| `rankStrategy`                                          | fractional index | Replace the rank math.                                                                                                                |
+| Prop                                                    | Default          | Notes                                                                                                                                                |
+| ------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                                                                                            |
+| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                                                                                                |
+| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                                                                                           |
+| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                                                                                                    |
+| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                                                                                                         |
+| `cardActions`, `onCardAction`, `canPerformAction`       |                  | App actions in the dock, the sheet and screen-reader actions. <sup>0.6</sup>                                                                         |
+| `selectable`                                            | `true`           | Multi-select. <sup>0.8</sup>                                                                                                                         |
+| `selection`, `onSelectionChange`                        | board-managed    | The selected card ids, controlled. <sup>0.8</sup>                                                                                                    |
+| `onColumnOrderChange`, `onLaneOrderChange`              |                  | Reorder from the header's "…". You update `groupBy`. <sup>0.8</sup>                                                                                  |
+| `animateChanges`                                        | `false`          | Cards fly to their new places when the board changes outside a drag. <sup>1.3</sup>                                                                  |
+| `zoom`                                                  | `false`          | Pinch through cards, compact cards, titles and bars. Drag works at every level. <sup>1.3</sup>                                                       |
+| `zoomLevel`, `onZoomLevelChange`                        | board-managed    | Controls the zoom level. <sup>1.3</sup>                                                                                                              |
+| `getItemColor`                                          | column color     | A card's color as a title or a bar. <sup>1.3</sup>                                                                                                   |
+| `initialSnapshot`                                       | none             | Opens as `ref.snapshot()` saw it, then flies to now. <sup>1.3</sup>                                                                                  |
+| `describeMove`                                          | none             | A line under the lifted card: what the drop will do. <sup>1.3</sup>                                                                                  |
+| `dragLens`                                              | `false`          | Experimental. Zooms out while a card is lifted on a paged board. <sup>1.3</sup>                                                                      |
+| `highlightExternalMoves`                                | `true`           | Flash cards your data moved by itself. <sup>0.8</sup>                                                                                                |
+| `dock`                                                  | `true`           | The drop dock. `false`, or `{ columns, actions }`. <sup>0.6</sup>                                                                                    |
+| `haptics`                                               | `true`           | A tick on lift through your app's haptics module, `false`, or your own function. <sup>0.6</sup>                                                      |
+| `undo`                                                  | `false`          | The undo banner. `true` or `{ timeoutMs }`. <sup>0.6</sup>                                                                                           |
+| `readOnly`                                              | `false`          | Display only.                                                                                                                                        |
+| `moveModes`                                             | drag and sheet   | `{ drag, sheet, longPressSheet, swipe, gather, throw }`. `drag` is `'auto'`, `'handle'` or `false`. See [Ways to move a card](#ways-to-move-a-card). |
+| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                                                                                             |
+| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                                                                                                   |
+| `rankStrategy`                                          | fractional index | Replace the rank math.                                                                                                                               |
 
 **Layout and navigation**
 
@@ -721,6 +785,8 @@ To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filt
 | `setSelection(ids)`, `getSelection()`           | Replaces or reads the selection. `[]` ends it. <sup>0.8</sup>                                                   |
 | `undo()`, `canUndo()`                           | Reverts the newest move that is still where it landed. <sup>0.6</sup>                                           |
 | `setOverview(open, columnId?)`                  | Experimental. Opens or closes the overview. <sup>0.6</sup>                                                      |
+| `setZoomLevel(level, columnId?)`                | Zooms to a level of `zoom`. <sup>1.3</sup>                                                                      |
+| `snapshot()`                                    | Where every card is now, for `initialSnapshot`. <sup>1.3</sup>                                                  |
 
 ### `renderCard` info
 

@@ -8,9 +8,21 @@ import { useBoardController } from './useBoardController';
 import type { BoardProps } from './types';
 
 // Counts projections: on a large board each one is a noticeable part of a drop.
+const projections = vi.hoisted(() => ({ count: 0 }));
 vi.mock('board-view-core', async (original) => {
   const actual = await original<typeof core>();
-  return { ...actual, projectBoard: vi.fn(actual.projectBoard) };
+  return {
+    ...actual,
+    createProjector: <T,>(): core.Projector<T> => {
+      const projector = actual.createProjector<T>();
+      return {
+        project(input) {
+          projections.count += 1;
+          return projector.project(input);
+        },
+      };
+    },
+  };
 });
 
 interface Task {
@@ -45,13 +57,12 @@ const props: BoardProps<Task> = {
 describe('projections', () => {
   it('projects the board once for a move, planning and drawing included', () => {
     const { result } = renderHook(() => useBoardController(props, defaultLabels));
-    const projectBoard = vi.mocked(core.projectBoard);
-    projectBoard.mockClear();
+    projections.count = 0;
     act(() => {
       expect(result.current.moveItem('a', cellId('_', 'done'), 0, 'drag')).toBe(true);
     });
     expect(result.current.model.cellById.get(cellId('_', 'done'))?.items.map((task) => task.id)).toEqual(['a', 'c']);
-    expect(projectBoard).toHaveBeenCalledTimes(1);
+    expect(projections.count).toBe(1);
   });
 
   it('projects once more when the app shows the move, not again when the overlay goes', async () => {
@@ -77,8 +88,7 @@ describe('projections', () => {
       accept();
       await new Promise((done) => setTimeout(done, 0));
     });
-    const projectBoard = vi.mocked(core.projectBoard);
-    projectBoard.mockClear();
+    projections.count = 0;
     // The app's items now hold the move: the board projects them once, and the overlay leaving changes nothing.
     rerender({
       ...accepted,
@@ -86,13 +96,12 @@ describe('projections', () => {
     });
     expect(result.current.isPending('a')).toBe(false);
     expect(result.current.model.cellById.get(cellId('_', 'done'))?.items.map((task) => task.id)).toEqual(['a', 'c']);
-    expect(projectBoard).toHaveBeenCalledTimes(1);
+    expect(projections.count).toBe(1);
   });
 
   it('projects a batch once per card', () => {
     const { result } = renderHook(() => useBoardController(props, defaultLabels));
-    const projectBoard = vi.mocked(core.projectBoard);
-    projectBoard.mockClear();
+    projections.count = 0;
     act(() => {
       expect(result.current.moveItems(['a', 'b'], cellId('_', 'done'), 0, 'sheet')).toBe(2);
     });
@@ -101,6 +110,6 @@ describe('projections', () => {
       'b',
       'c',
     ]);
-    expect(projectBoard).toHaveBeenCalledTimes(2);
+    expect(projections.count).toBe(2);
   });
 });

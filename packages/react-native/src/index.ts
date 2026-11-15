@@ -15,6 +15,8 @@ export type {
   BoardLabels,
   BoardLayout,
   BoardProps,
+  BoardSnapshot,
+  CatchUpContext,
   BoardTheme,
   CardAccessibilityContext,
   BoardDropTargetEvent,
@@ -42,8 +44,11 @@ export type {
   MoveAnnouncementContext,
   MoveDestination,
   MoveModes,
+  MovePreview,
   MoveTarget,
   ScrollToItemOptions,
+  ZoomLevel,
+  ZoomOptions,
 } from './types';
 
 // The pure core, re-exported so apps and servers share one implementation of

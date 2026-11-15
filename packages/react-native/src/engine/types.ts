@@ -2,6 +2,7 @@ import type { ComponentType, ReactNode } from 'react';
 import type { LayoutChangeEvent, StyleProp, ViewStyle } from 'react-native';
 import type { AnimatedRef, SharedValue } from 'react-native-reanimated';
 import type { AutoScrollMode } from './autoScroll';
+import type { FlightOptions } from './flights';
 import type { Rect } from './geometry';
 
 /**
@@ -89,6 +90,24 @@ export interface DragBoardProps {
    */
   isDragValid?(itemId: string, sourceCellId: string): boolean;
   revision?: unknown;
+  /**
+   * Cards fly to their new places when `revision` changes outside a drag.
+   * Null or absent: they jump, as before.
+   */
+  flights?: FlightOptions | null;
+  /**
+   * A second finger tapped a card while one is lifted. Return true when that
+   * card now rides along with the drag (the board adds it to the selection).
+   * Turns on gathering: the drag then follows the finger that lifted the card.
+   */
+  onGather?(itemId: string, liftedId: string): boolean;
+  /** Draws a card flat, for a gathered card's short flight into the lifted stack. */
+  renderFlat?(itemId: string): ReactNode;
+  /**
+   * A fast flick at release sends the card where it was heading: a drop zone,
+   * or the top of another column. A slow release drops as usual.
+   */
+  throwToTarget?: boolean;
   /** Mirrors the pointer in board coordinates while dragging. */
   dragPosition?: SharedValue<{ x: number; y: number }>;
   longPressDelay?: number;
@@ -161,6 +180,11 @@ export interface CellGeometry {
   itemAt(y: number): { itemId: string; index: number; rect: Rect } | null;
   /** Where a displayed row is now; `PLACEHOLDER_ID` gives the placeholder. */
   itemRect(itemId: string): Rect | null;
+  /**
+   * The cards drawn on screen now, top to bottom, in one pass over the rows
+   * that are on screen. Flights read it before and after a change.
+   */
+  visibleItems(): { itemId: string; rect: Rect }[];
   /** Scroller that auto-scrolls vertically when hovering this cell. */
   readonly scroller?: ScrollerHandle;
   /** Collapsed lanes and similar cells refuse drops. */
@@ -236,6 +260,11 @@ export interface DragAdapter {
    * dock waits for this instead of flashing up before the sheet.
    */
   readonly useDragMoved: () => boolean;
+  /**
+   * The columns of the lifted card and of its slot, while they differ. Changes
+   * only when either column does, not with every slot.
+   */
+  readonly useDragColumns: () => { readonly from: string; readonly to: string } | null;
   /** The whole placement, for layouts that render every cell in one list. */
   readonly usePlacementState: () => DragPlacement | null;
   /** Registers a drop zone while `geometry` is set. */

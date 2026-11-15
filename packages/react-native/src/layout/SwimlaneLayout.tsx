@@ -617,6 +617,21 @@ function swimGeometry(live: RefObject<SwimLive>, slotsByKey: RefObject<Map<strin
       if (!found || found.y + found.height < frame.top || found.y > frame.top + frame.height) return null;
       return found;
     },
+    visibleItems() {
+      const current = live.current;
+      const outer = rect();
+      const visible: { itemId: string; rect: Rect }[] = [];
+      if (!outer) return visible;
+      const frame = current.lanes.frame.current;
+      // A cell shows at most `laneCellLimit` rows, so one pass over them is cheap.
+      current.rows.forEach((row, index) => {
+        if (isPlaceholder(row)) return;
+        const found = rowRect(index, outer);
+        if (!found || found.y + found.height < frame.top || found.y > frame.top + frame.height) return;
+        visible.push({ itemId: current.board.props.getItemId(row), rect: found });
+      });
+      return visible;
+    },
   };
 }
 

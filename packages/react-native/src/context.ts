@@ -1,4 +1,5 @@
 import { createContext, use, useSyncExternalStore } from 'react';
+import type { ReactNode } from 'react';
 import type { GestureType } from 'react-native-gesture-handler';
 import type { SharedValue } from 'react-native-reanimated';
 import type { DragAdapter } from './engine/types';
@@ -6,7 +7,15 @@ import type { ColumnMetrics } from './layout/metrics';
 import type { BoardController } from './useBoardController';
 import type { GroupValue } from 'board-view-core';
 import type { LimitState, PlannerDay } from './insights';
-import type { BoardLabels, BoardProps, BoardTheme, CardAction, CardActionEvent, CardDropEvent } from './types';
+import type {
+  BoardLabels,
+  BoardProps,
+  BoardTheme,
+  CardAction,
+  CardActionEvent,
+  CardDropEvent,
+  ZoomLevel,
+} from './types';
 
 export { createValueStore, type ValueStore } from './store';
 import type { ValueStore } from './store';
@@ -102,6 +111,12 @@ export interface BoardContextValue<T = unknown> {
   readonly externalMoves: ValueStore<ReadonlyMap<string, object>>;
   /** The whole-board overview is showing: cards draw small. */
   readonly overview: boolean;
+  /** The zoom level: `title` and `dot` are the overview. */
+  readonly detail: ZoomLevel;
+  /** `describeMove`'s pill under the lifted card, or undefined without it. */
+  readonly moveLabel: ReactNode;
+  /** Cards a drag moves: the selection when the lifted card is part of it, else 1. */
+  readonly dragCount: (itemId: string) => number;
   readonly setOverview: (open: boolean, columnId?: string) => void;
   /** The drop dock's height while it shows, so the lists end above it instead of under it. */
   readonly setDockInset: (height: number) => void;
@@ -150,6 +165,9 @@ export interface CardContextValue<T = unknown> {
   readonly rtl: boolean;
   readonly reducedMotion: boolean;
   readonly overview: boolean;
+  readonly detail: ZoomLevel;
+  /** `getItemColor`, for the title and dot levels. */
+  readonly getItemColor?: (item: T) => string | null | undefined;
   readonly sheetMode: 'auto' | 'manual' | false;
   /** 'manual': the board draws nothing over the card. */
   readonly cardMarks: 'auto' | 'manual';

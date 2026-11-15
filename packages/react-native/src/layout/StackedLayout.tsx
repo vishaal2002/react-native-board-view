@@ -220,6 +220,17 @@ function stackedGeometry(
       }
       return null;
     },
+    visibleItems() {
+      const current = range();
+      const found: { itemId: string; rect: Rect }[] = [];
+      if (!current) return found;
+      for (let index = 0; index < current.count; index += 1) {
+        const row = live.current.rows[current.first + index];
+        const shown = row?.kind === 'card' ? visible(bodyRect(index)) : null;
+        if (row?.kind === 'card' && shown) found.push({ itemId: row.itemId, rect: shown });
+      }
+      return found;
+    },
   };
 }
 

@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import type { GroupValue } from 'board-view-core';
 import { useBoard } from '../context';
-import type { BoardTheme } from '../types';
+import type { BoardTheme, ZoomLevel } from '../types';
 
 /** The overview is the `fit` layout with tight spacing and columns this narrow. */
 const OVERVIEW_COLUMN = 64;
@@ -19,6 +19,50 @@ export function overviewTheme(theme: BoardTheme): BoardTheme {
     radius: 10,
     cardRadius: 6,
   };
+}
+
+/** Every zoom level, from your cards out. */
+export const ZOOM_LEVELS: readonly ZoomLevel[] = ['card', 'compact', 'title', 'dot'];
+
+/** The levels a board steps through: `zoom` wins, then the older `overview` (cards and titles). */
+export function zoomLevelsOf(
+  zoom: boolean | { levels?: readonly ZoomLevel[] } | undefined,
+  overview: boolean | undefined,
+) {
+  if (zoom === true) return ZOOM_LEVELS;
+  if (zoom) return ZOOM_LEVELS.filter((level) => level === 'card' || (zoom.levels ?? ZOOM_LEVELS).includes(level));
+  return overview ? (['card', 'title'] as const) : (['card'] as const);
+}
+
+/** The theme a zoom level draws with: narrower columns and tighter spacing each step out. */
+export function zoomTheme(theme: BoardTheme, level: ZoomLevel): BoardTheme {
+  switch (level) {
+    case 'card':
+      return theme;
+    case 'compact':
+      return { ...theme, minColumnWidth: 150, columnGap: 8, cellPadding: 6, cardGap: 6 };
+    case 'title':
+      return overviewTheme(theme);
+    case 'dot':
+      return {
+        ...theme,
+        minColumnWidth: DOT_COLUMN,
+        collapsedColumnWidth: Math.min(theme.collapsedColumnWidth, 24),
+        columnGap: 4,
+        cellPadding: 3,
+        cardGap: 2,
+        radius: 8,
+        cardRadius: 3,
+      };
+  }
+}
+
+/** Columns at the dot level: a header's dot and count, and a stack of bars. */
+const DOT_COLUMN = 40;
+
+/** A card at the dot level: a short bar in its color. */
+export function DotCard({ color, theme }: { color?: string; theme: BoardTheme }) {
+  return <View style={[styles.dot, { backgroundColor: color ?? theme.accent, borderRadius: theme.cardRadius }]} />;
 }
 
 function font(theme: BoardTheme) {
@@ -110,5 +154,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   miniBar: { width: 3 },
+  dot: { height: 6 },
   miniText: { flex: 1, fontSize: 11, lineHeight: 14, fontWeight: '600' },
 });

@@ -11,6 +11,7 @@ import { EmptyCellsScreen } from './screens/EmptyCellsScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { HostsScreen } from './screens/HostsScreen';
 import { KanbanScreen } from './screens/KanbanScreen';
+import { FlightsScreen } from './screens/FlightsScreen';
 import { LiveDataScreen } from './screens/LiveDataScreen';
 import { InsightsScreen } from './screens/InsightsScreen';
 import { MatrixScreen } from './screens/MatrixScreen';
@@ -84,6 +85,9 @@ function Router({ host }: { host: string }) {
       break;
     case 'showcase':
       screen = <ShowcaseScreen onBack={back} />;
+      break;
+    case 'flights':
+      screen = <FlightsScreen onBack={back} />;
       break;
     case 'live':
       screen = <LiveDataScreen onBack={back} />;

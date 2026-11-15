@@ -291,6 +291,14 @@ it('moves a task to Done and saves it', async () => {
 
 [Testing kit reference](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#testing-kit).
 
+### Zoom, flights and catching up (1.3)
+
+- `zoom` turns on pinch zoom through `card`, `compact`, `title` and `dot` levels. Color titles and bars with `getItemColor`. Control it with `zoomLevel` and `onZoomLevelChange`, or `ref.setZoomLevel()`.
+- `animateChanges` flies cards to new places when `items` or `groupBy` change outside a drag. It is off by default.
+- To show what changed while the app was closed, save `ref.snapshot()` (plain JSON) and pass it back as `initialSnapshot`. Read it once, at mount.
+- `describeMove(preview)` returns a short line drawn under the lifted card. Keep it synchronous and cheap.
+- `moveModes.gather`, `moveModes.throw` and `dragLens` are experimental. Turn them on only when the app asks for them.
+
 ## Mistakes to avoid
 
 - **Inline `renderCard`, `theme` or rules.** A new `renderCard`, `getItemLabel`, `theme`, `spotlight`, `canDrag`, `canDrop`, `cardActions` or `canPerformAction` on each render redraws every card. Hoist them or memoize them.

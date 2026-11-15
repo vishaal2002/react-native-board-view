@@ -4,9 +4,9 @@ import {
   cellId as makeCellId,
   createMoveQueue,
   createOpId,
+  createProjector,
   parseCellId,
   planMove,
-  projectBoard,
   readAxisValue,
   readItemSnapshot,
   type BoardModel,
@@ -349,6 +349,8 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
   // "Moved" is announced once the app accepts the move, so it never reports a move that rolls back.
   const announcements = new Map<string, string>();
   let cache: Projection<T> | null = null;
+  // Each projection rebuilds only the cells that changed since the last one, and keeps the rest.
+  const projector = createProjector<T>();
 
   function inputsNow(): ProjectionInputs<T> {
     const props = env.props();
@@ -362,7 +364,7 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
   }
 
   function project(overlays: readonly MoveOperation[], inputs = inputsNow(), items = env.items()): BoardModel<T> {
-    return projectBoard({
+    return projector.project({
       items,
       getItemId: inputs.getItemId,
       getRank: inputs.getRank,

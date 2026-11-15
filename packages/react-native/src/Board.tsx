@@ -10,9 +10,16 @@ import {
 } from 'react';
 import { AccessibilityInfo, I18nManager, StyleSheet, View, useColorScheme, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
-import Animated, { FadeIn, useSharedValue } from 'react-native-reanimated';
+import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
-import { NO_VALUE_ID, cellId as makeCellId, parseCellId, type BoardModel, type GroupValue } from 'board-view-core';
+import {
+  NO_VALUE_ID,
+  cellId as makeCellId,
+  parseCellId,
+  projectBoard,
+  type BoardModel,
+  type GroupValue,
+} from 'board-view-core';
 import {
   BoardContext,
   CardContext,
@@ -26,12 +33,15 @@ import {
 } from './context';
 import { gestureAdapter } from './engine/DragEngine';
 import type { ReorderIntent, TransferIntent } from './engine/types';
-import { HoverCard } from './layout/BoardCard';
+import { FlightCard, HoverCard } from './layout/BoardCard';
+import { MoveLabel } from './layout/MoveLabel';
+import { CatchUpChip } from './layout/CatchUpChip';
+import { catchUpCounts, snapshotBoard, snapshotOf } from './catchUp';
 import { MatrixLayout, matrixFits } from './layout/MatrixLayout';
 import { ColumnsLayout } from './layout/ColumnsLayout';
 import { DOCK_ACTION, DOCK_COLUMN, DropDock } from './layout/DropDock';
 import { columnMetrics, resolveLayout, visualSlot, type ColumnMetrics } from './layout/metrics';
-import { OverviewBar, overviewTheme } from './layout/Overview';
+import { OverviewBar, zoomLevelsOf, zoomTheme } from './layout/Overview';
 import { PagerDots, PagerTabs } from './layout/Pager';
 import { PlannerToday } from './layout/PlannerToday';
 import { StackedLayout } from './layout/StackedLayout';
@@ -43,14 +53,14 @@ import { GateSheet } from './sheet/GateSheet';
 import { HeaderSheet } from './sheet/HeaderSheet';
 import { MoveSheet } from './sheet/MoveSheet';
 import { SelectionBar } from './layout/SelectionBar';
-import { externalMovesBetween } from './layout/externalMoves';
+import { changedBetween, externalMovesBetween } from './layout/externalMoves';
 import { hapticsFor } from './haptics';
 import { columnStats, formatCompact, limitState, plannerDay, sumValues } from './insights';
 import { defaultLabels, motionPresets, resolveTheme } from './theme';
 import { moveTargetOf, useBoardController } from './useBoardController';
-import { inBoardOrder, rulesAllow } from './session';
+import { defaultGetRank, inBoardOrder, rulesAllow } from './session';
 import { useAccessibilityServices, useReducedMotion } from './useReducedMotion';
-import type { BoardLabels, BoardProps, CardAction, CardActionEvent, CardDropEvent } from './types';
+import type { BoardLabels, BoardProps, CardAction, CardActionEvent, CardDropEvent, ZoomLevel } from './types';
 
 const NO_IDS: readonly string[] = [];
 const EMPTY_SET: ReadonlySet<string> = new Set();
@@ -58,8 +68,16 @@ const NO_ACTIONS: readonly CardAction[] = [];
 /** A pinch that ends below this scale opens the overview; above the inverse it closes it. */
 const PINCH_IN = 0.8;
 const PINCH_OUT = 1.25;
+/** How long the board shows `initialSnapshot`'s arrangement before the cards fly, and the chip after. */
+const CATCH_UP_HOLD_MS = 450;
+const CATCH_UP_CHIP_MS = 4000;
+/** How far the board follows the fingers during a pinch, before the level changes on release. */
+const PINCH_FOLLOW_MIN = 0.88;
+const PINCH_FOLLOW_MAX = 1.1;
 /** How long a `scrollToItem` highlight stays, long enough for the scroll to land and the flash to fade. */
 const HIGHLIGHT_MS = 1800;
+/** How long a card takes to fly to its new place (`animateChanges`), before the motion preset scales it. */
+const FLIGHT_MS = 320;
 
 function toggleIn(list: readonly string[], id: string): string[] {
   return list.includes(id) ? list.filter((entry) => entry !== id) : [...list, id];
@@ -162,9 +180,33 @@ export function Board<T>(props: BoardProps<T>) {
   const fullController = useBoardController(props, labels);
   const hasLanes = props.groupBy.lanes != null;
   const fullModel = fullController.model;
+  // Since you were away: the board first draws `initialSnapshot`'s arrangement, then flies to the live one.
+  const initialSnapshot = useRef(props.initialSnapshot).current;
+  const [catchUp, setCatchUp] = useState<'before' | 'playing' | 'done'>(initialSnapshot ? 'before' : 'done');
+  const { getItemId, getRank, groupBy, rankStrategy } = props;
+  const pastModel = useMemo(() => {
+    if (catchUp !== 'before' || !initialSnapshot) return null;
+    const past = snapshotBoard(
+      initialSnapshot,
+      [...fullController.itemsById.values()],
+      getItemId,
+      groupBy,
+      rankStrategy,
+    );
+    return projectBoard({
+      items: past.items,
+      getItemId,
+      getRank: getRank ?? defaultGetRank,
+      groupBy,
+      overlays: past.overlays,
+      strategy: rankStrategy,
+      noValueLabel: labels.noValue,
+    });
+  }, [catchUp, fullController.itemsById, getItemId, getRank, groupBy, initialSnapshot, labels.noValue, rankStrategy]);
+  const drawnBase = pastModel ?? fullModel;
   const shownModel = useMemo(
-    () => visibleModel(fullModel, props.hideEmptyColumns === true, hasLanes && props.hideEmptyLanes === true),
-    [fullModel, hasLanes, props.hideEmptyColumns, props.hideEmptyLanes],
+    () => visibleModel(drawnBase, props.hideEmptyColumns === true, hasLanes && props.hideEmptyLanes === true),
+    [drawnBase, hasLanes, props.hideEmptyColumns, props.hideEmptyLanes],
   );
   // Layouts draw `controller.model`; moves still plan against the whole board inside the controller.
   const events = useRef(props);
@@ -196,11 +238,23 @@ export function Board<T>(props: BoardProps<T>) {
     root.width,
     props.autoBreakpoint,
   );
-  const overviewAvailable = props.overview === true && !hasLanes && baseMode !== 'stacked';
-  const [overviewOwn, setOverviewOwn] = useState(false);
-  const overview = overviewAvailable && (props.overviewOpen ?? overviewOwn);
-  // The overview is the fit layout with small cards, so every column (or most) fits on screen.
-  const mode = overview ? 'fit' : baseMode;
+  const zoomLevels = useMemo(() => zoomLevelsOf(props.zoom, props.overview), [props.zoom, props.overview]);
+  const zoomAvailable = zoomLevels.length > 1 && !hasLanes && baseMode !== 'stacked';
+  const [levelOwn, setLevelOwn] = useState<ZoomLevel>('card');
+  // `overviewOpen` still controls the older two-level overview: open is its furthest level.
+  const controlledLevel =
+    props.zoomLevel ?? (props.overviewOpen === undefined ? undefined : props.overviewOpen ? zoomLevels.at(-1) : 'card');
+  // The drag lens zooms out to titles while a card is lifted on a paged board.
+  const [lens, setLens] = useState(false);
+  const lensOpen = useRef(false);
+  const lensAvailable = props.dragLens === true && !hasLanes && baseMode === 'paged';
+  const zoomed: ZoomLevel = zoomAvailable ? (controlledLevel ?? levelOwn) : 'card';
+  const level: ZoomLevel = lens && lensAvailable ? 'title' : zoomed;
+  const zoomedOut = level !== 'card';
+  // The overview is the board's own small cards: the title and dot levels.
+  const overview = level === 'title' || level === 'dot';
+  // Zoomed out is the fit layout, so every column (or most) fits on screen.
+  const mode = zoomedOut ? 'fit' : baseMode;
   const pagerIndicator = mode === 'paged' ? (props.pagerIndicator ?? 'tabs') : 'none';
   // Measured, not assumed: pager chrome grows with the user's text size.
   const [bodyHeight, setBodyHeight] = useState(0);
@@ -215,7 +269,7 @@ export function Board<T>(props: BoardProps<T>) {
   const [dockInset, setDockInset] = useState(0);
   const boardHeight = Math.max(0, bodyHeight - dockInset);
 
-  const theme = useMemo(() => (overview ? overviewTheme(baseTheme) : baseTheme), [baseTheme, overview]);
+  const theme = useMemo(() => zoomTheme(baseTheme, level), [baseTheme, level]);
 
   const [collapsedLanesOwn, toggleLane] = useCollapsedList(props.collapsedLanes, props.onCollapsedLanesChange);
   const canCollapseLanes = props.collapsibleLanes !== false;
@@ -285,48 +339,55 @@ export function Board<T>(props: BoardProps<T>) {
   // Where to return when the overview closes, and a column to scroll to once the board is back.
   const returnColumn = useRef<string | null>(null);
   const [revealColumn, setRevealColumn] = useState<string | null>(null);
-  const live = useRef({
-    overviewAvailable,
-    overview,
+  const zoomState = {
+    zoomAvailable,
+    level,
+    levels: zoomLevels,
+    onZoomLevelChange: props.onZoomLevelChange,
     onOverviewChange: props.onOverviewChange,
-    controlled: props.overviewOpen !== undefined,
-  });
-  live.current = {
-    overviewAvailable,
-    overview,
-    onOverviewChange: props.onOverviewChange,
-    controlled: props.overviewOpen !== undefined,
+    controlled: props.zoomLevel !== undefined || props.overviewOpen !== undefined,
   };
-  const setOverview = useCallback((open: boolean, columnId?: string) => {
+  const live = useRef(zoomState);
+  live.current = zoomState;
+  const setZoomLevel = useCallback((next: ZoomLevel, columnId?: string) => {
     const current = live.current;
-    if (!current.overviewAvailable || current.overview === open) return;
-    if (!open) setRevealColumn(columnId ?? returnColumn.current);
-    if (!current.controlled) setOverviewOwn(open);
-    current.onOverviewChange?.(open);
+    if (!current.zoomAvailable || !current.levels.includes(next) || current.level === next) return;
+    if (next === 'card') setRevealColumn(columnId ?? returnColumn.current);
+    if (!current.controlled) setLevelOwn(next);
+    current.onZoomLevelChange?.(next);
+    const isOverview = (value: ZoomLevel) => value === 'title' || value === 'dot';
+    if (isOverview(next) !== isOverview(current.level)) current.onOverviewChange?.(isOverview(next));
   }, []);
-  // Remember where the board was whenever the overview opens, controlled or not.
-  const wasOverview = useRef(overview);
-  if (overview && !wasOverview.current) {
+  const setOverview = useCallback(
+    (open: boolean, columnId?: string) =>
+      setZoomLevel(open ? (live.current.levels.at(-1) ?? 'card') : 'card', columnId),
+    [setZoomLevel],
+  );
+  // Remember where the board was whenever it zooms out, controlled or not.
+  const wasOverview = useRef(zoomedOut);
+  if (zoomedOut && !wasOverview.current) {
     const columnsNow = controller.model.columns;
     returnColumn.current = lastColumn.current ?? columnsNow[visualSlot(page.get(), columnsNow.length, rtl)]?.id ?? null;
   }
-  if (!overview && wasOverview.current && revealColumn === null && returnColumn.current) {
-    // Closed by the app through `overviewOpen`: go back to where the board was.
+  if (!zoomedOut && wasOverview.current && revealColumn === null && returnColumn.current) {
+    // Zoomed back in by the app (`zoomLevel`, `overviewOpen`): go back to where the board was.
     setRevealColumn(returnColumn.current);
   }
-  wasOverview.current = overview;
+  wasOverview.current = zoomedOut;
   useEffect(() => {
-    if (overview || revealColumn === null) return;
+    if (zoomedOut || revealColumn === null) return;
     const frame = requestAnimationFrame(() => {
       scrollApi.current?.toColumn(revealColumn, false);
       setRevealColumn(null);
     });
     return () => cancelAnimationFrame(frame);
-  }, [overview, revealColumn]);
+  }, [zoomedOut, revealColumn]);
 
   const { moveTo, moveManyTo, undo, canUndo } = controller;
   const setSelection = selection.set;
   const getSelection = selection.get;
+  const liveModel = useRef(fullModel);
+  liveModel.current = fullModel;
   useImperativeHandle(
     props.ref,
     () => ({
@@ -348,6 +409,8 @@ export function Board<T>(props: BoardProps<T>) {
       undo: () => undo(),
       canUndo,
       setOverview,
+      setZoomLevel,
+      snapshot: () => snapshotOf(liveModel.current),
       setSelection,
       getSelection,
     }),
@@ -361,6 +424,7 @@ export function Board<T>(props: BoardProps<T>) {
       openMoveSheet,
       setOverview,
       setSelection,
+      setZoomLevel,
       undo,
     ],
   );
@@ -593,6 +657,8 @@ export function Board<T>(props: BoardProps<T>) {
       rtl,
       reducedMotion,
       overview,
+      detail: level,
+      getItemColor: props.getItemColor as ((item: unknown) => string | null | undefined) | undefined,
       sheetMode,
       cardMarks,
       selectable,
@@ -639,6 +705,8 @@ export function Board<T>(props: BoardProps<T>) {
       labels,
       openMoveSheet,
       overview,
+      level,
+      props.getItemColor,
       reducedMotion,
       renderCard,
       rtl,
@@ -651,6 +719,15 @@ export function Board<T>(props: BoardProps<T>) {
       swipeEnabled,
       theme,
     ],
+  );
+  const describesMoves = props.describeMove != null;
+  const moveLabel = useMemo(() => (describesMoves ? <MoveLabel /> : undefined), [describesMoves]);
+  const dragCount = useCallback(
+    (itemId: string) => {
+      const selected = selection.store.get();
+      return selected.size > 1 && selected.has(itemId) ? selected.size : 1;
+    },
+    [selection.store],
   );
   const value = useMemo<BoardContextValue<T>>(
     () => ({
@@ -689,6 +766,9 @@ export function Board<T>(props: BoardProps<T>) {
       canDropOnCard,
       dropOnCard,
       overview,
+      detail: level,
+      moveLabel,
+      dragCount,
       setOverview,
       setDockInset,
       describeColumn,
@@ -730,6 +810,9 @@ export function Board<T>(props: BoardProps<T>) {
       allColumns,
       allLanes,
       overview,
+      level,
+      moveLabel,
+      dragCount,
       runCardAction,
       canDropOnCard,
       dropOnCard,
@@ -791,7 +874,16 @@ export function Board<T>(props: BoardProps<T>) {
     },
     [moveItem, moveItems, riders, selectionSet],
   );
-  const onTransfer = useCallback((event: TransferIntent) => drop(event.itemId, event.toCellId, event.toIndex), [drop]);
+  // Where the last drop landed, read when the drag ends: the board has not drawn the move yet by then.
+  const landedColumn = useRef<string | null>(null);
+  const onTransfer = useCallback(
+    (event: TransferIntent) => {
+      const taken = drop(event.itemId, event.toCellId, event.toIndex);
+      if (taken) landedColumn.current = parseCellId(event.toCellId).columnKey;
+      return taken;
+    },
+    [drop],
+  );
   const onReorder = useCallback((event: ReorderIntent) => drop(event.itemId, event.cellId, event.toIndex), [drop]);
   // A batch drag may land where the dragged card already is, if the others still move.
   const canDropBatch = useCallback(
@@ -830,9 +922,17 @@ export function Board<T>(props: BoardProps<T>) {
     },
     [drop, dropScope, fullController.itemsById, fullModel, riders, runCardAction, selectionSet],
   );
+  // A card is lifted: read by the pinch on the UI thread.
+  const dragging = useSharedValue(false);
   const onDragStart = useCallback(
     ({ itemId, cellId }: { itemId: string; cellId: string }) => {
       hapticsFor(events.current.haptics)?.('lift');
+      dragging.value = true;
+      if (lensAvailable) {
+        returnColumn.current = parseCellId(cellId).columnKey;
+        lensOpen.current = true;
+        setLens(true);
+      }
       const many = riders(itemId);
       events.current.onDragStart?.({
         itemId,
@@ -840,16 +940,61 @@ export function Board<T>(props: BoardProps<T>) {
         itemIds: many ? inBoardOrder(fullModel, many) : [itemId],
       });
     },
-    [fullModel, riders],
+    [dragging, fullModel, lensAvailable, riders],
   );
   const onDragOver = useCallback(({ itemId, cellId, index }: { itemId: string; cellId: string; index: number }) => {
     events.current.onDragOver?.({ itemId, target: moveTargetOf(cellId), index });
   }, []);
-  const onDragEnd = useCallback((event: { itemId: string; cancelled: boolean }) => {
-    events.current.onDragEnd?.(event);
-  }, []);
+  const onDragEnd = useCallback(
+    (event: { itemId: string; cancelled: boolean }) => {
+      dragging.value = false;
+      events.current.onDragEnd?.(event);
+      // Out of the lens, onto the column the card is in now: where it landed, or home.
+      const landed = landedColumn.current;
+      landedColumn.current = null;
+      if (!lensOpen.current) return;
+      lensOpen.current = false;
+      setRevealColumn(!event.cancelled && landed ? landed : returnColumn.current);
+      setLens(false);
+    },
+    [dragging],
+  );
+  // Gathering adds a tapped card, and the lifted one, to the selection: the drop then carries them all.
+  const onGather = useCallback(
+    (itemId: string, liftedId: string) => {
+      if (!canDragItem(itemId)) return false;
+      const selected = selectionGet();
+      if (selected.includes(itemId)) return false;
+      selectionSet([...new Set([...selected, liftedId, itemId])]);
+      return true;
+    },
+    [canDragItem, selectionGet, selectionSet],
+  );
+  const renderFlat = useCallback((itemId: string) => <FlightCard itemId={itemId} />, []);
   const onLongPressMenu = useCallback(({ itemId }: { itemId: string }) => openMoveSheet(itemId), [openMoveSheet]);
   const renderHover = useCallback((itemId: string) => <HoverCard itemId={itemId} />, []);
+  // The board as last drawn. The engine's flights compare against it before this render's effects update it.
+  const drawnModel = useRef(drawnBase);
+  const latestModel = useRef(drawnBase);
+  latestModel.current = drawnBase;
+  useLayoutEffect(() => {
+    drawnModel.current = drawnBase;
+  }, [drawnBase]);
+  const flightMs = Math.round(FLIGHT_MS * durationScale);
+  // Catching up from a snapshot flies cards whether or not `animateChanges` is on: that is its point.
+  const flying = (props.animateChanges === true || catchUp !== 'done') && !reducedMotion;
+  const flights = useMemo(
+    () =>
+      flying
+        ? {
+            renderCard: (itemId: string) => <FlightCard itemId={itemId} />,
+            locate: (itemId: string) => latestModel.current.locations.get(itemId)?.cellId ?? null,
+            changes: () => changedBetween(drawnModel.current, latestModel.current),
+            durationMs: flightMs,
+          }
+        : null,
+    [flightMs, flying],
+  );
   const colors = useMemo(() => ({ outline: theme.accent, reject: theme.reject }), [theme]);
   const lift = useMemo(
     () => ({
@@ -862,17 +1007,74 @@ export function Board<T>(props: BoardProps<T>) {
     [motion, theme.dropDuration, theme.liftScale, theme.liftShadowOpacity, theme.liftTilt],
   );
 
+  // A pinch out steps one level further from your cards, a strong one two; a pinch in steps back.
+  const pinchEnd = useCallback(
+    (scale: number) => {
+      const { levels, level: now } = live.current;
+      const steps =
+        scale < PINCH_IN * PINCH_IN
+          ? 2
+          : scale < PINCH_IN
+            ? 1
+            : scale > PINCH_OUT * PINCH_OUT
+              ? -2
+              : scale > PINCH_OUT
+                ? -1
+                : 0;
+      if (steps === 0) return;
+      const index = Math.max(0, Math.min(levels.length - 1, levels.indexOf(now) + steps));
+      const next = levels[index];
+      if (next) setZoomLevel(next);
+    },
+    [setZoomLevel],
+  );
+  // While the fingers move, the board follows them a little, so the pinch answers before the level changes.
+  const pinchScale = useSharedValue(1);
   const pinch = useMemo(
     () =>
       Gesture.Pinch()
-        .enabled(overviewAvailable)
+        .enabled(zoomAvailable)
+        .onTouchesDown((_event, manager) => {
+          'worklet';
+          // A second finger during a drag gathers a card (`moveModes.gather`); it never starts a pinch.
+          if (dragging.value) manager.fail();
+        })
+        .onUpdate((event) => {
+          'worklet';
+          if (!reducedMotion) pinchScale.value = Math.min(PINCH_FOLLOW_MAX, Math.max(PINCH_FOLLOW_MIN, event.scale));
+        })
         .onEnd((event) => {
           'worklet';
-          if (event.scale < PINCH_IN) scheduleOnRN(setOverview, true);
-          else if (event.scale > PINCH_OUT) scheduleOnRN(setOverview, false);
+          scheduleOnRN(pinchEnd, event.scale);
+        })
+        .onFinalize(() => {
+          'worklet';
+          pinchScale.value = withTiming(1, { duration: 180 });
         }),
-    [overviewAvailable, setOverview],
+    [dragging, pinchEnd, pinchScale, reducedMotion, zoomAvailable],
   );
+  const pinchStyle = useAnimatedStyle(() => ({ transform: [{ scale: pinchScale.value }] }));
+
+  // Hold the old arrangement for a moment, play the flights, then say what changed.
+  const [caughtUp, setCaughtUp] = useState<string | null>(null);
+  useEffect(() => {
+    if (catchUp === 'done' || boardWidth <= 0 || bodyHeight <= 0) return;
+    const next = catchUp === 'before' && !reducedMotion ? 'playing' : 'done';
+    const wait = catchUp === 'before' ? (reducedMotion ? 0 : CATCH_UP_HOLD_MS) : flightMs + 120;
+    const timer = setTimeout(() => setCatchUp(next), wait);
+    return () => clearTimeout(timer);
+  }, [bodyHeight, boardWidth, catchUp, flightMs, reducedMotion]);
+  const announcedCatchUp = useRef(false);
+  useEffect(() => {
+    if (catchUp !== 'done' || !initialSnapshot || announcedCatchUp.current) return;
+    announcedCatchUp.current = true;
+    const text = labels.caughtUp(catchUpCounts(initialSnapshot, liveModel.current));
+    if (!text) return;
+    announce(text);
+    setCaughtUp(text);
+    const timer = setTimeout(() => setCaughtUp(null), CATCH_UP_CHIP_MS);
+    return () => clearTimeout(timer);
+  }, [announce, catchUp, initialSnapshot, labels]);
 
   const handleOnly = props.moveModes?.drag === 'handle';
   const longPressSheet = sheetMode !== false && !handleOnly && props.moveModes?.longPressSheet !== false;
@@ -900,47 +1102,53 @@ export function Board<T>(props: BoardProps<T>) {
               <GestureDetector gesture={pinch}>
                 <View ref={bodyRef} style={styles.fill} onLayout={onBodyLayout} collapsable={false}>
                   {ready ? (
-                    <DragBoard
-                      onTransfer={onTransfer}
-                      onReorder={onReorder}
-                      onDragStart={onDragStart}
-                      onDragOver={onDragOver}
-                      onDragEnd={onDragEnd}
-                      isDragValid={isDragValid}
-                      revision={model}
-                      onLongPressMenu={longPressSheet ? onLongPressMenu : undefined}
-                      onZoneDrop={onZoneDrop}
-                      onCardDrop={props.onCardDrop ? onCardDrop : undefined}
-                      canDropOnCard={canDropOnCard}
-                      cardDropDelayMs={props.cardDropDelayMs}
-                      canDrag={canDragItem}
-                      canDrop={canDropBatch}
-                      enabled={!readOnly && props.moveModes?.drag !== false}
-                      longPressDelay={props.longPressDelay ?? 200}
-                      handleOnly={handleOnly}
-                      reducedMotion={reducedMotion}
-                      compact={boardWidth < 600}
-                      renderHover={renderHover}
-                      colors={colors}
-                      lift={lift}
-                      horizontalOffset={mode === 'stacked' || mode === 'matrix' ? undefined : scrollX}
-                    >
-                      <LayoutFade layoutKey={`${mode}:${overview}`}>
-                        {mode === 'stacked' ? (
-                          <StackedLayout />
-                        ) : mode === 'matrix' ? (
-                          <MatrixLayout />
-                        ) : hasLanes ? (
-                          <SwimlaneLayout />
-                        ) : (
-                          // The overview is another board with other metrics: remount, so nothing carries over.
-                          <ColumnsLayout key={overview ? 'overview' : 'board'} />
-                        )}
-                      </LayoutFade>
-                      {dockOn ? <DropDock /> : null}
-                      <OutsideTargets root={bodyRef} />
-                      {planner && !overview ? <PlannerToday /> : null}
-                    </DragBoard>
+                    <Animated.View style={[styles.fill, pinchStyle]}>
+                      <DragBoard
+                        onTransfer={onTransfer}
+                        onReorder={onReorder}
+                        onDragStart={onDragStart}
+                        onDragOver={onDragOver}
+                        onDragEnd={onDragEnd}
+                        isDragValid={isDragValid}
+                        revision={model}
+                        flights={flights}
+                        onGather={props.moveModes?.gather && selectable ? onGather : undefined}
+                        renderFlat={renderFlat}
+                        throwToTarget={props.moveModes?.throw === true}
+                        onLongPressMenu={longPressSheet ? onLongPressMenu : undefined}
+                        onZoneDrop={onZoneDrop}
+                        onCardDrop={props.onCardDrop ? onCardDrop : undefined}
+                        canDropOnCard={canDropOnCard}
+                        cardDropDelayMs={props.cardDropDelayMs}
+                        canDrag={canDragItem}
+                        canDrop={canDropBatch}
+                        enabled={!readOnly && props.moveModes?.drag !== false && catchUp === 'done'}
+                        longPressDelay={props.longPressDelay ?? 200}
+                        handleOnly={handleOnly}
+                        reducedMotion={reducedMotion}
+                        compact={boardWidth < 600}
+                        renderHover={renderHover}
+                        colors={colors}
+                        lift={lift}
+                        horizontalOffset={mode === 'stacked' || mode === 'matrix' ? undefined : scrollX}
+                      >
+                        <LayoutFade layoutKey={`${mode}:${level}`}>
+                          {mode === 'stacked' ? (
+                            <StackedLayout />
+                          ) : mode === 'matrix' ? (
+                            <MatrixLayout />
+                          ) : hasLanes ? (
+                            <SwimlaneLayout />
+                          ) : (
+                            // The overview is another board with other metrics: remount, so nothing carries over.
+                            <ColumnsLayout key={level} />
+                          )}
+                        </LayoutFade>
+                        {dockOn ? <DropDock /> : null}
+                        <OutsideTargets root={bodyRef} />
+                        {planner && !zoomedOut ? <PlannerToday /> : null}
+                      </DragBoard>
+                    </Animated.View>
                   ) : null}
                 </View>
               </GestureDetector>
@@ -950,6 +1158,7 @@ export function Board<T>(props: BoardProps<T>) {
                 </View>
               ) : null}
               {props.undo && ready ? <UndoBanner /> : null}
+              {caughtUp ? <CatchUpChip text={caughtUp} /> : null}
               {selectable && ready ? <SelectionBar /> : null}
             </DragProvider>
             <MoveSheet itemIds={sheetItems} onClose={closeMoveSheet} />

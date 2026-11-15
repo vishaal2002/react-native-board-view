@@ -143,6 +143,10 @@ const BoardColumn = memo(function BoardColumn({
   const { theme, labels, props, canCollapseColumns, toggleColumn, columnTotal, loadingColumns } = board;
   const [listFrame, setListFrame] = useState({ y: 0, height: 0 });
   const glide = useColumnGlide(slot.x);
+  const dragColumns = board.adapter.useDragColumns();
+  const dragSource = board.adapter.useDragSource();
+  const moving = dragColumns && dragSource ? board.dragCount(dragSource.itemId) : 0;
+  const incoming = dragColumns?.to === cell.columnKey ? moving : dragColumns?.from === cell.columnKey ? -moving : 0;
   const count = cell.items.length;
   const total = columnTotal(cell.columnKey, count);
   const loading = loadingColumns.has(cell.columnKey);
@@ -188,6 +192,7 @@ const BoardColumn = memo(function BoardColumn({
     column: cell.column,
     count,
     total,
+    incoming,
     collapsed: false,
     compact: slot.width < COMPACT_HEADER_WIDTH,
     toggleCollapsed: canCollapseColumns ? toggle : undefined,
@@ -368,6 +373,20 @@ function columnGeometry(
       if (!found || found.y + found.height < current.listTop || found.y > current.listTop + current.listHeight)
         return null;
       return found;
+    },
+    visibleItems() {
+      const current = live.current;
+      const bottom = current.listTop + current.listHeight;
+      const visible: { itemId: string; rect: Rect }[] = [];
+      // From the row the top edge cuts through, down to the first row below the bottom edge.
+      for (let index = Math.max(0, rawInsertionIndex(slots, toContent(current.listTop)) - 1); ; index += 1) {
+        const row = current.rows[index];
+        const found = row === undefined ? null : rowRect(index);
+        if (row === undefined || !found || found.y > bottom) break;
+        if (isPlaceholder(row) || found.y + found.height < current.listTop) continue;
+        visible.push({ itemId: current.board.props.getItemId(row), rect: found });
+      }
+      return visible;
     },
   };
 }

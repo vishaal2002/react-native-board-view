@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, type ReactNode, type RefObject } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent, type LayoutRectangle } from 'react-native';
-import Animated, { FadeIn, FadeOut, SlideInDown, useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Animated, { FadeOut, SlideInDown, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { cellId as makeCellId, parseCellId, type GroupValue } from 'board-view-core';
 import { useBoard } from '../context';
 import type { ZoneGeometry } from '../engine/types';
@@ -195,8 +195,8 @@ const DockZone = memo(function DockZone({
   });
   const fill = useAnimatedStyle(() => ({ opacity: withTiming(active.value === zoneId ? 0.16 : 0, { duration: 120 }) }));
   return (
+    // No entering animation of its own: the panel slides in, and one here would fight the `opacity` below.
     <Animated.View
-      entering={FadeIn.duration(120)}
       onLayout={(event) => onLayout(zoneId, event)}
       style={[style, { opacity: allowed ? 1 : 0.35 }, hover]}
     >

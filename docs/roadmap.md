@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-10-26. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped on 2026-10-20. Features marked _experimental_ ship off by default and can change in a minor release (see the [support policy](support.md)). 1.1 is built (see below); 1.2 to 1.6 are a **draft**, based on the [October 2026 research](research-2026-10.md).
+Updated 2026-11-15. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped on 2026-10-20. Features marked _experimental_ ship off by default and can change in a minor release (see the [support policy](support.md)). 1.1 to 1.3 are built (see below); 1.4 and 1.5 are a **draft**. 1.2 was planned from the [October 2026 research](research-2026-10.md); 1.3 and 1.4 come from the November 2026 innovation report.
 
 | Version | Theme                           | Headline                                                                |
 | ------- | ------------------------------- | ----------------------------------------------------------------------- |
@@ -11,10 +11,9 @@ Updated 2026-10-26. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped
 | 1.0.0   | Stable (built)                  | Device gates, deprecations removed, `cardMarks`                         |
 | 1.1.0   | Fits anywhere (built)           | Lanes that virtualize columns, boards inside sheets and pagers, Expo Go |
 | 1.2.0   | Moves that ask first (built)    | Drop gates, drop on a card, drop targets and sources outside the board  |
-| 1.3.0   | Flow at a glance (draft)        | Column rail, ageing per column, blocked cards, animated regroup         |
-| 1.4.0   | Live boards (draft)             | Remote changes mid-drag, presence, rank jitter, a queue that persists   |
-| 1.5.0   | Agent-ready (draft)             | Typed board commands, suggestions to accept or decline, skills          |
-| 1.6.0   | Beyond touch (draft)            | Keyboard moves, drag between apps on tablets                            |
+| 1.3.0   | See everything (built)          | Zoom to bars, flights, since you were away, drop previews, gather       |
+| 1.4.0   | A board with a memory (draft)   | Command journal, time machine, live data mid-drag, ageing view          |
+| 1.5.0   | Beyond touch (draft)            | Keyboard moves, drag between apps on tablets                            |
 
 ## 0.6.0: phone-first moves (shipped)
 
@@ -168,40 +167,43 @@ Today a card moves or it does not. 1.2 lets a move ask the user something, land 
 | P1       | Drag to create       | A "+" that you drag to the spot you want, as in Todoist. It is a drag source with no data, and the slot and rank are ready to use. A tap on it still reports the top of the column on screen.                                                                                                                                                                                                                                                                                                                                 |
 | P2       | Landing effects      | Moved out of 0.7. `landingEffect` on a column: a short burst when a person (not a sync) drops a card in Done. Off under reduced motion.                                                                                                                                                                                                                                                                                                                                                                                       |
 
-### 1.3.0: flow at a glance
+### 1.3.0: see everything, follow every change (built)
 
-Front end only, like 0.7: nothing reaches the server, and the core does not change.
+As built, 2026-11-15. Front end only for apps; core goes to 1.1 for `createProjector`.
 
-| Priority | Feature           | Scope                                                                                                                                                                                                                                                                                                                                                      |
-| -------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Column rail       | "I can only see one column" is the top review complaint for phone boards. `rail`: a strip within thumb reach at the bottom, with one segment per column showing its count and limit color. A tap pages to the column. A segment takes a drop, like a dock chip that is always there. Collapsed columns stay in the rail. Similar to monday's Battery View. |
-| P0       | Ageing per column | `staleAfterDays` takes a number per column, as in Pipedrive's rotting per stage. `ageBands` colors the 50th and 85th percentile of each column's ages. The header gets a strip of dots by age, the ageing-WIP chart people know from flow tools.                                                                                                           |
-| P1       | Blocked cards     | `getBlocked(item)` returns a reason or null. `CardView` draws a banner with the reason and how long the card has been blocked, and the header counts blocked cards. Screen readers hear it too.                                                                                                                                                            |
-| P1       | Animated regroup  | Switching `groupBy`, from status to assignee for example, moves each card to its new place instead of drawing a new board. Planner, ClickUp and Jira all let you regroup. Uses Reanimated 4.7's default layout animations.                                                                                                                                 |
-| P2       | Pipeline headers  | Moved out of 0.7. Chevron headers with sums and a stage-to-stage ratio, as a `renderColumnHeader` preset.                                                                                                                                                                                                                                                  |
-| P2       | Glass chrome      | On iOS 26 and later, the dock, rail and sheets can use the app's `expo-glass-effect`, the same way haptics uses its haptics module. Everywhere else they look as before.                                                                                                                                                                                   |
+| Feature                    | Status                                                                                                                                                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Incremental projection     | Built. `createProjector` rebuilds only the cells that changed; a property test checks it against `projectBoard`.                                                                          |
+| Cards that fly             | Built. `animateChanges`. Checked on the iOS simulator and the Android emulator. On the Android emulator (release) a regroup's cards start flying about 0.15 s after the new headers show. |
+| Zoom continuum             | Built. `zoom`: card, compact, title and dot levels, with drag at each. Replaces the overview, which stays as its card and title levels.                                                   |
+| Since you were away        | Built. `ref.snapshot()` and `initialSnapshot`, with the `caughtUp` chip. Checked on the Android emulator.                                                                                 |
+| Consequence preview        | Built. Projected counts in the default header (`incoming`) and `describeMove` under the lifted card.                                                                                      |
+| Gather                     | Built, experimental. Checked on the Android emulator with two injected fingers; the one-finger drag checked on iOS.                                                                       |
+| Drag lens                  | Built, experimental. Checked on the Android emulator.                                                                                                                                     |
+| Throw                      | Built, experimental. Checked on the Android emulator.                                                                                                                                     |
+| Column rail                | Folded into zoom. Not built on its own.                                                                                                                                                   |
+| Ageing per column, blocked | Moved to 1.4, where the journal gives them time data.                                                                                                                                     |
 
-### 1.4.0: live boards
+Still open for 1.3: phone runs on the vivo and an iPhone, swimlane headers do not show `incoming` yet, and the five-developer study.
 
-Changes the core and the move queue, so core goes to 1.1.
+### 1.4.0: a board with a memory
 
-| Priority | Feature                 | Scope                                                                                                                                                                                                                                                                                                                                                                |
-| -------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Remote changes mid-drag | Today `items` can change under a lifted card. During a drag, the board holds what is on screen and queues changes from elsewhere. On the drop it applies them, plans the move against the new neighbours and flashes what changed. If the card itself was moved or deleted, the drag cancels, with a label that says why. No React Native list library handles this. |
-| P0       | Presence                | `presence`: `{ userId, name, color, itemId, phase }[]` from any transport. Avatars on cards, "+N" when there are many, and a ghost on a card someone else is dragging. `lockWhileOthersDrag`. `onLocalPresence` reports this user's lift, drag and drop, so the app can send them. A `presenceStale` flag dims all of it when the connection drops.                  |
-| P0       | Rank jitter             | Two phones that drop between the same two cards get the same rank today, and sort by id. `jitteredRanks(seed)` in core adds a few random digits, and a property test checks that concurrent moves never collide. Rebalancing stays on the server.                                                                                                                    |
-| P1       | A queue that persists   | `serializeQueue()` and `restoreQueue()`, so moves made offline survive an app restart and replay in order. A "Waiting to sync" state in `renderCard` and the header.                                                                                                                                                                                                 |
-| P1       | Sync recipes            | Zero 1.0, PowerSync and LiveStore, each with presence and a persisted queue. TanStack DB once it reaches 1.0.                                                                                                                                                                                                                                                        |
+Changes the core (commands and journal), so core goes to 1.2. Merges the earlier "live boards" and "agent-ready" drafts into one spine.
 
-### 1.5.0: agent-ready
+| Priority | Feature                       | Scope                                                                                                                       |
+| -------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| P0       | Commands and journal          | A typed `BoardCommand`, `ref.run()`, a JSON Schema, and a bounded journal of local and observed moves (ids and ranks only). |
+| P0       | Remote changes mid-drag       | Hold incoming `items` while a card is lifted, re-plan on drop, then play the held changes as flights.                       |
+| P0       | Time machine                  | `useBoardTimeline()`: scrub the journal with cards flying, and trails from old places.                                      |
+| P1       | Ageing view                   | Dots placed by age at the dot level, with percentile bands; `staleAfterDays` per column and `getBlocked`.                   |
+| P1       | Proposals                     | Moves suggested by rules, people or a model, as ghosts with Accept and Decline.                                             |
+| P1       | Board to board                | One drag scope across boards and tabs, with the drag sources and drag-to-create that slipped from 1.2.                      |
+| P1       | Board inspector               | A Rozenite DevTools plugin in its own package: queue, journal, hit rects.                                                   |
+| P1       | Presence ghosts               | Other people's lifted cards as labelled ghosts.                                                                             |
+| P2       | Headless engine, experimental | `react-native-board-view/engine` with 2D geometry.                                                                          |
+| P2       | Persisted queue and jitter    | `serializeQueue`, `restoreQueue`, `jitteredRanks`.                                                                          |
 
-| Priority | Feature             | Scope                                                                                                                                                                                                                                                                                                                                                    |
-| -------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Board commands      | A typed, plain-data `BoardCommand` in core (move, move many, select, collapse, scroll to, regroup, spotlight) with a JSON Schema export, and `ref.run(command)`. An app can give the commands to its LLM as tools, or serve them over MCP, without writing any glue. The core checks each command against the board (limits, `canDrop`) before it runs.  |
-| P0       | Suggestions         | `suggestions`: `{ itemId, to?, label, reason }[]`. A card shows a suggested move as a ghost in its target slot with the reason, and Accept and Decline. "Accept all" sits in the selection bar. Accepting goes through the queue as `source: 'api'` (a new `MoveSource` waits for 2.0). Linear's triage suggestions work like this, for any app's model. |
-| P1       | Skills and examples | The 1.1 skill grows to cover commands and suggestions, with a demo screen that drives the board from a chat box through the Claude API.                                                                                                                                                                                                                  |
-
-### 1.6.0: beyond touch
+### 1.5.0: beyond touch
 
 | Priority | Feature               | Scope                                                                                                                                                                                                                                                                                                                                                                               |
 | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

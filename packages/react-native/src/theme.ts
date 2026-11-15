@@ -281,6 +281,10 @@ export const defaultLabels: BoardLabels = {
   dismiss: 'Dismiss',
   undoBanner: ({ item, column, lane, count }) =>
     count > 1 ? `Moved ${count} cards to ${where(column, lane)}` : `Moved “${item}” to ${where(column, lane)}`,
+  caughtUp: ({ moved, added, removed }) =>
+    [moved > 0 ? `${moved} moved` : null, added > 0 ? `${added} new` : null, removed > 0 ? `${removed} gone` : null]
+      .filter((part) => part != null)
+      .join(' · '),
   overview: 'Board overview',
   closeOverview: 'Back to the board',
   columnSummary: ({ column, total, limit, limitState, valueLabel, date, today }) =>

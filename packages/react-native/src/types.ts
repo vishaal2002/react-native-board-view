@@ -22,6 +22,21 @@ import type { LaneShare, LimitState, PlannerDay } from './insights';
  */
 export type BoardLayout = 'auto' | 'paged' | 'multi' | 'fit' | 'stacked' | 'matrix' | 'planner';
 
+/**
+ * How much of each card the board draws, from most to least:
+ * - `card`: your `renderCard`, as usual.
+ * - `compact`: your `renderCard` with `compact` set, in narrower columns.
+ * - `title`: the board's own one-line rows, the card's label and its color.
+ * - `dot`: a short bar per card, so a column of hundreds fits on a phone.
+ * Every level keeps drag, the Move sheet and screen-reader actions.
+ */
+export type ZoomLevel = 'card' | 'compact' | 'title' | 'dot';
+
+export interface ZoomOptions {
+  /** The levels a pinch steps through, from `card` out. Default: all four. `card` is always one. */
+  levels?: readonly ZoomLevel[];
+}
+
 /** How `columnLimits` are enforced. */
 export type LimitBehavior = 'warn' | 'block';
 
@@ -55,6 +70,18 @@ export interface MoveModes {
    * scrolling, and a mis-swipe moves a card.
    */
   swipe?: 'auto' | false;
+  /**
+   * Experimental. While a card is lifted, tap other cards with a second
+   * finger to gather them: each flies into the stack and rides along, as a
+   * selection does. Needs `selectable`. Default false.
+   */
+  gather?: boolean;
+  /**
+   * Experimental. Flick a lifted card and let go: it goes where it was
+   * heading, a drop-dock chip or the top of another column. A slow release
+   * drops as usual. Pair it with `undo`. Default false.
+   */
+  throw?: boolean;
 }
 
 export interface MoveTarget {
@@ -178,6 +205,38 @@ export interface DragOverEvent {
   readonly index: number;
 }
 
+/**
+ * Where every card was, from `ref.snapshot()`. Plain JSON: keep it, for
+ * example when the app goes to the background, and pass it back as
+ * `initialSnapshot` next time.
+ */
+export interface BoardSnapshot {
+  readonly version: 1;
+  /** When it was taken, in ms since the epoch. */
+  readonly at: number;
+  /** Card id → its cell id and index. */
+  readonly places: Readonly<Record<string, readonly [cellId: string, index: number]>>;
+}
+
+/** What changed since a snapshot. */
+export interface CatchUpContext {
+  readonly moved: number;
+  readonly added: number;
+  readonly removed: number;
+}
+
+/** A move the user is about to make: the lifted card over a slot. */
+export interface MovePreview<T> {
+  readonly item: T;
+  readonly itemId: string;
+  /** Every card the drop would move: the selection when the card is part of it. */
+  readonly itemIds: readonly string[];
+  readonly from: MoveTarget;
+  readonly to: MoveTarget;
+  /** Insertion index in the target cell, counted without the moved card. */
+  readonly index: number;
+}
+
 export interface DragEndEvent {
   readonly itemId: string;
   /** True when the card went back: released outside a target, refused, or interrupted. */
@@ -196,8 +255,10 @@ export interface CardRenderInfo<T> {
   readonly pending: boolean;
   /** True for the lifted copy that follows the finger. */
   readonly dragging: boolean;
-  /** The column is narrow (cards under 200pt wide): show less. */
+  /** The column is narrow (cards under 200pt wide), or the board is zoomed to `compact`: show less. */
   readonly compact: boolean;
+  /** The zoom level your card is drawn at: `card`, or `compact` when zoomed out one step (`zoom`). */
+  readonly detail?: 'card' | 'compact';
   /** `spotlight` is set and this card is outside it: draw it quietly. The board fades it unless `cardMarks` is 'manual'. */
   readonly dimmed: boolean;
   /** `getItemAge` for this card, in days, or null. */
@@ -225,6 +286,12 @@ export interface ColumnHeaderRenderInfo {
   readonly count: number;
   /** `columnTotals` for this column, or `count` when you pass none. */
   readonly total: number;
+  /**
+   * While a lifted card hovers over another column: how many cards the drop
+   * would add here (positive), or take away from the column they leave
+   * (negative). 0 otherwise. The default header shows `total + incoming`.
+   */
+  readonly incoming?: number;
   readonly collapsed: boolean;
   /** The column is narrow (under 180pt): stack the header instead of truncating. */
   readonly compact: boolean;
@@ -459,6 +526,8 @@ export interface BoardLabels {
   /** Title of the column sheet. */
   columnSheetTitle: (column: string) => string;
   laneSheetTitle: (lane: string) => string;
+  /** The chip after `initialSnapshot` plays, and what screen readers hear. An empty string shows nothing. */
+  caughtUp: (context: CatchUpContext) => string;
   /** Announced when data moves a card while the board is on screen (`highlightExternalMoves`). */
   externallyMoved: (context: { readonly item: string; readonly column: string }) => string;
   /** Screen-reader action and hint on a card that a keyboard or pointer can open the sheet with. */
@@ -515,6 +584,10 @@ export interface BoardHandle {
    * `columnId` scrolls to that column. Needs `overview`.
    */
   setOverview(open: boolean, columnId?: string): void;
+  /** Where every card is now, to pass back as `initialSnapshot` the next time the board opens. */
+  snapshot(): BoardSnapshot;
+  /** Zooms to a level of `zoom`. Back at `card`, a `columnId` scrolls there. Needs `zoom`. */
+  setZoomLevel(level: ZoomLevel, columnId?: string): void;
 }
 
 export interface BoardProps<T> {
@@ -559,6 +632,20 @@ export interface BoardProps<T> {
   gateMove?: (moves: readonly GatedMove<T>[]) => unknown;
   /** The form for a held move, drawn in the board's sheet. Without it, the board asks to confirm. */
   renderMoveGate?: (info: MoveGateInfo<T>) => ReactNode;
+  /**
+   * The board as it was when you took this snapshot (`ref.snapshot()`). The
+   * board opens in that arrangement, then each card flies to where it is now,
+   * new cards fade in, and a chip says what changed ("7 moved · 2 new").
+   * Read once, when the board mounts. Under reduced motion it opens as it is
+   * now, with the chip.
+   */
+  initialSnapshot?: BoardSnapshot;
+  /**
+   * A short line in a pill under the lifted card while it hovers a slot, saying what
+   * the drop will do: "Closes 2 subtasks", "Notifies Priya". Null draws
+   * nothing. Called once each time the slot changes, so keep it quick.
+   */
+  describeMove?: (preview: MovePreview<T>) => string | null | undefined;
   /** Column ids whose moves ask to confirm first, such as Done or Lost. `gateMove` is asked first. */
   confirmInto?: readonly string[];
   /**
@@ -676,6 +763,14 @@ export interface BoardProps<T> {
   onEdgeReached?: (edge: 'start' | 'end') => void;
   /** Lane headers in swimlanes and section headers in stacked stay pinned while their cards scroll. Default true. */
   stickyHeaders?: boolean;
+  /**
+   * When the board changes outside a drag (a new `groupBy`, a sort, a
+   * filter, a move from the sheet, undo, or a move from elsewhere), the cards
+   * on screen fly from where they were to where they are now, instead of
+   * jumping. Cards that left the screen head toward their new column and
+   * fade. Off under reduced motion. Default false.
+   */
+  animateChanges?: boolean;
   /** Feel of lift, landing, the dock and the banner. `theme` lift tokens still win. Default `standard`. */
   motion?: MotionPreset;
   /** A built-in palette for light and dark. `theme` overrides still win. Default `standard`. */
@@ -690,6 +785,25 @@ export interface BoardProps<T> {
    * go back. Boards without lanes, in the paged, multi and fit layouts.
    */
   overview?: boolean;
+  /**
+   * Pinch to zoom through levels of detail: from your cards, to compact
+   * cards, to one-line titles, to a short bar per card, so a whole board
+   * fits on a phone. Drag works at every level. A pinch out goes one level
+   * further; a strong one, two. Boards without lanes, in the paged, multi
+   * and fit layouts. `true`: all four levels.
+   */
+  zoom?: boolean | ZoomOptions;
+  /**
+   * Experimental. On a paged phone board, lifting a card zooms the board out
+   * to every column at the `title` level, so the card can go anywhere, and
+   * zooms back in where it lands. Boards without lanes. Default false.
+   */
+  dragLens?: boolean;
+  /** Controlled zoom level. Omit to let pinches change it. Needs `zoom`. */
+  zoomLevel?: ZoomLevel;
+  onZoomLevelChange?: (level: ZoomLevel) => void;
+  /** A card's color at the `title` and `dot` levels. Default: its column's color. */
+  getItemColor?: (item: T) => string | null | undefined;
   /** Controlled overview state. Omit to let pinches open and close it. Needs `overview`. */
   overviewOpen?: boolean;
   onOverviewChange?: (open: boolean) => void;

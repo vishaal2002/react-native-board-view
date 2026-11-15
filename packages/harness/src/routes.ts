@@ -16,6 +16,7 @@ import {
   Palette,
   PanelBottom,
   PenLine,
+  Plane,
   RefreshCw,
   Rows3,
   SlidersHorizontal,
@@ -42,6 +43,7 @@ export type Route =
   | 'insights'
   | 'planner'
   | 'live'
+  | 'flights'
   | 'showcase'
   | 'rollback'
   | 'rules'
@@ -148,6 +150,12 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
         title: 'Kanban playground',
         detail: 'Switch layout, density, pager, card style and auto-scroll live.',
         badge: SlidersHorizontal,
+      },
+      {
+        route: 'flights',
+        title: 'Flights',
+        detail: 'Regroup, re-sort or let a teammate move cards: with animateChanges, each card flies to its new place.',
+        badge: Plane,
       },
       {
         route: 'live',

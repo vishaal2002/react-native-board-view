@@ -11,7 +11,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from 'react';
-import { LayoutAnimation, StyleSheet, View } from 'react-native';
+import { LayoutAnimation, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector, PointerType, type PanGesture } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
@@ -29,6 +29,7 @@ import Animated, {
 import { scheduleOnRN } from 'react-native-worklets';
 import { createValueStore, type ValueStore } from '../store';
 import { autoScrollOrigin, edgeZone, stepAutoScroll } from './autoScroll';
+import { useFlights, type FlightSource } from './flights';
 import { containsPoint, type Rect } from './geometry';
 import {
   PLACEHOLDER_ID,
@@ -46,6 +47,50 @@ import {
   type UiScrollTarget,
   type ZoneGeometry,
 } from './types';
+
+/** Release faster than this (points a second) and the card is thrown where it was heading (`throwToTarget`). */
+const THROW_SPEED = 1600;
+/** The pans that can start a drag. */
+const OWNER_MOUSE = 1;
+const OWNER_FINGER = 2;
+const OWNER_HANDLE = 3;
+/** Weight of the newest move in the smoothed release speed. */
+const VELOCITY_SMOOTHING = 0.6;
+/** A finger still for longer than this before letting go is not throwing. */
+const THROW_STILL_MS = 80;
+/** How far ahead a throw looks: the release velocity times this, in seconds. */
+const THROW_REACH_S = 0.3;
+/** How long a gathered card takes to fly into the lifted stack. */
+const GATHER_MS = 220;
+
+interface GatherCopy {
+  readonly key: string;
+  readonly itemId: string;
+  readonly from: Rect;
+  readonly to: Point;
+}
+
+/** A gathered card on its way into the stack: it shrinks and fades toward the lifted card. */
+function GatherFlight({ copy, render }: { copy: GatherCopy; render: (itemId: string) => ReactNode }) {
+  const x = useSharedValue(copy.from.x);
+  const y = useSharedValue(copy.from.y);
+  const fade = useSharedValue(1);
+  useLayoutEffect(() => {
+    const timing = { duration: GATHER_MS, easing: Easing.in(Easing.cubic) };
+    x.value = withTiming(copy.to.x, timing);
+    y.value = withTiming(copy.to.y, timing);
+    fade.value = withTiming(0, timing);
+  }, [copy.to.x, copy.to.y, fade, x, y]);
+  const style = useAnimatedStyle(() => ({
+    opacity: fade.value,
+    transform: [{ translateX: x.value }, { translateY: y.value }, { scale: 0.6 + 0.4 * fade.value }],
+  }));
+  return (
+    <Animated.View pointerEvents="none" style={[styles.gather, { width: copy.from.width }, style]}>
+      {render(copy.itemId)}
+    </Animated.View>
+  );
+}
 
 /** Long-press released within this distance (px) opens the menu instead of dropping. */
 const MENU_SLOP = 10;
@@ -144,6 +189,8 @@ interface EngineStore {
    * a shared value gave every card its own UI-thread style just to hide one.
    */
   hidden: ValueStore<string>;
+  /** Cards hidden under a flight's copy (`flights.tsx`). */
+  flying: ValueStore<ReadonlySet<string>>;
   phase: SharedValue<number>;
   origin: SharedValue<Point>;
   grab: SharedValue<Point>;
@@ -214,6 +261,7 @@ function DragProvider({ children }: { children: ReactNode }) {
   const activeZone = useSharedValue('');
   const [store] = useState<EngineStore>(() => ({
     hidden: createValueStore(''),
+    flying: createValueStore<ReadonlySet<string>>(new Set()),
     phase,
     origin,
     grab,
@@ -366,15 +414,21 @@ function DragCell({ cellId, geometry, style, onLayout, children }: DragCellProps
 }
 
 const DragCard = memo(function DragCard({ itemId, style, onLayout, children }: DragCardProps) {
-  const { hidden } = useEngine();
+  const { hidden, flying } = useEngine();
   // While the lifted copy covers a card (picked up, or settling over its new spot), the card stays hidden underneath.
   const covered = useSyncExternalStore(
     hidden.subscribe,
     () => hidden.get() === itemId,
     () => false,
   );
+  // The same under a flight's copy.
+  const flown = useSyncExternalStore(
+    flying.subscribe,
+    () => flying.get().has(itemId),
+    () => false,
+  );
   return (
-    <View style={covered ? [style, styles.covered] : style} onLayout={onLayout}>
+    <View style={covered || flown ? [style, styles.covered] : style} onLayout={onLayout}>
       {children}
     </View>
   );
@@ -394,6 +448,38 @@ function Placeholder({ height, radius, color, render }: PlaceholderProps) {
       )}
     </View>
   );
+}
+
+const NO_COLUMNS = null;
+
+function useDragColumns(): { readonly from: string; readonly to: string } | null {
+  const store = useEngine();
+  const last = useRef<{ readonly from: string; readonly to: string } | null>(NO_COLUMNS);
+  const read = useCallback(() => {
+    const placement = store.placement.current;
+    const from = placement ? columnOf(placement.sourceCellId) : null;
+    const to = placement ? columnOf(placement.cellId) : null;
+    if (from == null || to == null || from === to) return (last.current = NO_COLUMNS);
+    const previous = last.current;
+    if (previous?.from === from && previous.to === to) return previous;
+    return (last.current = { from, to });
+  }, [store]);
+  const subscribe = useCallback(
+    (listener: () => void) => {
+      store.listeners.add(listener);
+      return () => {
+        store.listeners.delete(listener);
+      };
+    },
+    [store],
+  );
+  return useSyncExternalStore(subscribe, read, read);
+}
+
+/** The column key of a cell id (`lane::column`). */
+function columnOf(cellId: string): string {
+  const at = cellId.indexOf('::');
+  return at < 0 ? cellId : cellId.slice(at + 2);
 }
 
 interface ActiveDrag {
@@ -495,6 +581,22 @@ function DragBoard(props: DragBoardProps) {
     uiScrollTick,
     activeZone,
   } = store;
+  const size = useRef({ width: 0, height: 0 });
+  const flightSource = useMemo<FlightSource>(
+    () => ({
+      cells: store.cells,
+      flying: store.flying,
+      // From JS state, not the shared phase: this runs during render.
+      busy: () => drag.current !== null || store.hidden.get() !== '',
+      bounds: () => size.current,
+    }),
+    [store],
+  );
+  // Here, in the board's render, so the capture runs before the lists draw the change.
+  const flightLayer = useFlights(flightSource, props.revision, props.flights ?? null);
+  const onBoardLayout = useCallback((event: LayoutChangeEvent) => {
+    size.current = { width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height };
+  }, []);
   const [uiTargets, setUiTargets] = useState<UiTargets>(NO_UI_TARGETS);
   const uiTargetsRef = useRef<UiTargets>(NO_UI_TARGETS);
   /** Hands an axis to the UI thread (a target) or takes it back (null). */
@@ -991,8 +1093,32 @@ function DragBoard(props: DragBoardProps) {
     if (active) active.pointer = { x, y };
   }, []);
 
+  /**
+   * Where a fast flick was heading, from its speed at release: a drop zone that
+   * takes the card, or another cell that does. Null for a slow release, or one
+   * heading where the finger already is.
+   */
+  const thrownTo = useCallback(
+    (active: ActiveDrag, vx: number, vy: number) => {
+      if (Math.hypot(vx, vy) < THROW_SPEED) return null;
+      const { width, height } = size.current;
+      const x = Math.max(0, Math.min(width - 1, active.pointer.x + vx * THROW_REACH_S));
+      const y = Math.max(0, Math.min(height - 1, active.pointer.y + vy * THROW_REACH_S));
+      const zone = findZone(store.zones, x, y);
+      if (zone) {
+        const under = findZone(store.zones, active.pointer.x, active.pointer.y);
+        return zone[1].accepts(active.itemId) && zone[0] !== under?.[0] ? { zone, cell: null } : null;
+      }
+      const cell = findCell(store.cells, x, y);
+      const placement = store.placement.current;
+      if (!cell || cell[0] === placement?.cellId || !allowedIn(cell[1], cell[0], active.itemId)) return null;
+      return { zone: null, cell };
+    },
+    [allowedIn, store],
+  );
+
   const end = useCallback(
-    (cancelled: boolean) => {
+    (cancelled: boolean, vx = 0, vy = 0) => {
       cancelAnimationFrame(frameRef.current);
       stopUiScroll();
       const active = drag.current;
@@ -1031,7 +1157,27 @@ function DragBoard(props: DragBoardProps) {
         current.onCardDrop?.({ itemId: active.itemId, targetId: active.cardTarget });
         return;
       }
-      const zone = findZone(store.zones, active.pointer.x, active.pointer.y);
+      const thrown = current.throwToTarget && !cancelled && !menu ? thrownTo(active, vx, vy) : null;
+      if (thrown?.cell) {
+        // Thrown at another column: the card lands on top of it.
+        const [cellId, , rect] = thrown.cell;
+        const taken =
+          cellId === active.sourceCellId
+            ? current.onReorder({ itemId: active.itemId, cellId, fromIndex: active.sourceIndex, toIndex: 0 })
+            : current.onTransfer({
+                itemId: active.itemId,
+                fromCellId: active.sourceCellId,
+                toCellId: cellId,
+                toIndex: 0,
+              });
+        if (taken) {
+          setPlacement(store, null, false);
+          settle({ x: rect.x, y: rect.y, width: store.hoverWidth.value, height: store.hoverHeight.value });
+          current.onDragEnd?.({ itemId: active.itemId, cancelled: false });
+          return;
+        }
+      }
+      const zone = thrown?.zone ?? findZone(store.zones, active.pointer.x, active.pointer.y);
       if (zone && !cancelled && !menu) {
         const [zoneId, geometry, rect] = zone;
         const taken =
@@ -1089,7 +1235,29 @@ function DragBoard(props: DragBoardProps) {
       current.onDragEnd?.({ itemId: active.itemId, cancelled: true });
       if (menu) current.onLongPressMenu?.({ itemId: active.itemId, cellId: active.sourceCellId });
     },
-    [allowedIn, edgeTarget, phase, placeholderRect, settle, stopUiScroll, store],
+    [allowedIn, edgeTarget, phase, placeholderRect, settle, stopUiScroll, store, thrownTo],
+  );
+
+  // A gathered card flies from its spot into the lifted stack, then the board marks it as riding along.
+  const [gathered, setGathered] = useState<readonly GatherCopy[]>([]);
+  const gather = useCallback(
+    (x: number, y: number) => {
+      const active = drag.current;
+      const onGather = propsRef.current.onGather;
+      if (!active || active.ended || !onGather) return;
+      const hit = findCell(store.cells, x, y);
+      const found = hit ? hit[1].itemAt(y) : null;
+      if (!found || found.itemId === active.itemId || !onGather(found.itemId, active.itemId)) return;
+      const copy: GatherCopy = {
+        key: `${found.itemId}:${dragKey}`,
+        itemId: found.itemId,
+        from: found.rect,
+        to: { x: store.hoverX.value, y: store.hoverY.value },
+      };
+      setGathered((list) => [...list, copy]);
+      later(GATHER_MS + 48, () => setGathered((list) => list.filter((entry) => entry !== copy)));
+    },
+    [dragKey, later, store],
   );
 
   // App data changed mid-drag: if the lifted card is gone or now lives elsewhere, drop the drag.
@@ -1114,6 +1282,13 @@ function DragBoard(props: DragBoardProps) {
   );
 
   const { pointerX, pointerY, handleDown, touchStart } = store;
+  const gathers = props.onGather != null && !props.handleOnly;
+  /** The touch that lifted the card, while gathering. */
+  const primary = useSharedValue(-1);
+  /** Which pan started the drag: only it may end it. */
+  const dragOwner = useSharedValue(0);
+  /** The pointer's speed, smoothed over its last moves, for a throw. Measured here: release events can report 0. */
+  const motion = useSharedValue({ x: 0, y: 0, t: 0, vx: 0, vy: 0 });
   const { longPressDelay = 200, enabled = true, handleOnly = false, dragPosition } = props;
   /**
    * The board owns every drag, in both modes, so a drag survives its card being
@@ -1152,7 +1327,40 @@ function DragBoard(props: DragBoardProps) {
           'worklet';
           if (event.pointerType !== MOUSE) manager.fail();
         });
-    const drags = (pan: PanGesture, fromTouchStart: boolean) =>
+    /** The lifted copy and the hit-test loop follow a point in window coordinates. */
+    const follow = (absoluteX: number, absoluteY: number) => {
+      'worklet';
+      if (phase.value !== PHASE_DRAGGING) return;
+      const x = absoluteX - origin.value.x;
+      const y = absoluteY - origin.value.y;
+      const now = Date.now();
+      const last = motion.value;
+      const dt = now - last.t;
+      motion.value =
+        last.t > 0 && dt > 0
+          ? {
+              x,
+              y,
+              t: now,
+              vx: VELOCITY_SMOOTHING * (((x - last.x) / dt) * 1000) + (1 - VELOCITY_SMOOTHING) * last.vx,
+              vy: VELOCITY_SMOOTHING * (((y - last.y) / dt) * 1000) + (1 - VELOCITY_SMOOTHING) * last.vy,
+            }
+          : { x, y, t: now, vx: 0, vy: 0 };
+      if (dragPosition) dragPosition.value = { x, y };
+      pointerX.value = x;
+      pointerY.value = y;
+      if (tracking.value) {
+        hoverX.value = x - grab.value.x;
+        hoverY.value = y - grab.value.y;
+      }
+      scheduleOnRN(move, x, y);
+    };
+    /**
+     * `owner` tells the pans apart: they share these callbacks, and a pan that
+     * fails while another one drags (the mouse pan failing on a second finger)
+     * must not end that drag.
+     */
+    const drags = (pan: PanGesture, owner: number, fromTouchStart: boolean, byTouches = false) =>
       pan
         .onStart((event) => {
           'worklet';
@@ -1161,6 +1369,8 @@ function DragBoard(props: DragBoardProps) {
           if (!frame) return;
           origin.value = { x: frame.pageX, y: frame.pageY };
           phase.value = PHASE_DRAGGING;
+          dragOwner.value = owner;
+          motion.value = { x: 0, y: 0, t: 0, vx: 0, vy: 0 };
           // A drag that waits for movement picks the card under the first touch, not where the pointer is now.
           const startX = fromTouchStart ? touchStart.value.x : event.absoluteX;
           const startY = fromTouchStart ? touchStart.value.y : event.absoluteY;
@@ -1168,29 +1378,57 @@ function DragBoard(props: DragBoardProps) {
         })
         .onUpdate((event) => {
           'worklet';
-          if (phase.value !== PHASE_DRAGGING) return;
-          const x = event.absoluteX - origin.value.x;
-          const y = event.absoluteY - origin.value.y;
-          if (dragPosition) dragPosition.value = { x, y };
-          pointerX.value = x;
-          pointerY.value = y;
-          if (tracking.value) {
-            hoverX.value = x - grab.value.x;
-            hoverY.value = y - grab.value.y;
-          }
-          scheduleOnRN(move, x, y);
+          // Gathering follows the lifting finger by its touch id instead: a second finger moves the pan's point.
+          if (!byTouches) follow(event.absoluteX, event.absoluteY);
         })
         .onFinalize((_event, success) => {
           'worklet';
           handleDown.value = false;
-          if (phase.value !== PHASE_DRAGGING) return;
+          if (phase.value !== PHASE_DRAGGING || dragOwner.value !== owner) return;
           // Stop UI-thread scrolling now: JS may take a few frames to run end().
           armed.value = false;
-          scheduleOnRN(end, !success);
+          // A finger that stopped before letting go is not throwing.
+          const { t, vx, vy } = motion.value;
+          const still = Date.now() - t > THROW_STILL_MS;
+          scheduleOnRN(end, !success, still ? 0 : vx, still ? 0 : vy);
         });
-    if (handleOnly) return drags(onMove(base()), true);
+    /**
+     * A finger's long press. With gathering it takes a second finger without
+     * cancelling (an active pan cancels past `maxPointers`), follows the first
+     * finger by its id, and reports each tap of the second as a gather.
+     */
+    const finger = () => {
+      const pan = base().activateAfterLongPress(longPressDelay);
+      if (!gathers) return drags(pan, OWNER_FINGER, false);
+      return drags(pan.maxPointers(2), OWNER_FINGER, false, true)
+        .onTouchesDown((event) => {
+          'worklet';
+          if (phase.value !== PHASE_DRAGGING) {
+            if (event.numberOfTouches === 1) primary.value = event.changedTouches[0]?.id ?? -1;
+            return;
+          }
+          for (const touch of event.changedTouches) {
+            if (touch.id !== primary.value) {
+              scheduleOnRN(gather, touch.absoluteX - origin.value.x, touch.absoluteY - origin.value.y);
+            }
+          }
+        })
+        .onTouchesMove((event) => {
+          'worklet';
+          const touch = event.allTouches.find((entry) => entry.id === primary.value);
+          if (touch) follow(touch.absoluteX, touch.absoluteY);
+        })
+        .onTouchesUp((event, manager) => {
+          'worklet';
+          // The lifting finger came up: that is the drop, even with the other finger still down.
+          if (phase.value === PHASE_DRAGGING && event.changedTouches.some((touch) => touch.id === primary.value)) {
+            manager.end();
+          }
+        });
+    };
+    if (handleOnly) return drags(onMove(base()), OWNER_HANDLE, true);
     // The mouse gesture fails at once for a finger or a pen, so their long press is unchanged.
-    return Gesture.Exclusive(drags(mouse(), false), drags(base().activateAfterLongPress(longPressDelay), false));
+    return Gesture.Exclusive(drags(mouse(), OWNER_MOUSE, false), finger());
   }, [
     armed,
     begin,
@@ -1198,6 +1436,8 @@ function DragBoard(props: DragBoardProps) {
     dragPosition,
     enabled,
     end,
+    gather,
+    gathers,
     grab,
     handleDown,
     handleOnly,
@@ -1209,6 +1449,9 @@ function DragBoard(props: DragBoardProps) {
     phase,
     pointerX,
     pointerY,
+    dragOwner,
+    motion,
+    primary,
     touchStart,
     tracking,
   ]);
@@ -1216,8 +1459,12 @@ function DragBoard(props: DragBoardProps) {
 
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View ref={boardRef} style={styles.fill} collapsable={false}>
+      <Animated.View ref={boardRef} style={styles.fill} collapsable={false} onLayout={onBoardLayout}>
         <HandleContext value={handles}>{props.children}</HandleContext>
+        {flightLayer}
+        {props.renderFlat
+          ? gathered.map((copy) => <GatherFlight key={copy.key} copy={copy} render={props.renderFlat!} />)
+          : null}
         <UiAutoScroll targets={uiTargets} />
         <DragOverlay
           hoverItemId={hoverItemId}
@@ -1471,6 +1718,7 @@ function DragHandle({ children, style, hitSlop }: DragHandleProps) {
 const styles = StyleSheet.create({
   covered: { opacity: 0 },
   fill: { flex: 1 },
+  gather: { position: 'absolute', left: 0, top: 0, zIndex: 1001, elevation: 1001 },
   overlay: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, zIndex: 1000, elevation: 1000 },
   hover: {
     position: 'absolute',
@@ -1515,6 +1763,7 @@ export const gestureAdapter: DragAdapter = {
   useDragSource,
   useDragMoved,
   usePlacementState,
+  useDragColumns,
   useZone,
   useActiveZone,
 };

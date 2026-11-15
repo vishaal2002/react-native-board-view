@@ -6,6 +6,8 @@ export { applyMove, planMove } from './move';
 export type { PlanMoveInput } from './move';
 export { projectBoard } from './project';
 export type { ProjectBoardInput } from './project';
+export { createProjector } from './projector';
+export type { Projector } from './projector';
 export { MoveTimeoutError, createMoveQueue } from './queue';
 export type {
   MoveContext,

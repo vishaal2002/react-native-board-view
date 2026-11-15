@@ -19,7 +19,7 @@ import Animated, {
 import { cellId as makeCellId, parseCellId, type BoardCell, type GroupValue } from 'board-view-core';
 import { useBoard, useCard } from '../context';
 import { MenuButton } from './defaults';
-import { MiniCard } from './Overview';
+import { DotCard, MiniCard } from './Overview';
 import { SwipeActions, type SwipeAction } from './SwipeActions';
 import type { CardRenderInfo } from '../types';
 
@@ -207,8 +207,9 @@ export const BoardCard = memo(function BoardCard({
     [itemId, onSlotLayout],
   );
 
-  const compact = card.cardWidth(columnKey) < COMPACT_CARD_WIDTH;
+  const compact = card.cardWidth(columnKey) < COMPACT_CARD_WIDTH || card.detail === 'compact';
   const described = card.describeCard(item);
+  const color = card.getItemColor?.(item) ?? column.color;
   const label = card.getItemLabel ? card.getItemLabel(item) : itemId;
   const info: CardRenderInfo<unknown> = {
     item,
@@ -220,6 +221,7 @@ export const BoardCard = memo(function BoardCard({
     pending,
     dragging: false,
     compact,
+    detail: card.detail === 'compact' ? 'compact' : 'card',
     ...described,
     selected,
     selecting,
@@ -254,7 +256,13 @@ export const BoardCard = memo(function BoardCard({
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
     >
-      {overview ? <MiniCard label={label} color={column.color} theme={theme} /> : card.renderCard(info)}
+      {card.detail === 'dot' ? (
+        <DotCard color={color ?? undefined} theme={theme} />
+      ) : overview ? (
+        <MiniCard label={label} color={color ?? undefined} theme={theme} />
+      ) : (
+        card.renderCard(info)
+      )}
       {sheetMode === 'auto' && !compact && !overview ? (
         <MenuButton color={theme.mutedText} onPress={openSheet} />
       ) : null}
@@ -386,6 +394,7 @@ export function HoverCard({ itemId }: { itemId: string }) {
         />
       ) : null}
       <HoverBody itemId={itemId} item={item} cell={cell} index={location.index} dragCount={dragCount} />
+      {board.moveLabel}
       {stack ? (
         <View pointerEvents="none" style={[styles.stackBadge, { backgroundColor: theme.accent }]}>
           <Text style={[styles.stackCount, { color: theme.cardBackground }]}>{dragCount}</Text>
@@ -429,18 +438,30 @@ function SelectedMark({ itemId }: { itemId: string }) {
   );
 }
 
+/** A card's copy while it flies to its new place (`animateChanges`). Not a lifted card: it draws flat. */
+export function FlightCard({ itemId }: { itemId: string }) {
+  const { controller } = useBoard();
+  const item = controller.itemsById.get(itemId);
+  const location = controller.model.locations.get(itemId);
+  const cell = location ? controller.model.cellById.get(location.cellId) : undefined;
+  if (item == null || !cell || !location) return null;
+  return <HoverBody itemId={itemId} item={item} cell={cell} index={location.index} dragCount={0} dragging={false} />;
+}
+
 function HoverBody({
   itemId,
   item,
   cell,
   index,
   dragCount,
+  dragging = true,
 }: {
   itemId: string;
   item: unknown;
   cell: BoardCell<unknown>;
   index: number;
   dragCount: number;
+  dragging?: boolean;
 }) {
   const board = useBoard();
   const { cardWidth } = useCard();
@@ -462,7 +483,7 @@ function HoverBody({
         column: cell.column,
         lane: props.groupBy.lanes ? cell.lane : null,
         pending: controller.isPending(itemId),
-        dragging: true,
+        dragging,
         compact: cardWidth(cell.columnKey) < COMPACT_CARD_WIDTH,
         ...board.describeCard(item),
         dimmed: false,

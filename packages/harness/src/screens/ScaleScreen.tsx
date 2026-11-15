@@ -1,7 +1,7 @@
 import { memo, useCallback, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Board, type BoardLayout, type CardRenderInfo, type GroupBy, type GroupValue } from 'react-native-board-view';
-import { STATUSES, makeTasks, type Task } from '../data';
+import { PRIORITY_COLORS, STATUSES, makeTasks, type Task } from '../data';
 import { taskId, taskLabel } from '../ids';
 import { EventLog, FpsMeter, Screen, Segmented, TaskCard, Toggle, usePalette } from '../ui';
 import { useTaskStore } from '../useTaskStore';
@@ -44,6 +44,9 @@ const SlowCard = memo(function SlowCard({ info }: { info: CardRenderInfo<Task> }
   }
   return <TaskCard info={info} variant="minimal" />;
 });
+
+/** Cards color by priority when zoomed out to titles and bars. */
+const itemColor = (task: Task) => PRIORITY_COLORS[task.priority];
 
 export function ScaleScreen({ onBack }: { onBack: () => void }) {
   const palette = usePalette();
@@ -124,6 +127,8 @@ export function ScaleScreen({ onBack }: { onBack: () => void }) {
           onDragEnd={onDragEnd}
           renderCard={renderCard}
           layout={layout}
+          zoom
+          getItemColor={itemColor}
           appearance={palette.dark ? 'dark' : 'light'}
         />
         <FpsMeter />

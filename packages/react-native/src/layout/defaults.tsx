@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
-import type { LimitState, PlannerDay } from '../insights';
+import { limitState, type LimitState, type PlannerDay } from '../insights';
 import type { BoardLabels, BoardTheme, ColumnHeaderRenderInfo, LaneHeaderRenderInfo } from '../types';
 
 type Direction = 'down' | 'right' | 'up' | 'left';
@@ -28,10 +28,12 @@ function font(theme: BoardTheme): StyleProp<TextStyle> {
   return theme.fontFamily ? { fontFamily: theme.fontFamily } : null;
 }
 
-export function CountPill({ count, theme }: { count: number; theme: BoardTheme }) {
+export function CountPill({ count, theme, preview }: { count: number; theme: BoardTheme; preview?: boolean }) {
   return (
-    <View style={[styles.pill, { backgroundColor: theme.background }]}>
-      <Text style={[styles.pillText, { color: theme.mutedText }, font(theme)]}>{count}</Text>
+    <View style={[styles.pill, { backgroundColor: preview ? theme.accent : theme.background }]}>
+      <Text style={[styles.pillText, { color: preview ? theme.cardBackground : theme.mutedText }, font(theme)]}>
+        {count}
+      </Text>
     </View>
   );
 }
@@ -134,13 +136,17 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
   theme: BoardTheme;
   labels: BoardLabels;
 }) {
-  const { column, total, collapsed, toggleCollapsed, compact, limit, limitState: state, valueLabel, day } = info;
+  const { column, total: actual, collapsed, toggleCollapsed, compact, limit, valueLabel, day } = info;
   const { openColumnSheet } = info;
+  // While a lifted card hovers another column, both headers show the count and limit the drop would leave.
+  const incoming = info.incoming ?? 0;
+  const total = actual + incoming;
+  const state = incoming === 0 ? info.limitState : limitState(total, limit ?? undefined);
   const summary = labels.columnSummary({
     column: column.label,
-    total,
+    total: actual,
     limit,
-    limitState: state,
+    limitState: info.limitState,
     valueLabel,
     date: day ? formatDay(day.date, 'long') : null,
     today: day?.today ?? false,
@@ -165,7 +171,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
       {limit != null && state !== 'none' ? (
         <LimitPill total={total} limit={limit} state={state} theme={theme} />
       ) : (
-        <CountPill count={total} theme={theme} />
+        <CountPill count={total} theme={theme} preview={incoming !== 0} />
       )}
     </View>
   );
