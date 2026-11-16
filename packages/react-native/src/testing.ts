@@ -19,6 +19,9 @@
 import {
   NO_LANE_ID,
   applyMove,
+  restoreQueue,
+  serializeQueue,
+  type CommandResult,
   cellId as makeCellId,
   parseCellId,
   type BoardModel,
@@ -27,6 +30,7 @@ import {
   type MoveQueue,
   type MoveSource,
 } from 'board-view-core';
+import { runBoardCommand } from './commands';
 import { createMoveSession, createSessionQueue, defaultGetRank, uniqueById, type MoveSession } from './session';
 import { defaultLabels } from './theme';
 import type { BoardLabels, BoardProps, MoveDestination } from './types';
@@ -87,6 +91,17 @@ export interface BoardTester<T> {
   submitGate(answer?: unknown): void;
   /** Cancels the waiting move: its cards go back. */
   cancelGate(): void;
+  /**
+   * Runs a board command (`ref.run`): moves, undo. View commands (scroll,
+   * zoom, the Move sheet, selection) come back `unavailable`: the tester draws nothing.
+   */
+  run(command: unknown): CommandResult;
+  /** Every `context.origin` `onMove` received, by op id. */
+  readonly origins: ReadonlyMap<string, string>;
+  /** Moves `onMove` has not accepted yet, as JSON (`ref.serializeQueue`). */
+  serializeQueue(): string;
+  /** Queues saved moves again (`ref.restoreQueue`). Returns how many. */
+  restoreQueue(saved: string): number;
   /** Replaces the app's items, as a re-render with new data would. */
   setItems(items: readonly T[]): void;
   /** The items the tester holds now. */
@@ -105,6 +120,7 @@ const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 export function createBoardTester<T>(options: BoardTesterOptions<T>): BoardTester<T> {
   const moves: MoveOperation[] = [];
+  const origins = new Map<string, string>();
   const announcements: string[] = [];
   const labels: BoardLabels = { ...defaultLabels, ...options.labels };
   let items = options.items;
@@ -128,8 +144,9 @@ export function createBoardTester<T>(options: BoardTesterOptions<T>): BoardTeste
     ...options,
     items,
     renderCard: () => null,
-    async onMove(op: MoveOperation, context: MoveContext) {
+    async onMove(op: MoveOperation, context: MoveContext & { origin?: string }) {
       moves.push(op);
+      if (context.origin != null) origins.set(op.opId, context.origin);
       await options.onMove?.(op, context);
       if (apply) setItems(items.map((item) => (options.getItemId(item) === op.id ? apply(item, op) : item)));
     },
@@ -185,6 +202,20 @@ export function createBoardTester<T>(options: BoardTesterOptions<T>): BoardTeste
     gate: () => session.held.get()?.request ?? null,
     submitGate: (answer) => session.submitGate(answer),
     cancelGate: () => session.cancelGate(),
+    run: (command) =>
+      runBoardCommand(command, {
+        model: () => session.live(),
+        hasLanes,
+        columnIds: new Set(options.groupBy.columns.values.map((value) => value.id)),
+        laneIds: new Set(options.groupBy.lanes?.values.map((value) => value.id) ?? []),
+        moveTo: (itemId, to, origin) => session.moveTo(itemId, to, 'api', origin),
+        moveManyTo: (itemIds, to, origin) => session.moveManyTo(itemIds, to, 'api', origin),
+        undo: () => session.undo(),
+        canUndo: () => session.canUndo(),
+      }),
+    origins,
+    serializeQueue: () => serializeQueue(queue),
+    restoreQueue: (saved) => restoreQueue(queue, saved),
     setItems,
     items: () => items,
     moves,

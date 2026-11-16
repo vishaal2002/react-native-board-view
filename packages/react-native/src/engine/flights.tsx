@@ -258,6 +258,16 @@ const FlightCopy = memo(function FlightCopy({
 });
 
 const styles = StyleSheet.create({
-  layer: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, zIndex: 999, elevation: 999 },
+  // Clipped to the board: a card cut off at the bottom of a list flies from its whole rect, which would draw over the app.
+  layer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999,
+    elevation: 999,
+    overflow: 'hidden',
+  },
   copy: { position: 'absolute', left: 0, top: 0 },
 });

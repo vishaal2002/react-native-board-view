@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import { AccessibilityInfo, I18nManager, StyleSheet, View, useColorScheme, type LayoutChangeEvent } from 'react-native';
@@ -15,10 +16,14 @@ import { scheduleOnRN } from 'react-native-worklets';
 import {
   NO_VALUE_ID,
   cellId as makeCellId,
+  createProjector,
   parseCellId,
   projectBoard,
+  restoreQueue as restoreSavedQueue,
+  serializeQueue as serializeSavedQueue,
   type BoardModel,
   type GroupValue,
+  type JournalEntry,
 } from 'board-view-core';
 import {
   BoardContext,
@@ -58,13 +63,30 @@ import { hapticsFor } from './haptics';
 import { columnStats, formatCompact, limitState, plannerDay, sumValues } from './insights';
 import { defaultLabels, motionPresets, resolveTheme } from './theme';
 import { moveTargetOf, useBoardController } from './useBoardController';
-import { defaultGetRank, inBoardOrder, rulesAllow } from './session';
+import { defaultGetRank, inBoardOrder, liveIndexFor, rulesAllow } from './session';
 import { useAccessibilityServices, useReducedMotion } from './useReducedMotion';
-import type { BoardLabels, BoardProps, CardAction, CardActionEvent, CardDropEvent, ZoomLevel } from './types';
+import { runBoardCommand } from './commands';
+import { changedSince, observedEntries, pastBoard, type TimelineView } from './timeline';
+import { NO_MARKS, cardBadgesOf, describeCardOf, presenceByItem, proposedCounts, type CardRules } from './cardMarks';
+import { ProposalBar } from './layout/ProposalBar';
+import { AgeingLayout } from './layout/AgeingLayout';
+import type { CardMark } from './context';
+import type {
+  BoardLabels,
+  BoardProps,
+  CardAction,
+  CardActionEvent,
+  CardDropEvent,
+  MoveTarget,
+  ZoomLevel,
+} from './types';
 
 const NO_IDS: readonly string[] = [];
 const EMPTY_SET: ReadonlySet<string> = new Set();
 const NO_ACTIONS: readonly CardAction[] = [];
+const NO_ENTRIES: readonly JournalEntry[] = [];
+const LIVE_VIEW: TimelineView = { position: null, mode: 'past', playing: false };
+const noSubscribe = () => () => undefined;
 /** A pinch that ends below this scale opens the overview; above the inverse it closes it. */
 const PINCH_IN = 0.8;
 const PINCH_OUT = 1.25;
@@ -203,7 +225,60 @@ export function Board<T>(props: BoardProps<T>) {
       noValueLabel: labels.noValue,
     });
   }, [catchUp, fullController.itemsById, getItemId, getRank, groupBy, initialSnapshot, labels.noValue, rankStrategy]);
-  const drawnBase = pastModel ?? fullModel;
+  // The time machine: while the timeline is scrubbed, the board draws the past from its journal.
+  const timeline = props.timeline?.core ?? null;
+  const timelineView = useSyncExternalStore(
+    timeline?.view.subscribe ?? noSubscribe,
+    () => timeline?.view.get() ?? LIVE_VIEW,
+    () => LIVE_VIEW,
+  );
+  const journalEntries = useSyncExternalStore(
+    timeline?.journal.subscribe ?? noSubscribe,
+    () => timeline?.journal.entries() ?? NO_ENTRIES,
+    () => NO_ENTRIES,
+  );
+  const scrubbing = timelineView.position != null && timelineView.mode === 'past';
+  const [timeProjector] = useState(() => createProjector<T>());
+  const timeModel = useMemo(() => {
+    if (!scrubbing) return null;
+    const past = pastBoard(
+      journalEntries,
+      timelineView.position!,
+      fullModel,
+      [...fullController.itemsById.values()],
+      getItemId,
+      groupBy,
+    );
+    return timeProjector.project({
+      items: past.items,
+      getItemId,
+      getRank: getRank ?? defaultGetRank,
+      groupBy,
+      overlays: past.overlays,
+      strategy: rankStrategy,
+      noValueLabel: labels.noValue,
+    });
+  }, [
+    fullController.itemsById,
+    fullModel,
+    getItemId,
+    getRank,
+    groupBy,
+    journalEntries,
+    labels.noValue,
+    rankStrategy,
+    scrubbing,
+    timeProjector,
+    timelineView.position,
+  ]);
+  const diffIds = useMemo(
+    () =>
+      timelineView.position != null && timelineView.mode === 'diff'
+        ? changedSince(journalEntries, timelineView.position, fullModel)
+        : null,
+    [fullModel, journalEntries, timelineView.mode, timelineView.position],
+  );
+  const drawnBase = pastModel ?? timeModel ?? fullModel;
   const shownModel = useMemo(
     () => visibleModel(drawnBase, props.hideEmptyColumns === true, hasLanes && props.hideEmptyLanes === true),
     [drawnBase, hasLanes, props.hideEmptyColumns, props.hideEmptyLanes],
@@ -220,6 +295,10 @@ export function Board<T>(props: BoardProps<T>) {
   const rtl = I18nManager.isRTL;
   const allColumns = useStableValues(fullModel.columns);
   const allLanes = useStableValues(fullModel.lanes);
+  const allColumnsRef = useRef(allColumns);
+  allColumnsRef.current = allColumns;
+  const allLanesRef = useRef(allLanes);
+  allLanesRef.current = allLanes;
   const shownColumns = useStableValues(controller.model.columns);
 
   const [root, setRoot] = useState({ width: 0, height: 0 });
@@ -304,7 +383,9 @@ export function Board<T>(props: BoardProps<T>) {
   const scrollApi = useRef<ScrollApi | null>(null);
 
   const readOnly = props.readOnly === true;
-  const sheetMode = readOnly ? false : (props.moveModes?.sheet ?? 'auto');
+  // The past is read-only: no drag, no sheet, no swipe, until the timeline is live again.
+  const frozen = readOnly || scrubbing;
+  const sheetMode = frozen ? false : (props.moveModes?.sheet ?? 'auto');
   const selectable = !readOnly && props.selectable !== false;
   const selection = useSelection(props.selection, props.onSelectionChange, selectable, fullModel);
   // The pieces are stable; the object around them is not, so callbacks list the pieces.
@@ -413,8 +494,59 @@ export function Board<T>(props: BoardProps<T>) {
       snapshot: () => snapshotOf(liveModel.current),
       setSelection,
       getSelection,
+      run: (command) =>
+        runBoardCommand(command, {
+          model: () => liveModel.current,
+          hasLanes,
+          columnIds: new Set(allColumnsRef.current.map((column) => column.id)),
+          laneIds: new Set(allLanesRef.current.map((lane) => lane.id)),
+          moveTo: (itemId, to, origin) => fullController.moveToFrom(itemId, to, origin),
+          moveManyTo: (itemIds, to, origin) => fullController.moveManyToFrom(itemIds, to, origin),
+          undo: () => undo(),
+          canUndo,
+          select: selectable ? setSelection : undefined,
+          scrollToColumn: (columnId) => scrollApi.current?.toColumn(columnId, true),
+          revealItem: (itemId) => {
+            scrollApi.current?.toItem(itemId, true);
+            const request = { itemId };
+            highlight.set(request);
+            if (highlightTimer.current) clearTimeout(highlightTimer.current);
+            highlightTimer.current = setTimeout(() => {
+              if (highlight.get() === request) highlight.set(null);
+            }, HIGHLIGHT_MS);
+          },
+          zoom: (next, columnId) => {
+            const current = live.current;
+            if (!current.zoomAvailable || !current.levels.includes(next)) return false;
+            setZoomLevel(next, columnId);
+            return true;
+          },
+          openMoveSheet: sheetMode === false ? undefined : openMoveSheet,
+        }),
+      serializeQueue: () => serializeSavedQueue(fullController.queue),
+      restoreQueue: (saved) => restoreSavedQueue(fullController.queue, saved),
+      inspect: () => {
+        const gateNow = fullController.gate;
+        const view = timeline?.view.get();
+        return {
+          cards: liveModel.current.locations.size,
+          cells: liveModel.current.cells.length,
+          pending: fullController.queue.pending(),
+          overlays: fullController.queue.getSnapshot().overlays,
+          gate: gateNow ? { request: gateNow.request, ops: gateNow.ops } : null,
+          holding: fullController.holding,
+          selection: getSelection(),
+          zoomLevel: live.current.level,
+          timeline: timeline ? { entries: timeline.journal.entries().length, position: view?.position ?? null } : null,
+        };
+      },
     }),
     [
+      fullController,
+      hasLanes,
+      selectable,
+      sheetMode,
+      timeline,
       canUndo,
       closeMoveSheet,
       getSelection,
@@ -539,6 +671,79 @@ export function Board<T>(props: BoardProps<T>) {
     [reorderColumns, reorderLanes],
   );
 
+  // Proposals: suggested moves the user accepts or declines. Accepting runs the move as a command.
+  const decideProposal = useCallback(
+    (proposalId: string, decision: 'accept' | 'decline'): boolean | undefined => {
+      const current = events.current;
+      const proposal = current.proposals?.find((entry) => entry.id === proposalId);
+      const item = proposal ? fullController.itemsById.get(proposal.itemId) : undefined;
+      if (!proposal || item == null) return undefined;
+      const moved =
+        decision === 'accept' ? fullController.moveToFrom(proposal.itemId, proposal.to, 'proposal') : undefined;
+      current.onProposal?.(moved === undefined ? { proposal, item, decision } : { proposal, item, decision, moved });
+      return moved;
+    },
+    [fullController],
+  );
+  const decideAll = useCallback(
+    (decision: 'accept' | 'decline') => {
+      // Accepting stops at the first move the board refuses: a full column, or one that now waits for its gate.
+      for (const proposal of [...(events.current.proposals ?? [])]) {
+        if (decideProposal(proposal.id, decision) === false) break;
+      }
+    },
+    [decideProposal],
+  );
+  const proposals = scrubbing ? undefined : props.proposals;
+  const proposedInto = useMemo(() => proposedCounts(proposals, fullModel.locations), [fullModel.locations, proposals]);
+  const presenceItems = useMemo(() => presenceByItem(props.presence), [props.presence]);
+  // What the board draws on cards besides their own content: proposals, presence, the timeline's diff.
+  const [cardBadges] = useState(() => createValueStore<ReadonlyMap<string, CardMark>>(NO_MARKS));
+  useLayoutEffect(() => {
+    cardBadges.set(
+      cardBadgesOf({
+        proposals,
+        presence: presenceItems,
+        changed: diffIds,
+        locations: fullModel.locations,
+        columns: allColumns,
+        lanes: allLanes,
+        hasLanes,
+        decide: decideProposal,
+      }),
+    );
+  }, [
+    allColumns,
+    allLanes,
+    cardBadges,
+    decideProposal,
+    diffIds,
+    fullModel.locations,
+    hasLanes,
+    presenceItems,
+    proposals,
+  ]);
+
+  // Moves `items` made by itself go in the timeline's journal: a teammate, a sync, a server rule.
+  const journalPrevious = useRef<{ model: BoardModel<T>; isPending: (itemId: string) => boolean; keys: string } | null>(
+    null,
+  );
+  const groupKeys = `${groupBy.columns.key}\u0000${groupBy.lanes?.key ?? ''}`;
+  useEffect(() => {
+    const before = journalPrevious.current;
+    const now = { model: fullModel, isPending: fullController.isPending, keys: groupKeys };
+    journalPrevious.current = now;
+    if (!timeline || !before) return;
+    const getActor = timeline.options.current.getActor;
+    const actor = getActor
+      ? (itemId: string) => {
+          const item = fullController.itemsById.get(itemId);
+          return item == null ? undefined : (getActor(item) ?? undefined);
+        }
+      : undefined;
+    timeline.journal.append(observedEntries(before, now, Date.now(), actor));
+  }, [fullController, fullModel, groupKeys, timeline]);
+
   // Cards the data moved by itself flash once, and a screen reader hears where they went.
   const [externalMoves] = useState(() => createValueStore<ReadonlyMap<string, object>>(new Map()));
   const previousModel = useRef<{ model: BoardModel<T>; isPending: (itemId: string) => boolean } | null>(null);
@@ -596,23 +801,21 @@ export function Board<T>(props: BoardProps<T>) {
         value,
         valueLabel: value == null ? null : (formatValue ?? formatCompact)(value),
         day: planner ? plannerDay(columnId) : null,
+        proposed: proposedInto.get(columnId) ?? 0,
       };
     },
-    [columnLimits, formatValue, getItemValue, planner, stats],
+    [columnLimits, formatValue, getItemValue, planner, proposedInto, stats],
   );
-  const staleAfter = props.staleAfterDays ?? 14;
+  const staleAfterDays = props.staleAfterDays;
+  const { getBlocked } = props;
   const describeCard = useCallback(
-    (item: unknown) => {
-      const dimmed = spotlight ? !(spotlight as (entry: unknown) => boolean)(item) : false;
-      const raw = getItemAge ? (getItemAge as (entry: unknown) => number | null | undefined)(item) : null;
-      const age = typeof raw === 'number' && Number.isFinite(raw) ? Math.max(0, raw) : null;
-      return { dimmed, age, stale: age != null && age >= staleAfter };
-    },
-    [getItemAge, spotlight, staleAfter],
+    (item: unknown, columnKey: string) =>
+      describeCardOf(item, columnKey, { spotlight, getItemAge, staleAfterDays, getBlocked } as CardRules),
+    [getBlocked, getItemAge, spotlight, staleAfterDays],
   );
   const durationScale = motionPresets[motion].durationScale;
 
-  const swipeEnabled = !readOnly && props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
+  const swipeEnabled = !frozen && props.moveModes?.swipe === 'auto' && (mode === 'multi' || mode === 'fit');
   const autoScroll = props.autoScroll ?? true;
 
   // Read when a card's action runs, so the card need not redraw when the board does.
@@ -681,11 +884,13 @@ export function Board<T>(props: BoardProps<T>) {
       selection: selection.store,
       highlight,
       externalMoves,
+      cardBadges,
       focusRequest,
       scrollApi,
     }),
     [
       accessibilityActions,
+      cardBadges,
       actionsFor,
       allColumns,
       allLanes,
@@ -739,6 +944,7 @@ export function Board<T>(props: BoardProps<T>) {
       metrics,
       boardWidth,
       boardHeight,
+      fullHeight: bodyHeight,
       rtl,
       reducedMotion,
       scrollX,
@@ -819,6 +1025,7 @@ export function Board<T>(props: BoardProps<T>) {
       setOverview,
       autoScroll,
       boardHeight,
+      bodyHeight,
       boardWidth,
       canCollapseColumns,
       collapsedColumns,
@@ -845,13 +1052,16 @@ export function Board<T>(props: BoardProps<T>) {
   );
 
   const { moveItem, moveItems, canDropTo, itemsById, model } = controller;
+  const lockPresence = props.lockPresence !== false;
   const canDragItem = useCallback(
     (itemId: string) => {
-      if (readOnly) return false;
+      if (frozen) return false;
+      // Someone else holds it: two people dragging one card would fight.
+      if (lockPresence && presenceItems.has(itemId)) return false;
       const item = itemsById.get(itemId);
       return item != null && (canDrag ? canDrag(item) : true);
     },
-    [canDrag, itemsById, readOnly],
+    [canDrag, frozen, itemsById, lockPresence, presenceItems],
   );
   /** The cards a drag of this card carries: the selection when it is in it. */
   const riders = useCallback(
@@ -867,12 +1077,18 @@ export function Board<T>(props: BoardProps<T>) {
   const drop = useCallback(
     (itemId: string, cellId: string, index: number) => {
       const many = riders(itemId);
-      if (!many) return moveItem(itemId, cellId, index, 'drag');
-      const moved = moveItems(many, cellId, index, 'drag', itemId) > 0;
+      let at = index;
+      if (fullController.holding) {
+        // Held data drew the slot; the move is planned against live data, next to the same neighbours.
+        fullController.resume();
+        at = liveIndexFor(fullModel, fullController.liveModel(), itemId, new Set(many ?? [itemId]), cellId, index);
+      }
+      if (!many) return moveItem(itemId, cellId, at, 'drag');
+      const moved = moveItems(many, cellId, at, 'drag', itemId) > 0;
       if (moved) selectionSet([]);
       return moved;
     },
-    [moveItem, moveItems, riders, selectionSet],
+    [fullController, fullModel, moveItem, moveItems, riders, selectionSet],
   );
   // Where the last drop landed, read when the drag ends: the board has not drawn the move yet by then.
   const landedColumn = useRef<string | null>(null);
@@ -893,9 +1109,22 @@ export function Board<T>(props: BoardProps<T>) {
     },
     [canDropTo, riders],
   );
+  // Set when live data changed the lifted card, so the drag's end can say why it stopped.
+  const dragCancel = useRef<'changed' | 'removed' | null>(null);
+  const { changedSinceHold } = fullController;
+  const liveItems = props.items;
   const isDragValid = useCallback(
-    (itemId: string, sourceCellId: string) => model.locations.get(itemId)?.cellId === sourceCellId,
-    [model],
+    (itemId: string, sourceCellId: string) => {
+      // `liveItems`: checked again whenever new data arrives, held or not.
+      void liveItems;
+      const change = changedSinceHold(itemId);
+      if (change) {
+        dragCancel.current = change;
+        return false;
+      }
+      return model.locations.get(itemId)?.cellId === sourceCellId;
+    },
+    [changedSinceHold, liveItems, model],
   );
   const onZoneDrop = useCallback(
     ({ itemId, sourceCellId, zoneId }: { itemId: string; sourceCellId: string; zoneId: string }) => {
@@ -924,10 +1153,29 @@ export function Board<T>(props: BoardProps<T>) {
   );
   // A card is lifted: read by the pinch on the UI thread.
   const dragging = useSharedValue(false);
+  const dragFrom = useRef<MoveTarget | null>(null);
+  const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (releaseTimer.current) clearTimeout(releaseTimer.current);
+    },
+    [],
+  );
+  const { hold, release, resume } = fullController;
   const onDragStart = useCallback(
     ({ itemId, cellId }: { itemId: string; cellId: string }) => {
       hapticsFor(events.current.haptics)?.('lift');
       dragging.value = true;
+      if (releaseTimer.current) {
+        clearTimeout(releaseTimer.current);
+        releaseTimer.current = null;
+        release();
+      }
+      hold();
+      dragCancel.current = null;
+      const from = moveTargetOf(cellId);
+      dragFrom.current = from;
+      events.current.onLocalPresence?.({ itemId, from, to: from });
       if (lensAvailable) {
         returnColumn.current = parseCellId(cellId).columnKey;
         lensOpen.current = true;
@@ -940,15 +1188,30 @@ export function Board<T>(props: BoardProps<T>) {
         itemIds: many ? inBoardOrder(fullModel, many) : [itemId],
       });
     },
-    [dragging, fullModel, lensAvailable, riders],
+    [dragging, fullModel, hold, lensAvailable, release, riders],
   );
   const onDragOver = useCallback(({ itemId, cellId, index }: { itemId: string; cellId: string; index: number }) => {
-    events.current.onDragOver?.({ itemId, target: moveTargetOf(cellId), index });
+    const target = moveTargetOf(cellId);
+    events.current.onDragOver?.({ itemId, target, index });
+    events.current.onLocalPresence?.({ itemId, from: dragFrom.current, to: target });
   }, []);
+  const dropMs = theme.dropDuration;
   const onDragEnd = useCallback(
     (event: { itemId: string; cancelled: boolean }) => {
       dragging.value = false;
-      events.current.onDragEnd?.(event);
+      const reason = dragCancel.current;
+      dragCancel.current = null;
+      dragFrom.current = null;
+      events.current.onDragEnd?.(reason ? { ...event, reason } : event);
+      events.current.onLocalPresence?.({ itemId: null, from: null, to: null });
+      if (reason) announce(labels.cardChangedWhileDragging({ item: fullController.itemLabel(event.itemId), reason }));
+      // The held data lands once the card has settled, so its changes can fly instead of jumping under the drop.
+      resume();
+      if (releaseTimer.current) clearTimeout(releaseTimer.current);
+      releaseTimer.current = setTimeout(() => {
+        releaseTimer.current = null;
+        release();
+      }, dropMs + 80);
       // Out of the lens, onto the column the card is in now: where it landed, or home.
       const landed = landedColumn.current;
       landedColumn.current = null;
@@ -957,7 +1220,7 @@ export function Board<T>(props: BoardProps<T>) {
       setRevealColumn(!event.cancelled && landed ? landed : returnColumn.current);
       setLens(false);
     },
-    [dragging],
+    [announce, dragging, dropMs, fullController, labels, release, resume],
   );
   // Gathering adds a tapped card, and the lifted one, to the selection: the drop then carries them all.
   const onGather = useCallback(
@@ -982,7 +1245,13 @@ export function Board<T>(props: BoardProps<T>) {
   }, [drawnBase]);
   const flightMs = Math.round(FLIGHT_MS * durationScale);
   // Catching up from a snapshot flies cards whether or not `animateChanges` is on: that is its point.
-  const flying = (props.animateChanges === true || catchUp !== 'done') && !reducedMotion;
+  // So do the timeline's steps, and the way back to live.
+  const wasScrubbing = useRef(scrubbing);
+  const timeTravel = scrubbing || wasScrubbing.current;
+  useEffect(() => {
+    wasScrubbing.current = scrubbing;
+  }, [scrubbing]);
+  const flying = (props.animateChanges === true || catchUp !== 'done' || timeTravel) && !reducedMotion;
   const flights = useMemo(
     () =>
       flying
@@ -1076,6 +1345,9 @@ export function Board<T>(props: BoardProps<T>) {
     return () => clearTimeout(timer);
   }, [announce, catchUp, initialSnapshot, labels]);
 
+  // The ageing chart is the dot level drawn by age.
+  const ageing =
+    level === 'dot' && typeof props.zoom === 'object' && props.zoom.dotLayout === 'age' && props.getItemAge != null;
   const handleOnly = props.moveModes?.drag === 'handle';
   const longPressSheet = sheetMode !== false && !handleOnly && props.moveModes?.longPressSheet !== false;
   const dockOn = props.dock !== false;
@@ -1122,7 +1394,7 @@ export function Board<T>(props: BoardProps<T>) {
                         cardDropDelayMs={props.cardDropDelayMs}
                         canDrag={canDragItem}
                         canDrop={canDropBatch}
-                        enabled={!readOnly && props.moveModes?.drag !== false && catchUp === 'done'}
+                        enabled={!frozen && props.moveModes?.drag !== false && catchUp === 'done'}
                         longPressDelay={props.longPressDelay ?? 200}
                         handleOnly={handleOnly}
                         reducedMotion={reducedMotion}
@@ -1139,6 +1411,8 @@ export function Board<T>(props: BoardProps<T>) {
                             <MatrixLayout />
                           ) : hasLanes ? (
                             <SwimlaneLayout />
+                          ) : ageing ? (
+                            <AgeingLayout />
                           ) : (
                             // The overview is another board with other metrics: remount, so nothing carries over.
                             <ColumnsLayout key={level} />
@@ -1160,6 +1434,9 @@ export function Board<T>(props: BoardProps<T>) {
               {props.undo && ready ? <UndoBanner /> : null}
               {caughtUp ? <CatchUpChip text={caughtUp} /> : null}
               {selectable && ready ? <SelectionBar /> : null}
+              {ready && !overview && proposals && proposals.length > 0 ? (
+                <ProposalBar count={proposals.length} onDecideAll={decideAll} />
+              ) : null}
             </DragProvider>
             <MoveSheet itemIds={sheetItems} onClose={closeMoveSheet} />
             <HeaderSheet target={headerSheetTarget} onClose={closeHeaderSheet} />

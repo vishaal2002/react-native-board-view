@@ -8,11 +8,21 @@ export { compactMetrics, darkTheme, defaultLabels, lightTheme, motionPresets, th
 export { addDays, dayColumns, formatCompact, parseDayId, toDayId } from './insights';
 export type { DayColumnsOptions, LaneShare, LimitState, PlannerDay } from './insights';
 export { BoardDropScope, BoardDropTarget } from './layout/DropTargets';
+export { BoardScrubber } from './layout/BoardScrubber';
+export type { BoardScrubberProps } from './layout/BoardScrubber';
+export { useBoardFlow, useBoardTimeline } from './timeline';
+export type { BoardTimeline, BoardTimelineOptions, TimelineMode, TimelineView } from './timeline';
 export type { BoardDropTargetProps } from './layout/DropTargets';
 export type {
   BatchAnnouncementContext,
   BoardHandle,
+  BoardInspection,
   BoardLabels,
+  BoardPresence,
+  CardProposal,
+  LocalPresenceEvent,
+  MoveProposal,
+  ProposalEvent,
   BoardLayout,
   BoardProps,
   BoardSnapshot,
@@ -58,22 +68,45 @@ export {
   NO_VALUE_ID,
   MoveTimeoutError,
   applyMove,
+  boardCommandSchema,
+  boardFlow,
   cellId,
   compareRanked,
   createMoveQueue,
   fractionalRank,
+  jitteredRank,
   parseCellId,
+  parseQueue,
+  percentile,
   planMove,
   projectBoard,
   rankBetween,
   readItemSnapshot,
   rebalanceRanks,
+  restoreJournal,
+  restoreQueue,
   seedRanks,
+  serializeJournal,
+  serializeQueue,
   shouldRebalance,
+  validateCommand,
 } from 'board-view-core';
 export type {
   BoardCell,
+  BoardCommand,
+  BoardCommandType,
+  BoardFlow,
   BoardModel,
+  ColumnFlow,
+  CommandDestination,
+  CommandRefusal,
+  CommandResult,
+  FlowOptions,
+  JitteredRankOptions,
+  JournalEntry,
+  JournalPlace,
+  SerializedJournal,
+  SerializedQueue,
   GroupAxis,
   GroupBy,
   GroupValue,

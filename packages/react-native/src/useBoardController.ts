@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AccessibilityInfo } from 'react-native';
-import { type BoardModel, type MoveQueue, type MoveSource } from 'board-view-core';
+import {
+  readItemSnapshot,
+  type BoardModel,
+  type MoveOperation,
+  type MoveQueue,
+  type MoveSource,
+} from 'board-view-core';
 import {
   createMoveSession,
   createSessionQueue,
@@ -8,10 +14,12 @@ import {
   fullColumnsOf,
   uniqueById,
   withHeld,
+  type CommittedMove,
   type HeldMove,
   type UndoEntry,
 } from './session';
 import type { ValueStore } from './store';
+import { localEntries } from './timeline';
 import type { BoardLabels, BoardProps, MoveDestination } from './types';
 
 export { moveTargetOf, resolveDestination } from './session';
@@ -60,6 +68,32 @@ export interface BoardController<T> {
   readonly gate: HeldMove | null;
   submitGate(answer?: unknown): void;
   cancelGate(): void;
+  /** Same as `moveItem`/`moveTo`, with a command origin passed on to `onMove`. */
+  moveToFrom(itemId: string, to: MoveDestination, origin?: string): boolean;
+  moveManyToFrom(itemIds: readonly string[], to: MoveDestination, origin?: string): number;
+  /**
+   * Holds `items` while a card is lifted: the board and every plan see the
+   * data as it was at the lift, so nothing moves under the finger.
+   */
+  hold(): void;
+  /** Plans see live data again (the drop plans against it); the board still draws what it held. */
+  resume(): void;
+  /** The board draws live data again: the held changes land, and fly when flights are on. */
+  release(): void;
+  /** True while `hold` is on, until `release`. */
+  readonly holding: boolean;
+  /** Whether live data changed this card since `hold`: its group, its rank, or it is gone. */
+  changedSinceHold(itemId: string): 'changed' | 'removed' | null;
+  /** The board plans read now, overlays included: live data, unless a hold has not been resumed. */
+  liveModel(): BoardModel<T>;
+  /** Moves `onMove` has not accepted yet. */
+  pendingMoves(): readonly MoveOperation[];
+  readonly queue: MoveQueue;
+}
+
+interface Held<T> {
+  readonly byId: ReadonlyMap<string, T>;
+  readonly unique: readonly T[];
 }
 
 export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels): BoardController<T> {
@@ -69,16 +103,26 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
 
   const latest = useRef({ props, labels, getRank, itemsById, unique });
   latest.current = { props, labels, getRank, itemsById, unique };
+  // What the board draws while a card is lifted, and what plans read (the same, until the drop resumes planning).
+  const [held, setHeld] = useState<Held<T> | null>(null);
+  const planning = useRef<Held<T> | null>(null);
 
   // The session and queue read everything through `latest`, so they always see the latest props.
   const [env] = useState(() => ({
     props: () => latest.current.props,
     labels: () => latest.current.labels,
     getRank: () => latest.current.getRank,
-    itemsById: () => latest.current.itemsById,
-    items: () => latest.current.unique,
+    itemsById: () => planning.current?.byId ?? latest.current.itemsById,
+    items: () => planning.current?.unique ?? latest.current.unique,
     queue: (): MoveQueue => queueRef.current,
     announce: (message: string) => AccessibilityInfo.announceForAccessibility(message),
+    committed(moves: readonly CommittedMove[]) {
+      const timeline = latest.current.props.timeline?.core;
+      if (timeline) timeline.journal.append(localEntries(moves, timeline.options.current.actor));
+    },
+    rolledBack(opId: string) {
+      latest.current.props.timeline?.core.journal.removeOp(opId);
+    },
   }));
   const [session] = useState(() => createMoveSession<T>(env));
   const createQueue = () => createSessionQueue(() => session, env);
@@ -102,24 +146,57 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   const gate = useSyncExternalStore(session.held.subscribe, session.held.get, session.held.get);
   const overlays = useMemo(() => withHeld(snapshot.overlays, gate), [gate, snapshot.overlays]);
 
+  const drawnById = held?.byId ?? itemsById;
+  const drawnItems = held?.unique ?? unique;
   useEffect(() => {
     queue.reconcile();
-  }, [queue, itemsById]);
+  }, [queue, drawnById]);
+
+  const hold = useCallback(() => {
+    if (planning.current || latest.current.props.holdChangesWhileDragging === false) return;
+    const snapshot = { byId: latest.current.itemsById, unique: latest.current.unique };
+    planning.current = snapshot;
+    setHeld(snapshot);
+  }, []);
+  const resume = useCallback(() => {
+    planning.current = null;
+  }, []);
+  const release = useCallback(() => {
+    planning.current = null;
+    setHeld(null);
+  }, []);
+  const changedSinceHold = useCallback(
+    (itemId: string): 'changed' | 'removed' | null => {
+      const then = held?.byId.get(itemId);
+      if (then == null) return null;
+      const now = latest.current.itemsById.get(itemId);
+      if (now == null) return 'removed';
+      if (now === then) return null;
+      const { groupBy: axes } = latest.current.props;
+      const rank = latest.current.getRank;
+      const a = readItemSnapshot(then, axes, rank);
+      const b = readItemSnapshot(now, axes, rank);
+      if (a.rank !== b.rank) return 'changed';
+      for (const key of Object.keys(a.fields)) if (a.fields[key] !== b.fields[key]) return 'changed';
+      return null;
+    },
+    [held],
+  );
 
   const model = useMemo(
     () =>
-      session.projection(overlays, unique, {
+      session.projection(overlays, drawnItems, {
         getItemId,
         getRank,
         groupBy,
         strategy: rankStrategy,
         noValue: labels.noValue,
       }),
-    [session, unique, overlays, getItemId, getRank, groupBy, rankStrategy, labels.noValue],
+    [session, drawnItems, overlays, getItemId, getRank, groupBy, rankStrategy, labels.noValue],
   );
 
   const pendingIds = useMemo(() => new Set(overlays.map((op) => op.id)), [overlays]);
-  const fullNow = useMemo(() => fullColumnsOf(model, props, itemsById, overlays), [itemsById, model, props, overlays]);
+  const fullNow = useMemo(() => fullColumnsOf(model, props, drawnById, overlays), [drawnById, model, props, overlays]);
   // The same set until a column fills or empties, so cards that read it redraw only then.
   const fullRef = useRef(fullNow);
   if (!sameSet(fullRef.current, fullNow)) fullRef.current = fullNow;
@@ -128,7 +205,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
   return useMemo(
     () => ({
       model,
-      itemsById,
+      itemsById: drawnById,
       isPending: (itemId: string) => pendingIds.has(itemId),
       moveItem: session.moveItem,
       moveItems: session.moveItems,
@@ -144,8 +221,19 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
       gate,
       submitGate: session.submitGate,
       cancelGate: session.cancelGate,
+      moveToFrom: (itemId: string, to: MoveDestination, origin?: string) => session.moveTo(itemId, to, 'api', origin),
+      moveManyToFrom: (itemIds: readonly string[], to: MoveDestination, origin?: string) =>
+        session.moveManyTo(itemIds, to, 'api', origin),
+      hold,
+      resume,
+      release,
+      holding: held != null,
+      changedSinceHold,
+      liveModel: session.live,
+      pendingMoves: () => queueRef.current.pending(),
+      queue,
     }),
-    [fullColumns, gate, itemsById, model, pendingIds, session],
+    [changedSinceHold, drawnById, fullColumns, gate, held, hold, model, pendingIds, queue, release, resume, session],
   );
 }
 

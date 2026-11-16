@@ -9,11 +9,13 @@ import type { GroupValue } from 'board-view-core';
 import type { LimitState, PlannerDay } from './insights';
 import type {
   BoardLabels,
+  BoardPresence,
   BoardProps,
   BoardTheme,
   CardAction,
   CardActionEvent,
   CardDropEvent,
+  CardProposal,
   ZoomLevel,
 } from './types';
 
@@ -35,6 +37,8 @@ export interface BoardContextValue<T = unknown> {
   readonly metrics: ColumnMetrics;
   readonly boardWidth: number;
   readonly boardHeight: number;
+  /** The board's height with the drop dock left out: what a layout that must not reflow mid-drag uses. */
+  readonly fullHeight: number;
   readonly rtl: boolean;
   readonly reducedMotion: boolean;
   /** Horizontal scroll offset on the UI thread, for headers that stay put. */
@@ -122,8 +126,8 @@ export interface BoardContextValue<T = unknown> {
   readonly setDockInset: (height: number) => void;
   /** Limit, value and planner day for a column header. `items` sums a part of the column, such as one lane's cell. */
   readonly describeColumn: (columnId: string, total: number, items?: readonly unknown[]) => ColumnDescription;
-  /** Spotlight and age of a card. */
-  readonly describeCard: (item: unknown) => CardDescription;
+  /** Spotlight, age and blocked state of a card in a column. */
+  readonly describeCard: (item: unknown, columnKey: string) => CardDescription;
   /** `layout="planner"`. */
   readonly planner: boolean;
   /** From `motion`: how much slower (above 1) or faster the dock, banner and sheet animate. */
@@ -138,12 +142,24 @@ export interface ColumnDescription {
   readonly value: number | null;
   readonly valueLabel: string | null;
   readonly day: PlannerDay | null;
+  /** Cards `proposals` would move into this column. */
+  readonly proposed: number;
 }
 
 export interface CardDescription {
   readonly dimmed: boolean;
   readonly age: number | null;
   readonly stale: boolean;
+  readonly blocked: boolean;
+  readonly blockedReason: string | null;
+}
+
+/** What the board draws on a card besides its content. */
+export interface CardMark {
+  readonly proposal?: CardProposal;
+  readonly presence?: readonly BoardPresence[];
+  /** The timeline's diff: the card changed column since the position shown. */
+  readonly changed?: boolean;
 }
 
 export const BoardContext = createContext<BoardContextValue | null>(null);
@@ -181,7 +197,7 @@ export interface CardContextValue<T = unknown> {
   readonly allLanes: readonly GroupValue[];
   /** Width a card gets in a column. */
   readonly cardWidth: (columnKey: string) => number;
-  readonly describeCard: (item: unknown) => CardDescription;
+  readonly describeCard: (item: unknown, columnKey: string) => CardDescription;
   /** `cardActions` this card may use. */
   readonly actionsFor: (item: unknown) => readonly CardAction[];
   /** Whether the card's rules let it into a cell, given the columns that are full. */
@@ -198,6 +214,8 @@ export interface CardContextValue<T = unknown> {
   readonly selection: ValueStore<ReadonlySet<string>>;
   readonly highlight: ValueStore<{ readonly itemId: string } | null>;
   readonly externalMoves: ValueStore<ReadonlyMap<string, object>>;
+  /** Proposals, presence and the timeline's diff, by card. */
+  readonly cardBadges: ValueStore<ReadonlyMap<string, CardMark>>;
   readonly focusRequest: ValueStore<string | null>;
   readonly scrollApi: { current: ScrollApi | null };
 }

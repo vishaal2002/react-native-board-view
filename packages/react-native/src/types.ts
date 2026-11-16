@@ -1,8 +1,17 @@
 import type { ReactNode, Ref } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
-import type { GroupBy, GroupValue, MoveContext, MoveOperation, RankStrategy } from 'board-view-core';
+import type {
+  BoardCommand,
+  CommandResult,
+  GroupBy,
+  GroupValue,
+  MoveContext,
+  MoveOperation,
+  RankStrategy,
+} from 'board-view-core';
 import type { HapticHandler } from './haptics';
 import type { LaneShare, LimitState, PlannerDay } from './insights';
+import type { BoardTimeline } from './timeline';
 
 /**
  * - `paged`: one column per page with snapping and a peek of the next one. Phones.
@@ -35,6 +44,78 @@ export type ZoomLevel = 'card' | 'compact' | 'title' | 'dot';
 export interface ZoomOptions {
   /** The levels a pinch steps through, from `card` out. Default: all four. `card` is always one. */
   levels?: readonly ZoomLevel[];
+  /**
+   * How the `dot` level places cards. `rank`: stacked in board order.
+   * `age`: an ageing chart, each dot at the height of its age
+   * (`getItemAge`), with percentile bands across the board. Dots still
+   * drag to other columns. Default `rank`.
+   */
+  dotLayout?: 'rank' | 'age';
+  /**
+   * Ages, in days, to draw as bands in the `age` layout, such as your 50th
+   * and 85th percentile cycle times (`percentile(flow.cycleTimes, 85)`).
+   * Default: the 50th and 85th percentile of the ages on the board.
+   */
+  ageBands?: readonly number[];
+}
+
+/**
+ * A move suggested by a rule, a teammate or a model. The board draws it on
+ * the card with Accept and Decline, and counts it on the target column. The
+ * board never accepts one by itself: accepting runs the move with
+ * `context.origin: 'proposal'`, and the app removes the proposal.
+ */
+export interface MoveProposal {
+  readonly id: string;
+  readonly itemId: string;
+  readonly to: MoveDestination;
+  /** Short text on the card, such as "Ready for review". */
+  readonly label?: string;
+  /** Why, for the screen reader. */
+  readonly reason?: string;
+}
+
+export interface ProposalEvent<T> {
+  readonly proposal: MoveProposal;
+  readonly item: T;
+  readonly decision: 'accept' | 'decline';
+  /** Accept only: whether the board took the move. A refused move (a full column) leaves the card where it is. */
+  readonly moved?: boolean;
+}
+
+/** Someone else holding a card, from your own presence channel. */
+export interface BoardPresence {
+  /** Who: one entry per person. */
+  readonly userId: string;
+  readonly name: string;
+  readonly itemId: string;
+  /** Their color. Default: the theme accent. */
+  readonly color?: string;
+}
+
+/** What this user's finger is doing, for your presence channel. Null `itemId`: nothing lifted. */
+export interface LocalPresenceEvent {
+  readonly itemId: string | null;
+  readonly from: MoveTarget | null;
+  readonly to: MoveTarget | null;
+}
+
+/** What `ref.inspect()` returns: plain JSON for a debugger panel or a bug report. */
+export interface BoardInspection {
+  readonly cards: number;
+  readonly cells: number;
+  /** Moves `onMove` has not accepted yet. */
+  readonly pending: readonly MoveOperation[];
+  /** Every card drawn somewhere its item does not say yet. */
+  readonly overlays: readonly MoveOperation[];
+  /** A move waiting for `gateMove` or `confirmInto`. */
+  readonly gate: { readonly request: unknown; readonly ops: readonly MoveOperation[] } | null;
+  /** `items` are held while a card is lifted. */
+  readonly holding: boolean;
+  readonly selection: readonly string[];
+  readonly zoomLevel: ZoomLevel;
+  /** Entries in the timeline's journal, and where it is scrubbed to. Null without `timeline`. */
+  readonly timeline: { readonly entries: number; readonly position: number | null } | null;
 }
 
 /** How `columnLimits` are enforced. */
@@ -142,6 +223,12 @@ export interface MoveGateInfo<T> {
 export interface BoardMoveContext extends MoveContext {
   /** What the gate submitted. Undefined when the move was not held. */
   readonly answer?: unknown;
+  /**
+   * Who asked for the move, when a command or proposal made it: the
+   * command's `origin` ("shortcut", "agent"), or `'proposal'`. Absent for
+   * moves made on the board itself.
+   */
+  readonly origin?: string;
 }
 
 /** A lifted card was dropped onto another card. Nothing moved. */
@@ -239,6 +326,12 @@ export interface MovePreview<T> {
 
 export interface DragEndEvent {
   readonly itemId: string;
+  /**
+   * Why a drag was cancelled by the board: `items` changed the lifted card
+   * (`changed`) or took it away (`removed`) while it was held. Absent when
+   * the user let go or the drop was refused.
+   */
+  readonly reason?: 'changed' | 'removed';
   /** True when the card went back: released outside a target, refused, or interrupted. */
   readonly cancelled: boolean;
 }
@@ -278,6 +371,24 @@ export interface CardRenderInfo<T> {
   readonly openMoveSheet: () => void;
   /** Adds the card to the selection, or takes it out. */
   readonly toggleSelected: () => void;
+  /** `getBlocked` says the card is blocked. */
+  readonly blocked?: boolean;
+  /** What `getBlocked` returned when it was a string. */
+  readonly blockedReason?: string | null;
+  /** A proposal for this card (`proposals`), with ways to answer it. */
+  readonly proposal?: CardProposal | null;
+  /** Other people holding this card (`presence`). */
+  readonly presence?: readonly BoardPresence[];
+  /** The timeline is in `diff` mode and this card changed column since the position shown. */
+  readonly changedSince?: boolean;
+}
+
+/** A proposal as a card sees it. */
+export interface CardProposal extends MoveProposal {
+  /** The column (and lane) it would go to. */
+  readonly target: { readonly column: GroupValue; readonly lane: GroupValue | null };
+  readonly accept: () => void;
+  readonly decline: () => void;
 }
 
 export interface ColumnHeaderRenderInfo {
@@ -292,6 +403,8 @@ export interface ColumnHeaderRenderInfo {
    * (negative). 0 otherwise. The default header shows `total + incoming`.
    */
   readonly incoming?: number;
+  /** Cards `proposals` would move into this column. */
+  readonly proposed?: number;
   readonly collapsed: boolean;
   /** The column is narrow (under 180pt): stack the header instead of truncating. */
   readonly compact: boolean;
@@ -547,6 +660,41 @@ export interface BoardLabels {
   noCardsMatch: string;
   /** Announced after a card is dropped onto another. */
   droppedOnto: (context: { readonly item: string; readonly target: string }) => string;
+  /** Announced when `items` changed or removed the lifted card and the drag was cancelled. */
+  cardChangedWhileDragging: (context: { readonly item: string; readonly reason: 'changed' | 'removed' }) => string;
+  /** Chip and screen-reader word for a card `getBlocked` marks. */
+  blocked: string;
+  /** A card's proposal, for its screen-reader label: "Suggested: move to Done". */
+  proposed: (context: {
+    readonly column: string;
+    readonly lane: string | null;
+    readonly label: string | null;
+  }) => string;
+  acceptProposal: string;
+  declineProposal: string;
+  /** The proposals bar: "3 suggestions". */
+  proposalCount: (count: number) => string;
+  acceptAll: string;
+  declineAll: string;
+  /** On a card someone else holds: "Priya is moving this". */
+  presenceMoving: (context: { readonly names: readonly string[] }) => string;
+  /** The scrubber's value for screen readers, and its caption. */
+  timelinePosition: (context: { readonly at: number | null; readonly step: number; readonly steps: number }) => string;
+  /** The scrubber's button and chip back to the present. */
+  live: string;
+  play: string;
+  pause: string;
+  /** Diff mode, in a changed card's label. */
+  changedSince: string;
+  /** A column of the ageing chart, for screen readers. */
+  ageColumnSummary: (context: {
+    readonly column: string;
+    readonly count: number;
+    readonly oldest: number | null;
+    readonly overBand: number;
+  }) => string;
+  /** Action on an ageing chart column that opens its cards. */
+  showCards: string;
 }
 
 /** Imperative controls, through the `ref` prop. */
@@ -588,6 +736,19 @@ export interface BoardHandle {
   snapshot(): BoardSnapshot;
   /** Zooms to a level of `zoom`. Back at `card`, a `columnId` scrolls there. Needs `zoom`. */
   setZoomLevel(level: ZoomLevel, columnId?: string): void;
+  /**
+   * Runs a command: plain JSON from a shortcut, a deep link, an agent or
+   * your own code, with the same rules as a drag. Untrusted input is checked
+   * first (`validateCommand`). Moves reach `onMove` with `source: 'api'` and
+   * the command's `origin` in `context.origin`.
+   */
+  run(command: BoardCommand): CommandResult;
+  /** The moves `onMove` has not accepted yet, as JSON, to send again with `restoreQueue` after a restart. */
+  serializeQueue(): string;
+  /** Queues saved moves again. Returns how many. */
+  restoreQueue(saved: string): number;
+  /** The board's state for a debugger panel or a bug report. */
+  inspect(): BoardInspection;
 }
 
 export interface BoardProps<T> {
@@ -753,8 +914,41 @@ export interface BoardProps<T> {
   spotlight?: (item: T) => boolean;
   /** How old a card is, in days. Passed to `renderCard`, and `CardView` shows it. */
   getItemAge?: (item: T) => number | null | undefined;
-  /** Cards at least this many days old are `stale`. Default 14. */
-  staleAfterDays?: number;
+  /**
+   * Cards at least this many days old are `stale`. A number for every
+   * column, or one per column id; columns left out use 14. Default 14.
+   */
+  staleAfterDays?: number | Readonly<Record<string, number>>;
+  /**
+   * Blocked cards: true, or a reason. The card's info gets `blocked`,
+   * `CardView` shows a chip and screen readers hear it. Display only.
+   */
+  getBlocked?: (item: T) => boolean | string | null | undefined;
+  /**
+   * The board's journal and time machine, from `useBoardTimeline()`. The
+   * board records its own moves and the moves `items` makes by itself, and
+   * draws the past while the timeline is scrubbed (read-only, with cards
+   * flying). Without it the board keeps no history.
+   */
+  timeline?: BoardTimeline;
+  /**
+   * While a card is lifted, new `items` wait: nothing moves under the
+   * finger. The drop is planned against the live data, next to the cards
+   * the user saw, then the held changes land (and fly, with
+   * `animateChanges`). If the new data changed or removed the lifted card,
+   * the drag cancels and says why. Default true.
+   */
+  holdChangesWhileDragging?: boolean;
+  /** Suggested moves, drawn on their cards with Accept and Decline. See `MoveProposal`. */
+  proposals?: readonly MoveProposal[];
+  /** A proposal was accepted or declined. Remove it from `proposals`. */
+  onProposal?: (event: ProposalEvent<T>) => void;
+  /** Other people holding cards right now, drawn on those cards with their names. */
+  presence?: readonly BoardPresence[];
+  /** Cards someone else holds (`presence`) cannot be dragged here. Default true. */
+  lockPresence?: boolean;
+  /** This user lifted, moved or let go of a card: send it to your presence channel. */
+  onLocalPresence?: (event: LocalPresenceEvent) => void;
   /**
    * The board reached its first or last column, sideways: in the planner, add
    * days to `groupBy.columns`. Fires in the planner, `multi` and `fit`, and

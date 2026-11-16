@@ -329,4 +329,29 @@ export const defaultLabels: BoardLabels = {
   searchCards: 'Search cards',
   noCardsMatch: 'No cards match',
   droppedOnto: ({ item, target }) => `Dropped ${item} onto ${target}`,
+  cardChangedWhileDragging: ({ item, reason }) =>
+    reason === 'removed' ? `${item} was removed. Move cancelled` : `${item} changed. Move cancelled`,
+  blocked: 'Blocked',
+  proposed: ({ column, lane, label }) =>
+    `Suggested: move to ${lane ? `${column}, ${lane}` : column}${label ? `. ${label}` : ''}`,
+  acceptProposal: 'Accept',
+  declineProposal: 'Decline',
+  proposalCount: (count) => (count === 1 ? '1 suggestion' : `${count} suggestions`),
+  acceptAll: 'Accept all',
+  declineAll: 'Decline all',
+  presenceMoving: ({ names }) =>
+    names.length === 1
+      ? `${names[0]} is moving this`
+      : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are moving this`,
+  timelinePosition: ({ at, step, steps }) =>
+    at == null ? `Start, step ${step} of ${steps}` : `${new Date(at).toLocaleString()}, step ${step} of ${steps}`,
+  live: 'Live',
+  play: 'Play',
+  pause: 'Pause',
+  changedSince: 'Moved since then',
+  ageColumnSummary: ({ column, count, oldest, overBand }) =>
+    `${column}, ${count} ${count === 1 ? 'card' : 'cards'}` +
+    (oldest != null ? `, oldest ${Math.round(oldest)} days` : '') +
+    (overBand > 0 ? `, ${overBand} past the top band` : ''),
+  showCards: 'Show cards',
 };

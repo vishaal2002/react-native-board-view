@@ -33,6 +33,8 @@ export interface CardViewProps {
   age?: number | null;
   /** Pass `info.stale`: the age chip turns the warning color. */
   stale?: boolean;
+  /** Pass `info.blocked`: a "Blocked" chip in the reject color. A string shows instead of the word. */
+  blocked?: boolean | string | null;
   children?: ReactNode;
 }
 
@@ -74,6 +76,7 @@ export const CardView = memo(function CardView({
   leading,
   age,
   stale = false,
+  blocked,
   children,
 }: CardViewProps) {
   const theme = useBoardTheme();
@@ -98,6 +101,7 @@ export const CardView = memo(function CardView({
           <Text style={[styles.compactTitle, { color: theme.text }, fontFamily]} numberOfLines={3}>
             {title}
           </Text>
+          {blocked ? <View style={[styles.saving, { backgroundColor: theme.reject }]} /> : null}
           {pending ? <View style={[styles.saving, { backgroundColor: theme.accent }]} /> : null}
         </View>
       ) : (
@@ -123,9 +127,16 @@ export const CardView = memo(function CardView({
             </View>
           ) : null}
           {children}
-          {meta || assignee || pending || age != null ? (
+          {meta || assignee || pending || age != null || blocked ? (
             <View style={styles.footer}>
               {pending ? <View style={[styles.saving, { backgroundColor: theme.accent }]} /> : null}
+              {blocked ? (
+                <View style={[styles.age, { backgroundColor: tint(theme.reject, 0.16) }]}>
+                  <Text style={[styles.ageText, { color: theme.reject }, fontFamily]} numberOfLines={1}>
+                    {typeof blocked === 'string' ? blocked : 'Blocked'}
+                  </Text>
+                </View>
+              ) : null}
               {age != null ? (
                 <View
                   style={[

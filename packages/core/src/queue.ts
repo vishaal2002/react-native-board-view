@@ -25,6 +25,8 @@ export interface MoveContext {
 
 interface Entry {
   op: MoveOperation;
+  /** Enqueue order across items, so pending moves come back in the order they were made. */
+  order: number;
   state: 'queued' | 'inflight' | 'resolved';
   /** The app's record when the move was queued. Null when the item was unknown. */
   baseline: ItemMoveSnapshot | null;
@@ -52,6 +54,11 @@ export interface MoveQueue {
   getOverlay(itemId: string): MoveOperation | null;
   /** True while any move of this item is queued or in flight. */
   isPending(itemId: string): boolean;
+  /**
+   * Moves `onMove` has not accepted yet (queued or in flight), oldest first.
+   * Keep them with `serializeQueue` to send again after the app restarts.
+   */
+  pending(): readonly MoveOperation[];
   getSnapshot(): MoveQueueSnapshot;
   subscribe(listener: () => void): () => void;
   /** Clears timers and listeners and aborts in-flight moves. The queue must not be used afterwards. */
@@ -150,6 +157,7 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
   const listeners = new Set<() => void>();
   let snapshot: MoveQueueSnapshot = { version: 0, overlays: [] };
   let disposed = false;
+  let enqueued = 0;
 
   function overlayOf(itemId: string): MoveOperation | null {
     const entries = entriesByItem.get(itemId);
@@ -305,8 +313,10 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
       if (disposed) return;
       const entries = entriesByItem.get(op.id) ?? [];
       if (entries.some((entry) => entry.op.opId === op.opId)) return;
+      enqueued += 1;
       const entry: Entry = {
         op,
+        order: enqueued,
         state: 'queued',
         baseline: options.readItem(op.id),
         settleTimer: null,
@@ -344,6 +354,13 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
     isPending(itemId) {
       return entriesByItem.get(itemId)?.some((entry) => entry.state !== 'resolved') ?? false;
     },
+    pending() {
+      const ops: { op: MoveOperation; order: number }[] = [];
+      for (const entries of entriesByItem.values()) {
+        for (const entry of entries) if (entry.state !== 'resolved') ops.push({ op: entry.op, order: entry.order });
+      }
+      return ops.sort((a, b) => a.order - b.order).map((entry) => entry.op);
+    },
     getSnapshot() {
       return snapshot;
     },
@@ -367,4 +384,73 @@ export function createMoveQueue(options: MoveQueueOptions): MoveQueue {
       listeners.clear();
     },
   };
+}
+
+/** Pending moves saved with `serializeQueue`. */
+export interface SerializedQueue {
+  readonly version: 1;
+  readonly ops: readonly MoveOperation[];
+}
+
+/**
+ * The moves `onMove` has not accepted yet, as JSON, so an app that goes
+ * offline or closes can send them again later with `restoreQueue`.
+ */
+export function serializeQueue(queue: Pick<MoveQueue, 'pending'>): string {
+  const saved: SerializedQueue = { version: 1, ops: queue.pending() };
+  return JSON.stringify(saved);
+}
+
+function isOp(value: unknown): value is MoveOperation {
+  if (typeof value !== 'object' || value === null) return false;
+  const op = value as Record<string, unknown>;
+  const fields = (record: unknown) =>
+    typeof record === 'object' &&
+    record !== null &&
+    Object.values(record).every((field) => field === null || typeof field === 'string');
+  return (
+    typeof op.opId === 'string' &&
+    typeof op.id === 'string' &&
+    typeof op.rank === 'string' &&
+    typeof op.source === 'string' &&
+    (op.previousId === null || typeof op.previousId === 'string') &&
+    (op.nextId === null || typeof op.nextId === 'string') &&
+    fields(op.changes) &&
+    fields(op.from)
+  );
+}
+
+/** Reads saved moves back, dropping any that do not parse. */
+export function parseQueue(saved: string | SerializedQueue | null | undefined): MoveOperation[] {
+  if (saved == null) return [];
+  let value: unknown = saved;
+  if (typeof saved === 'string') {
+    try {
+      value = JSON.parse(saved);
+    } catch {
+      return [];
+    }
+  }
+  const ops = (value as { ops?: unknown } | null)?.ops;
+  return Array.isArray(ops) ? ops.filter(isOp) : [];
+}
+
+/**
+ * Queues saved moves again, in order: each shows at once and goes to
+ * `onMove` as it did the first time. Moves already queued (the same
+ * `opId`) are skipped. Returns how many were queued.
+ */
+export function restoreQueue(
+  queue: Pick<MoveQueue, 'enqueue' | 'getSnapshot'> & Partial<Pick<MoveQueue, 'pending'>>,
+  saved: string | SerializedQueue | null | undefined,
+): number {
+  const known = new Set([...(queue.pending?.() ?? []), ...queue.getSnapshot().overlays].map((op) => op.opId));
+  let restored = 0;
+  for (const op of parseQueue(saved)) {
+    if (known.has(op.opId)) continue;
+    known.add(op.opId);
+    queue.enqueue(op);
+    restored += 1;
+  }
+  return restored;
 }

@@ -369,6 +369,50 @@ storage.set('board', JSON.stringify(board.current?.snapshot()));
 
 **Experimental: gather, throw and the drag lens.** `moveModes={{ gather: true }}`: while a card is lifted, a second finger taps other cards to bring them along. `moveModes={{ throw: true }}`: flick a lifted card and it goes where it was heading, a dock chip or the top of another column. `dragLens` on a paged phone board zooms out to every column while a card is lifted, and back in where it lands.
 
+## A board with a memory
+
+![New in 1.4](https://img.shields.io/badge/new%20in-1.4-2F6FEB)
+
+**A journal and a time machine.** `useBoardTimeline()` records every move the board makes and every move `items` makes by itself (a teammate, a sync), with ids and ranks only. Scrub it and the board shows itself as it was, read-only, with cards flying from step to step. `<BoardScrubber>` is a ready-made track with play, pause and Live; build your own from the hook when it does not fit.
+
+```tsx
+const timeline = useBoardTimeline<Task>({
+  actor: me.name,
+  getActor: (task) => task.updatedBy,
+  initial: storage.getString('journal'),
+  onChange: () => storage.set('journal', timeline.serialize()),
+});
+
+<Board items={tasks} timeline={timeline} animateChanges /* … */ />
+<BoardScrubber timeline={timeline} />
+
+timeline.seekTime(lastFriday); // the board as it was
+timeline.seek(0, 'diff'); // the board as it is, with every card that moved since ringed
+timeline.live();
+```
+
+**Live data mid-drag.** While a card is lifted, new `items` wait, so nothing moves under the finger. The drop is planned against the live data, next to the cards the user saw, then the held changes land. If the new data changed or removed the lifted card, the drag cancels and says why. Nothing to set up; `holdChangesWhileDragging={false}` turns it off.
+
+**Commands.** Every change can be plain JSON, from a shortcut, a deep link, an agent's tool call or your own code. `ref.run(command)` applies the board's rules and returns what happened, or why nothing did. The command's `origin` reaches `onMove` as `context.origin`. `validateCommand` checks untrusted input, and `boardCommandSchema` is a JSON Schema for tool definitions.
+
+```tsx
+const result = board.current?.run({ type: 'move', itemId: 't12', to: { columnId: 'done' }, origin: 'agent' });
+// { ok: true, moved: 1 } or { ok: false, reason: 'refused' | 'unknown-item' | 'no-change' | … }
+```
+
+**Suggested moves.** `proposals` shows moves a rule, a teammate or a model suggests, on their cards with Accept and Decline, and counts them on the target column. The board never accepts one by itself. Accepting runs the move with `context.origin: 'proposal'`, and `onProposal` tells you to remove it.
+
+```tsx
+<Board
+  proposals={[{ id: 'p1', itemId: 't7', to: { columnId: 'done' }, label: 'Reviewed' }]}
+  onProposal={({ proposal }) => setProposals((list) => list.filter((entry) => entry !== proposal))}
+/>
+```
+
+**The ageing chart.** With `zoom={{ dotLayout: 'age' }}` and `getItemAge`, the dot level becomes an ageing chart: each card is a dot at the height of its age, with bands at the 50th and 85th percentile, or at your own `ageBands`. Drag the oldest dot to Done. `getBlocked` marks blocked cards, and `staleAfterDays` takes a limit per column. `useBoardFlow(timeline)` gives throughput, time in each column and cycle times from the journal.
+
+**Presence, offline moves and concurrent drops.** `presence` rings the cards other people are holding, with their names, and stops them being dragged here; `onLocalPresence` reports this user's drags for your channel. `ref.serializeQueue()` and `ref.restoreQueue()` keep unsent moves across a restart. `jitteredRank()` keeps two people's drops between the same cards from getting the same rank.
+
 ## Moves that ask first
 
 ![New in 1.2](https://img.shields.io/badge/new%20in-1.2-2F6FEB)
@@ -693,33 +737,38 @@ To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filt
 
 **Data and moves**
 
-| Prop                                                    | Default          | Notes                                                                                                                                                |
-| ------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                  | Required.                                                                                                                                            |
-| `getRank`                                               | `item.rank`      | One global rank per item. A missing rank sorts first.                                                                                                |
-| `getItemLabel`                                          | the id           | Used by screen readers and the Move sheet.                                                                                                           |
-| `onMoveError`                                           |                  | A move was rejected or timed out and rolled back.                                                                                                    |
-| `canDrag`, `canDrop`                                    | allow all        | Lock cards and refuse cells.                                                                                                                         |
-| `cardActions`, `onCardAction`, `canPerformAction`       |                  | App actions in the dock, the sheet and screen-reader actions. <sup>0.6</sup>                                                                         |
-| `selectable`                                            | `true`           | Multi-select. <sup>0.8</sup>                                                                                                                         |
-| `selection`, `onSelectionChange`                        | board-managed    | The selected card ids, controlled. <sup>0.8</sup>                                                                                                    |
-| `onColumnOrderChange`, `onLaneOrderChange`              |                  | Reorder from the header's "…". You update `groupBy`. <sup>0.8</sup>                                                                                  |
-| `animateChanges`                                        | `false`          | Cards fly to their new places when the board changes outside a drag. <sup>1.3</sup>                                                                  |
-| `zoom`                                                  | `false`          | Pinch through cards, compact cards, titles and bars. Drag works at every level. <sup>1.3</sup>                                                       |
-| `zoomLevel`, `onZoomLevelChange`                        | board-managed    | Controls the zoom level. <sup>1.3</sup>                                                                                                              |
-| `getItemColor`                                          | column color     | A card's color as a title or a bar. <sup>1.3</sup>                                                                                                   |
-| `initialSnapshot`                                       | none             | Opens as `ref.snapshot()` saw it, then flies to now. <sup>1.3</sup>                                                                                  |
-| `describeMove`                                          | none             | A line under the lifted card: what the drop will do. <sup>1.3</sup>                                                                                  |
-| `dragLens`                                              | `false`          | Experimental. Zooms out while a card is lifted on a paged board. <sup>1.3</sup>                                                                      |
-| `highlightExternalMoves`                                | `true`           | Flash cards your data moved by itself. <sup>0.8</sup>                                                                                                |
-| `dock`                                                  | `true`           | The drop dock. `false`, or `{ columns, actions }`. <sup>0.6</sup>                                                                                    |
-| `haptics`                                               | `true`           | A tick on lift through your app's haptics module, `false`, or your own function. <sup>0.6</sup>                                                      |
-| `undo`                                                  | `false`          | The undo banner. `true` or `{ timeoutMs }`. <sup>0.6</sup>                                                                                           |
-| `readOnly`                                              | `false`          | Display only.                                                                                                                                        |
-| `moveModes`                                             | drag and sheet   | `{ drag, sheet, longPressSheet, swipe, gather, throw }`. `drag` is `'auto'`, `'handle'` or `false`. See [Ways to move a card](#ways-to-move-a-card). |
-| `onDragStart`, `onDragOver`, `onDragEnd`                |                  | Drag lifecycle, for example for haptics.                                                                                                             |
-| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000      | `0` waits forever.                                                                                                                                   |
-| `rankStrategy`                                          | fractional index | Replace the rank math.                                                                                                                               |
+| Prop                                                    | Default                | Notes                                                                                                                                                |
+| ------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `items`, `getItemId`, `groupBy`, `onMove`, `renderCard` |                        | Required.                                                                                                                                            |
+| `getRank`                                               | `item.rank`            | One global rank per item. A missing rank sorts first.                                                                                                |
+| `getItemLabel`                                          | the id                 | Used by screen readers and the Move sheet.                                                                                                           |
+| `timeline`                                              |                        | From `useBoardTimeline()`: the journal and time machine. <sup>1.4</sup>                                                                              |
+| `holdChangesWhileDragging`                              | `true`                 | New `items` wait while a card is lifted. <sup>1.4</sup>                                                                                              |
+| `proposals`, `onProposal`                               |                        | Suggested moves with Accept and Decline. <sup>1.4</sup>                                                                                              |
+| `presence`, `lockPresence`, `onLocalPresence`           | `lockPresence`: `true` | Other people's held cards, and this user's drags. <sup>1.4</sup>                                                                                     |
+| `getBlocked`                                            |                        | Blocked cards, with an optional reason. <sup>1.4</sup>                                                                                               |
+| `onMoveError`                                           |                        | A move was rejected or timed out and rolled back.                                                                                                    |
+| `canDrag`, `canDrop`                                    | allow all              | Lock cards and refuse cells.                                                                                                                         |
+| `cardActions`, `onCardAction`, `canPerformAction`       |                        | App actions in the dock, the sheet and screen-reader actions. <sup>0.6</sup>                                                                         |
+| `selectable`                                            | `true`                 | Multi-select. <sup>0.8</sup>                                                                                                                         |
+| `selection`, `onSelectionChange`                        | board-managed          | The selected card ids, controlled. <sup>0.8</sup>                                                                                                    |
+| `onColumnOrderChange`, `onLaneOrderChange`              |                        | Reorder from the header's "…". You update `groupBy`. <sup>0.8</sup>                                                                                  |
+| `animateChanges`                                        | `false`                | Cards fly to their new places when the board changes outside a drag. <sup>1.3</sup>                                                                  |
+| `zoom`                                                  | `false`                | Pinch through cards, compact cards, titles and bars. Drag works at every level. <sup>1.3</sup>                                                       |
+| `zoomLevel`, `onZoomLevelChange`                        | board-managed          | Controls the zoom level. <sup>1.3</sup>                                                                                                              |
+| `getItemColor`                                          | column color           | A card's color as a title or a bar. <sup>1.3</sup>                                                                                                   |
+| `initialSnapshot`                                       | none                   | Opens as `ref.snapshot()` saw it, then flies to now. <sup>1.3</sup>                                                                                  |
+| `describeMove`                                          | none                   | A line under the lifted card: what the drop will do. <sup>1.3</sup>                                                                                  |
+| `dragLens`                                              | `false`                | Experimental. Zooms out while a card is lifted on a paged board. <sup>1.3</sup>                                                                      |
+| `highlightExternalMoves`                                | `true`                 | Flash cards your data moved by itself. <sup>0.8</sup>                                                                                                |
+| `dock`                                                  | `true`                 | The drop dock. `false`, or `{ columns, actions }`. <sup>0.6</sup>                                                                                    |
+| `haptics`                                               | `true`                 | A tick on lift through your app's haptics module, `false`, or your own function. <sup>0.6</sup>                                                      |
+| `undo`                                                  | `false`                | The undo banner. `true` or `{ timeoutMs }`. <sup>0.6</sup>                                                                                           |
+| `readOnly`                                              | `false`                | Display only.                                                                                                                                        |
+| `moveModes`                                             | drag and sheet         | `{ drag, sheet, longPressSheet, swipe, gather, throw }`. `drag` is `'auto'`, `'handle'` or `false`. See [Ways to move a card](#ways-to-move-a-card). |
+| `onDragStart`, `onDragOver`, `onDragEnd`                |                        | Drag lifecycle, for example for haptics.                                                                                                             |
+| `settleTimeoutMs`, `inflightTimeoutMs`                  | 5000, 30000            | `0` waits forever.                                                                                                                                   |
+| `rankStrategy`                                          | fractional index       | Replace the rank math.                                                                                                                               |
 
 **Layout and navigation**
 
@@ -787,10 +836,13 @@ To keep it fast, memoize your card, keep `renderCard` in `useCallback`, and filt
 | `setOverview(open, columnId?)`                  | Experimental. Opens or closes the overview. <sup>0.6</sup>                                                      |
 | `setZoomLevel(level, columnId?)`                | Zooms to a level of `zoom`. <sup>1.3</sup>                                                                      |
 | `snapshot()`                                    | Where every card is now, for `initialSnapshot`. <sup>1.3</sup>                                                  |
+| `run(command)`                                  | Runs a `BoardCommand` with the board's rules. Returns what happened. <sup>1.4</sup>                             |
+| `serializeQueue()`, `restoreQueue(saved)`       | Saves moves `onMove` has not accepted, and queues them again. <sup>1.4</sup>                                    |
+| `inspect()`                                     | The board's state as JSON, for a debugger or a bug report. <sup>1.4</sup>                                       |
 
 ### `renderCard` info
 
-`item`, `cellId`, `index`, `count`, `column`, `lane`, `pending`, `dragging` (true for the lifted copy), `compact` (the column is narrow), `dimmed` (outside the `spotlight`), `age` and `stale` <sup>0.7</sup>, `selected` and `selecting` <sup>0.8</sup>, `highlighted`, `hovered` and `dragCount` <sup>1.0</sup>, `openMoveSheet()` and `toggleSelected()` <sup>0.8</sup>.
+`item`, `cellId`, `index`, `count`, `column`, `lane`, `pending`, `dragging` (true for the lifted copy), `compact` (the column is narrow), `dimmed` (outside the `spotlight`), `age` and `stale` <sup>0.7</sup>, `selected` and `selecting` <sup>0.8</sup>, `highlighted`, `hovered` and `dragCount` <sup>1.0</sup>, `openMoveSheet()` and `toggleSelected()` <sup>0.8</sup>, `blocked`, `blockedReason`, `proposal`, `presence` and `changedSince` <sup>1.4</sup>.
 
 Every prop, type, token and label is in the [API reference](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md). Coming from 0.x: [Migrating to 1.0](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/migrating.md).
 
@@ -814,12 +866,13 @@ Every prop, type, token and label is in the [API reference](https://github.com/v
 
 ## Status
 
-1.0 is stable. Both packages follow semantic versioning: what that covers, and which React Native and Expo versions are supported, is in the [support policy](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/support.md). Breaking changes would need 2.0. The overview and swipe-to-move stay experimental and off by default.
+1.0 is stable, and 1.4 is the last feature release of 1.x: 1.5 is fixes and the open device gates. Both packages follow semantic versioning: what that covers, and which React Native and Expo versions are supported, is in the [support policy](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/support.md). Breaking changes would need 2.0. The overview and swipe-to-move stay experimental and off by default.
 
 What has run, and what has not:
 
 - **Devices.** The release gates S2–S6 passed on release builds on an Android phone, a vivo V2158 (Android 14, 6 GB). On the iOS 27 simulator, 1.0 passed S4; S5 last passed there on 0.8.0. No physical iPhone has run the gates yet, and no low-end Android phone. See the [release gates](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/spike.md). The overview's pinch has not run on any device.
 - **Screen readers.** TalkBack and VoiceOver have not completed the full move test yet. Handle mode hides the grip from screen readers; the card's move actions stay.
+- **1.3 and 1.4 features** are checked in unit tests and on simulators: both on the iOS simulator and the Android emulator. Neither has run on a phone yet.
 - **Usability study.** Five developers new to the package have not been timed yet. Swipe-to-move stays experimental, and off by default, until that study.
 
 **Out of scope:** creating, editing, deleting, fetching or storing items. Rank rebalancing on the client. Sub-columns, items in more than one cell, and any action that edits items itself. Reanimated 3, the old architecture, and web. What comes next is in the [roadmap](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/roadmap.md).

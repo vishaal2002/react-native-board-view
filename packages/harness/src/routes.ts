@@ -6,6 +6,7 @@ import {
   Columns3,
   Grid2x2,
   Grid3x3,
+  History,
   LayoutGrid,
   Layers,
   MessageCircleQuestion,
@@ -44,6 +45,7 @@ export type Route =
   | 'planner'
   | 'live'
   | 'flights'
+  | 'memory'
   | 'showcase'
   | 'rollback'
   | 'rules'
@@ -150,6 +152,13 @@ export const SECTIONS: { title: string; entries: DemoEntry[] }[] = [
         title: 'Kanban playground',
         detail: 'Switch layout, density, pager, card style and auto-scroll live.',
         badge: SlidersHorizontal,
+      },
+      {
+        route: 'memory',
+        title: 'A board with a memory',
+        detail:
+          'Drag while a teammate moves cards, scrub the timeline back, accept suggestions, drag dots on the ageing chart.',
+        badge: History,
       },
       {
         route: 'flights',

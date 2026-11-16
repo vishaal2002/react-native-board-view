@@ -1,6 +1,6 @@
 ---
 name: board-view
-description: Use when adding or changing a Kanban, swimlane or week-planner board in a React Native or Expo app with react-native-board-view. Covers install and peer versions, writing onMove so moves persist and roll back, groupBy and ranks, choosing a layout, keeping props stable, server sync (TanStack Query, local-first stores), required fields before a move, rules and WIP limits, seeding and rebalancing ranks, sharing board-view-core with a Node server, and testing with createBoardTester.
+description: Use when adding or changing a Kanban, swimlane or week-planner board in a React Native or Expo app with react-native-board-view. Covers install and peer versions, writing onMove so moves persist and roll back, groupBy and ranks, choosing a layout, keeping props stable, server sync (TanStack Query, local-first stores), required fields before a move, rules and WIP limits, seeding and rebalancing ranks, sharing board-view-core with a Node server, testing with createBoardTester, and 1.4's commands (ref.run), timeline and time machine, proposals, presence and the ageing chart.
 ---
 
 # react-native-board-view
@@ -299,6 +299,15 @@ it('moves a task to Done and saves it', async () => {
 - `describeMove(preview)` returns a short line drawn under the lifted card. Keep it synchronous and cheap.
 - `moveModes.gather`, `moveModes.throw` and `dragLens` are experimental. Turn them on only when the app asks for them.
 
+### Commands, timeline and suggestions (1.4)
+
+- To move cards from an agent, a shortcut or a deep link, build a `BoardCommand` and call `ref.run(command)`. Check untrusted JSON with `validateCommand` first; `boardCommandSchema` is the JSON Schema for a tool definition. Read the result: `ok`, or a `reason` such as `refused` or `unknown-item`. Set `origin`, and read it in `onMove` as `context.origin`.
+- For history, create `const timeline = useBoardTimeline({ actor })` and pass `timeline={timeline}`. Save `timeline.serialize()` from `onChange` and pass it back as `initial`. Add `<BoardScrubber timeline={timeline} />`, or call `seek`, `seekTime`, `play` and `live`. The board is read-only while it shows the past.
+- For suggested moves, pass `proposals` and remove each one in `onProposal`. Never move the card yourself on accept: the board already ran the move.
+- `holdChangesWhileDragging` is on by default: data that arrives during a drag lands at the drop. Do not try to pause your sync for drags.
+- The ageing chart needs `getItemAge` and `zoom={{ dotLayout: 'age' }}`. Mark blocked cards with `getBlocked`. Flow metrics come from `useBoardFlow(timeline, { doneColumns })`.
+- For boards several people edit, pass `rankStrategy={jitteredRank()}`. For offline apps, save `ref.serializeQueue()` and call `ref.restoreQueue(saved)` on the next launch.
+
 ## Mistakes to avoid
 
 - **Inline `renderCard`, `theme` or rules.** A new `renderCard`, `getItemLabel`, `theme`, `spotlight`, `canDrag`, `canDrop`, `cardActions` or `canPerformAction` on each render redraws every card. Hoist them or memoize them.
@@ -318,6 +327,8 @@ it('moves a task to Done and saves it', async () => {
 - **`::` in a column or lane id.** `GroupValue.id` must not contain `::`.
 - **Imports from `src/` or `lib/`.** Only `react-native-board-view`, `react-native-board-view/testing` and `board-view-core` are public.
 - **Turning on experimental features by default.** `overview` and `moveModes.swipe` are experimental and can change in a minor release.
+- **Filtering `items` with a timeline on.** Cards filtered out are journaled as leaving, and cannot be drawn in the past. Use `spotlight` for search, or keep the timeline for the unfiltered board.
+- **Accepting a proposal in `onProposal`.** The board already queued the move; moving it again sends a second `onMove`.
 - **Sorting the view by something other than rank.** Manual order then means nothing. Refuse the card's own cell with `canDrop`, or pass `moveModes={{ drag: false }}` and keep the Move sheet. [Recipe](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/recipes.md#sorted-or-filtered-views).
 
 ## More

@@ -175,6 +175,17 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
       )}
     </View>
   );
+  // Cards `proposals` would bring here: a quiet dashed pill next to the count.
+  const proposed =
+    (info.proposed ?? 0) > 0 ? (
+      <View
+        style={[styles.proposed, { borderColor: theme.accent }]}
+        importantForAccessibility="no-hide-descendants"
+        accessibilityElementsHidden
+      >
+        <Text style={[styles.proposedText, { color: theme.accent }, font(theme)]}>{`+${info.proposed}`}</Text>
+      </View>
+    ) : null;
   const value = valueLabel ? (
     <Text
       numberOfLines={1}
@@ -216,6 +227,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
           <View style={styles.compactRow}>
             {day ? null : dot}
             {count}
+            {proposed}
             {value}
             <View style={styles.spacer} />
             {menu}
@@ -232,6 +244,7 @@ export const DefaultColumnHeader = memo(function DefaultColumnHeader({
         {day ? null : dot}
         {title}
         {count}
+        {proposed}
         <View style={styles.spacer} />
         {value}
         {menu}
@@ -428,6 +441,15 @@ export function CollapsedColumnStrip({
 }
 
 const styles = StyleSheet.create({
+  proposed: {
+    minHeight: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+  },
+  proposedText: { fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'] },
   chevronBox: { alignItems: 'center', justifyContent: 'center' },
   spacer: { flex: 1 },
   dot: { width: 8, height: 8, borderRadius: 4 },

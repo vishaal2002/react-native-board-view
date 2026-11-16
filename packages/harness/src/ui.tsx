@@ -351,6 +351,7 @@ export const TaskCard = memo(function TaskCard({
   handle?: boolean;
 }) {
   const { item, pending, dragging, compact, age, stale } = info;
+  const blocked = info.blocked ? (info.blockedReason ?? true) : undefined;
   const theme = useBoardTheme();
   const lock = item.locked ? <Lock color={theme.mutedText} size={15} strokeWidth={2.4} /> : null;
   const leading =
@@ -405,6 +406,7 @@ export const TaskCard = memo(function TaskCard({
       dragging={dragging}
       age={age}
       stale={stale}
+      blocked={blocked}
       style={minHeight}
     />
   );

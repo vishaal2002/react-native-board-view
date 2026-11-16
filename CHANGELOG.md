@@ -2,6 +2,37 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**. From 1.0, what counts as breaking is in the [support policy](docs/support.md).
 
+## 1.4.0
+
+`react-native-board-view` 1.4.0 and `board-view-core` 1.2.0. Publish core first: the board depends on it.
+
+A board with a memory. The last feature release before 2.0: 1.5 is fixes only.
+
+- **Commands.** `ref.run(command)` takes a `BoardCommand`, plain JSON: `move`, `moveMany`, `undo`, `select`, `scrollToColumn`, `revealItem`, `zoom` and `openMoveSheet`. Commands follow the same rules as a drag (`canDrop`, limits, gates, the optimistic queue). The result says what happened, or why nothing did: `invalid`, `unknown-item`, `unknown-column`, `refused`, `no-change` or `unavailable`. A command's `origin` ("shortcut", "agent") reaches `onMove` as `context.origin`. Core exports `validateCommand`, for untrusted input such as a deep link or a model's tool call, and `boardCommandSchema`, a JSON Schema for tool definitions and App Intents. The test kit gets `run`.
+- **A journal and a time machine.** `useBoardTimeline()` keeps a journal of the board's own moves and of the moves `items` made by itself (a teammate, a sync), with ids and ranks only. A move that rolls back leaves no entry. Pass the timeline as `<Board timeline={timeline}>`. `seek`, `seekTime`, `step` and `play` draw the board as it was, read-only, with cards flying between steps. In `diff` mode the board stays live and rings every card that changed column since the position shown. `serialize()` and `initial` save and restore the journal, `actor` and `getActor` say who moved what, and `onChange` reports each change. `<BoardScrubber>` is a ready-made track with play, pause and Live, which screen readers adjust a step at a time. Without `timeline` the board keeps no history and costs nothing extra.
+- **Live data mid-drag.** While a card is lifted, new `items` wait, so nothing moves under the finger. The drop is planned against the live data, next to the cards the user saw, and the held changes land once the card settles (and fly, with `animateChanges`). If the new data changes or removes the lifted card, the drag cancels, screen readers hear why, and `onDragEnd` gets `reason`. `holdChangesWhileDragging={false}` turns this off.
+- **The ageing chart.** `zoom={{ dotLayout: 'age' }}` draws the dot level as an ageing chart: each card is a dot at the height of its age (`getItemAge`), with bands at the 50th and 85th percentile of the ages on the board, or at `ageBands`. Dots past the top band are ringed. Dots drag to other columns, and land at the top. To screen readers each column is one summary, with a "Show cards" action.
+- **Blocked cards and stale limits per column.** `getBlocked` marks cards as blocked, with an optional reason. Render info gets `blocked` and `blockedReason`, `CardView` takes `blocked`, and screen readers hear it. `staleAfterDays` also takes one number per column id.
+- **Flow metrics.** `useBoardFlow(timeline, { doneColumns })` and core's `boardFlow` give throughput per day, time in each column, when each card entered its column, and cycle times. Core's `percentile` gives the bands for the ageing chart.
+- **Suggested moves.** `proposals`: moves suggested by a rule, a teammate or a model. Each one shows on its card with Accept and Decline, the target column's header counts it, and a bar offers Accept all and Decline all. Accept all stops at the first move the board refuses. Screen readers get both as card actions. Accepting runs the move with `context.origin: 'proposal'`, and `onProposal` tells the app to remove the proposal. The board never accepts a proposal by itself.
+- **Presence.** `presence` draws a ring and a name on cards other people are holding, and stops them being dragged here (`lockPresence`). `onLocalPresence` reports this user's lifts, slots and drops, for your own channel.
+- **Offline moves and concurrent drops.** `ref.serializeQueue()` and `ref.restoreQueue()` save the moves `onMove` has not accepted yet and send them again after a restart. Core adds `serializeQueue`, `restoreQueue`, `parseQueue` and `MoveQueue.pending()`. `jitteredRank()` is a rank strategy that adds random digits, so two people who drop between the same neighbours do not get the same rank. Its keys are valid fractional-indexing keys.
+- **Inspection.** `ref.inspect()` returns the board's state as JSON: pending moves, overlays, a waiting gate, whether `items` are held, the selection, the zoom level and the timeline.
+- **Types and labels.** `BoardCommand`, `CommandResult`, `JournalEntry`, `BoardTimeline`, `BoardFlow`, `MoveProposal`, `CardProposal`, `ProposalEvent`, `BoardPresence`, `LocalPresenceEvent` and `BoardInspection`. New optional fields: `CardRenderInfo.blocked`, `blockedReason`, `proposal`, `presence` and `changedSince`; `ColumnHeaderRenderInfo.proposed`; `BoardMoveContext.origin`; `DragEndEvent.reason`. New labels: `cardChangedWhileDragging`, `blocked`, `proposed`, `acceptProposal`, `declineProposal`, `proposalCount`, `acceptAll`, `declineAll`, `presenceMoving`, `timelinePosition`, `live`, `play`, `pause`, `changedSince`, `ageColumnSummary` and `showCards`.
+
+### Fixed
+
+- Flying cards (`animateChanges`, catching up, the time machine) could draw outside the board: a card cut off at the bottom of a list flew from its whole size, over the app's own views below. Flights are now clipped to the board.
+- At the `dot` zoom level, the lifted card drew as a squeezed white title card. It now draws as a dot or bar in its color.
+
+### Changed
+
+- Data that arrives during a drag now waits for the drop (see above). Before, it re-rendered under the finger, and a change to the lifted card cancelled the drag at once without saying why.
+
+### Not in 1.4
+
+Moved out of the draft, to [2.0](docs/roadmap.md#20-the-engine-becomes-a-platform): dragging between boards, the headless engine and the Skia dot renderer. The inspector's DevTools panel is a separate tool for 1.5; `ref.inspect()` is its data. Diff mode rings changed cards rather than drawing trails from their old places.
+
 ## 1.3.0
 
 `react-native-board-view` 1.3.0 and `board-view-core` 1.1.0. Publish core first: the board depends on it.
