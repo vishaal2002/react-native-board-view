@@ -135,6 +135,19 @@ export interface SessionEnv<T> {
   items(): readonly T[];
   queue(): MoveQueue;
   announce(message: string): void;
+  /** Moves the queue just took, with where each card stood and where it goes: for the journal. */
+  committed?(moves: readonly CommittedMove[]): void;
+  /** A queued move rolled back or was cancelled: it never happened. */
+  rolledBack?(opId: string): void;
+}
+
+/** One card of a move the queue took. */
+export interface CommittedMove {
+  readonly op: MoveOperation;
+  readonly from: { readonly cellId: string; readonly rank: string };
+  readonly to: { readonly cellId: string; readonly rank: string };
+  /** `context.origin` of the command that made it. */
+  readonly origin?: string;
 }
 
 /** A move `gateMove` or `confirmInto` holds until the user answers. Its cards show, pending, where they land. */
@@ -164,16 +177,17 @@ export interface MoveSession<T> {
    */
   projection(overlays: readonly MoveOperation[], items: readonly T[], inputs: ProjectionInputs<T>): BoardModel<T>;
   canDropTo(itemId: string, cellId: string): boolean;
-  moveItem(itemId: string, toCellId: string, toIndex: number, source: MoveSource): boolean;
+  moveItem(itemId: string, toCellId: string, toIndex: number, source: MoveSource, origin?: string): boolean;
   moveItems(
     itemIds: readonly string[],
     toCellId: string,
     toIndex: number,
     source: MoveSource,
     anchorId?: string,
+    origin?: string,
   ): number;
-  moveTo(itemId: string, to: MoveDestination, source?: MoveSource): boolean;
-  moveManyTo(itemIds: readonly string[], to: MoveDestination, source?: MoveSource): number;
+  moveTo(itemId: string, to: MoveDestination, source?: MoveSource, origin?: string): boolean;
+  moveManyTo(itemIds: readonly string[], to: MoveDestination, source?: MoveSource, origin?: string): number;
   undo(entryId?: string): boolean;
   canUndo(): boolean;
   itemLabel(itemId: string): string;
@@ -189,6 +203,8 @@ export interface MoveSession<T> {
   cancelGate(): void;
   /** The gate's answer for an op, once, as `onMove` is called. */
   takeAnswer(opId: string): unknown;
+  /** The command origin for an op, once, as `onMove` is called. */
+  takeOrigin(opId: string): string | undefined;
 }
 
 const warned = new Set<string>();
@@ -323,6 +339,37 @@ function withOverlay(overlays: readonly MoveOperation[], op: MoveOperation): Mov
   return [...overlays.filter((entry) => entry.id !== op.id), next];
 }
 
+/**
+ * Where a drop planned on held data lands in live data: next to the
+ * nearest card the user saw around the slot that is still in the cell
+ * (skipping the cards that move with it), above it or below it, the
+ * closer one first and above on a tie. When none is left, at the same
+ * index, clamped.
+ */
+export function liveIndexFor<T>(
+  held: BoardModel<T>,
+  live: BoardModel<T>,
+  itemId: string,
+  moving: ReadonlySet<string>,
+  cellId: string,
+  index: number,
+): number {
+  const seen = (held.cellById.get(cellId)?.ranked ?? []).map((ref) => ref.id).filter((id) => id !== itemId);
+  const now = (live.cellById.get(cellId)?.ranked ?? []).map((ref) => ref.id).filter((id) => id !== itemId);
+  const where = new Map(now.map((id, at) => [id, at]));
+  const survivor = (at: number) => {
+    const id = seen[at];
+    return id == null || moving.has(id) ? undefined : where.get(id);
+  };
+  for (let distance = 1; distance <= Math.max(index, seen.length - index); distance += 1) {
+    const above = survivor(index - distance);
+    if (above != null) return above + 1;
+    const below = survivor(index + distance - 1);
+    if (below != null) return below;
+  }
+  return Math.min(index, now.length);
+}
+
 /** Item ids in board order: column by column, lane by lane, top to bottom. Unknown ids are dropped. */
 export function inBoardOrder<T>(model: BoardModel<T>, itemIds: readonly string[]): string[] {
   const columns = new Map(model.columns.map((column, index) => [column.id, index]));
@@ -345,6 +392,7 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
   // Finishes the held move: queues it, records undo and the announcement.
   let commitHeld: (() => void) | null = null;
   const answers = new Map<string, unknown>();
+  const origins = new Map<string, string>();
   let history: UndoEntry[] = [];
   // "Moved" is announced once the app accepts the move, so it never reports a move that rolls back.
   const announcements = new Map<string, string>();
@@ -456,13 +504,13 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
    * queues them together, so a batch knows its size before `onMove` sees it.
    * Steps the board refuses are skipped. Returns the queued ops.
    */
-  function run(steps: readonly Step[], source: MoveSource): MoveOperation[] {
+  function run(steps: readonly Step[], source: MoveSource, origin?: string): MoveOperation[] {
     const props = env.props();
     // One question at a time: nothing else moves while a held move waits.
     if (props.readOnly || steps.length === 0 || held.get() != null) return [];
     const start = current();
     let state: { model: BoardModel<T>; overlays: readonly MoveOperation[] } = start;
-    const planned: { op: MoveOperation; from: { cellId: string; index: number } }[] = [];
+    const planned: { op: MoveOperation; from: { cellId: string; index: number }; fromRank: string }[] = [];
     // A refused card leaves a gap in the chain: the cards placed next to it go next to whatever stands in for it.
     const standIn = new Map<string, string | number>();
     const resolve = (itemId: string): string | number => {
@@ -525,7 +573,8 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
       }
       // Null: the card is already exactly there, so it still anchors its neighbours.
       if (!op) continue;
-      planned.push({ op, from });
+      const fromRank = state.model.cellById.get(from.cellId)?.ranked[from.index]?.rank ?? '';
+      planned.push({ op, from, fromRank });
       const overlays = withOverlay(state.overlays, op);
       state = { model: project(overlays), overlays };
     }
@@ -572,7 +621,16 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
     };
     const commit = () => {
       const queue = env.queue();
+      if (origin != null) for (const op of ops) origins.set(op.opId, origin);
       for (const op of ops) queue.enqueue(op);
+      env.committed?.(
+        planned.map(({ from, fromRank }, index) => {
+          const op = ops[index]!;
+          const to = { cellId: state.model.locations.get(op.id)?.cellId ?? from.cellId, rank: op.rank };
+          const move = { op, from: { cellId: from.cellId, rank: fromRank }, to };
+          return origin != null ? { ...move, origin } : move;
+        }),
+      );
       // The plan already projected the board these moves leave: keep it rather than project it again.
       const queued = queue.getSnapshot().overlays;
       const inputs = inputsNow();
@@ -601,6 +659,7 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
     toIndex: number,
     source: MoveSource,
     anchorId?: string,
+    origin?: string,
   ): number {
     const ordered = inBoardOrder(current().model, itemIds);
     const anchor = anchorId != null && ordered.includes(anchorId) ? anchorId : ordered[0];
@@ -612,7 +671,7 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
       steps.push({ itemId: ordered[index]!, cellId: toCellId, place: { after: ordered[index - 1]! } });
     for (let index = at - 1; index >= 0; index -= 1)
       steps.push({ itemId: ordered[index]!, cellId: toCellId, place: { before: ordered[index + 1]! } });
-    return run(steps, source).length;
+    return run(steps, source, origin).length;
   }
 
   /** The moves of an entry whose cards are still where they landed, from a cell that still exists. */
@@ -657,18 +716,18 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
     live: () => current().model,
     projection: (overlays, items, inputs) => projectionOf(overlays, items, inputs).model,
     canDropTo: (itemId, cellId) => allowed(current(), itemId, cellId),
-    moveItem: (itemId, toCellId, toIndex, source) =>
-      run([{ itemId, cellId: toCellId, place: toIndex }], source).length > 0,
+    moveItem: (itemId, toCellId, toIndex, source, origin) =>
+      run([{ itemId, cellId: toCellId, place: toIndex }], source, origin).length > 0,
     moveItems,
-    moveTo(itemId, to, source = 'api') {
+    moveTo(itemId, to, source = 'api', origin) {
       const target = destination(itemId, to);
-      return target ? run([{ itemId, cellId: target.cellId, place: target.index }], source).length > 0 : false;
+      return target ? run([{ itemId, cellId: target.cellId, place: target.index }], source, origin).length > 0 : false;
     },
-    moveManyTo(itemIds, to, source = 'api') {
+    moveManyTo(itemIds, to, source = 'api', origin) {
       const ordered = inBoardOrder(current().model, itemIds);
       const first = ordered[0];
       const target = first == null ? null : destination(first, to);
-      return target ? moveItems(ordered, target.cellId, target.index, source) : 0;
+      return target ? moveItems(ordered, target.cellId, target.index, source, undefined, origin) : 0;
     },
     undo(entryId) {
       if (entryId == null) pruneStale();
@@ -703,12 +762,16 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
       }
       if (event.type === 'cancelled') {
         announcements.delete(event.op.opId);
+        origins.delete(event.op.opId);
         forget(event.op.opId);
+        env.rolledBack?.(event.op.opId);
         return;
       }
       if (event.type !== 'rejected') return;
       announcements.delete(event.op.opId);
+      origins.delete(event.op.opId);
       forget(event.op.opId);
+      env.rolledBack?.(event.op.opId);
       const props = env.props();
       const labels = env.labels();
       props.onMoveError?.(event.op, event.error);
@@ -749,6 +812,11 @@ export function createMoveSession<T>(env: SessionEnv<T>): MoveSession<T> {
       answers.delete(opId);
       return answer;
     },
+    takeOrigin(opId) {
+      const origin = origins.get(opId);
+      origins.delete(opId);
+      return origin;
+    },
   };
 }
 
@@ -784,7 +852,9 @@ export function createSessionQueue<T>(
   return createMoveQueue({
     onMove: (op, context) => {
       const answer = session().takeAnswer(op.opId);
-      const full: BoardMoveContext = answer === undefined ? context : { ...context, answer };
+      const origin = session().takeOrigin(op.opId);
+      let full: BoardMoveContext = answer === undefined ? context : { ...context, answer };
+      if (origin != null) full = { ...full, origin };
       return env.props().onMove(op, full);
     },
     readItem: (itemId) => {

@@ -176,8 +176,11 @@ export interface CellGeometry {
   getRect(): Rect | null;
   /** Insertion index (lifted card removed) for a pointer at `y`, from the displayed rows. */
   resolve(y: number): number;
-  /** Card under `y`, for starting a drag. `index` is its index in the cell. */
-  itemAt(y: number): { itemId: string; index: number; rect: Rect } | null;
+  /**
+   * Card under `y`, for starting a drag. `index` is its index in the cell.
+   * `x` is passed where it is known, for cells whose cards sit side by side.
+   */
+  itemAt(y: number, x?: number): { itemId: string; index: number; rect: Rect } | null;
   /** Where a displayed row is now; `PLACEHOLDER_ID` gives the placeholder. */
   itemRect(itemId: string): Rect | null;
   /**

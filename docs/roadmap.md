@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-11-15. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped on 2026-10-20. Features marked _experimental_ ship off by default and can change in a minor release (see the [support policy](support.md)). 1.1 to 1.3 are built (see below); 1.4 and 1.5 are a **draft**. 1.2 was planned from the [October 2026 research](research-2026-10.md); 1.3 and 1.4 come from the November 2026 innovation report.
+Updated 2026-11-15. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped on 2026-10-20. Features marked _experimental_ ship off by default and can change in a minor release (see the [support policy](support.md)). 1.1 to 1.4 are built (see below). 1.4 is the last feature release of 1.x: 1.5 is fixes and open gates only, and the next features are [2.0](#20-the-engine-becomes-a-platform). 1.2 was planned from the [October 2026 research](research-2026-10.md); 1.3 and 1.4 come from the November 2026 innovation report.
 
 | Version | Theme                           | Headline                                                                |
 | ------- | ------------------------------- | ----------------------------------------------------------------------- |
@@ -12,8 +12,9 @@ Updated 2026-11-15. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped
 | 1.1.0   | Fits anywhere (built)           | Lanes that virtualize columns, boards inside sheets and pagers, Expo Go |
 | 1.2.0   | Moves that ask first (built)    | Drop gates, drop on a card, drop targets and sources outside the board  |
 | 1.3.0   | See everything (built)          | Zoom to bars, flights, since you were away, drop previews, gather       |
-| 1.4.0   | A board with a memory (draft)   | Command journal, time machine, live data mid-drag, ageing view          |
-| 1.5.0   | Beyond touch (draft)            | Keyboard moves, drag between apps on tablets                            |
+| 1.4.0   | A board with a memory (built)   | Commands, journal, time machine, live data mid-drag, ageing chart       |
+| 1.5.0   | Fixes (planned)                 | Bug fixes, open device gates, the inspector panel. No new API           |
+| 2.0.0   | The engine becomes a platform   | Headless engine, board to board, web, flights by default                |
 
 ## 0.6.0: phone-first moves (shipped)
 
@@ -126,7 +127,7 @@ What a sortable primitive will not have is what this package already has: a move
 
 Adoption is the other gap. This package gets about 430 downloads a week. Drax gets about 15,800 and react-native-sortables about 110,000. Expo Go, docs and agent-ready docs are cheap to fix, so 1.1 starts there.
 
-Every 1.x release keeps to the [support policy](support.md): only optional props, fields, tokens and labels. Anything that would break waits for [2.0](#20-candidates).
+Every 1.x release keeps to the [support policy](support.md): only optional props, fields, tokens and labels. Anything that would break waits for [2.0](#20-the-engine-becomes-a-platform).
 
 ### 1.1.0: fits anywhere (built)
 
@@ -186,46 +187,66 @@ As built, 2026-11-15. Front end only for apps; core goes to 1.1 for `createProje
 
 Still open for 1.3: phone runs on the vivo and an iPhone, swimlane headers do not show `incoming` yet, and the five-developer study.
 
-### 1.4.0: a board with a memory
+### 1.4.0: a board with a memory (built)
 
-Changes the core (commands and journal), so core goes to 1.2. Merges the earlier "live boards" and "agent-ready" drafts into one spine.
+As built, 2026-11-15. Core goes to 1.2 with new exports: commands, the journal, flow metrics, queue persistence and `jitteredRank`. It merges the earlier "live boards" and "agent-ready" drafts into one spine: every change is a command, and the journal is commands with a time and an actor.
 
-| Priority | Feature                       | Scope                                                                                                                       |
-| -------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Commands and journal          | A typed `BoardCommand`, `ref.run()`, a JSON Schema, and a bounded journal of local and observed moves (ids and ranks only). |
-| P0       | Remote changes mid-drag       | Hold incoming `items` while a card is lifted, re-plan on drop, then play the held changes as flights.                       |
-| P0       | Time machine                  | `useBoardTimeline()`: scrub the journal with cards flying, and trails from old places.                                      |
-| P1       | Ageing view                   | Dots placed by age at the dot level, with percentile bands; `staleAfterDays` per column and `getBlocked`.                   |
-| P1       | Proposals                     | Moves suggested by rules, people or a model, as ghosts with Accept and Decline.                                             |
-| P1       | Board to board                | One drag scope across boards and tabs, with the drag sources and drag-to-create that slipped from 1.2.                      |
-| P1       | Board inspector               | A Rozenite DevTools plugin in its own package: queue, journal, hit rects.                                                   |
-| P1       | Presence ghosts               | Other people's lifted cards as labelled ghosts.                                                                             |
-| P2       | Headless engine, experimental | `react-native-board-view/engine` with 2D geometry.                                                                          |
-| P2       | Persisted queue and jitter    | `serializeQueue`, `restoreQueue`, `jitteredRanks`.                                                                          |
+| Priority | Feature                       | Status                                                                                                                                                                                    |
+| -------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0       | Commands and journal          | Built. `BoardCommand`, `ref.run()`, `validateCommand`, `boardCommandSchema`, `context.origin`. A property test checks that replaying the journal reproduces the board after every change. |
+| P0       | Remote changes mid-drag       | Built. `items` wait while a card is lifted; the drop is planned next to the cards the user saw. A property test runs up to 50 remote changes per drag with 0 wrong drops.                 |
+| P0       | Time machine                  | Built. `useBoardTimeline()`, `<BoardScrubber>`, a `diff` mode. Diff mode rings changed cards; trails from old places were not built.                                                      |
+| P1       | Ageing view                   | Built. `zoom={{ dotLayout: 'age' }}`, `ageBands`, `getBlocked`, `staleAfterDays` per column, `useBoardFlow()`.                                                                            |
+| P1       | Proposals                     | Built. `proposals`, `onProposal`, Accept all and Decline all, screen-reader actions.                                                                                                      |
+| P1       | Presence ghosts               | Built, smaller than drafted: a ring and a name on the card someone else holds, and a lock. `onLocalPresence`. Ghosts drawn in the target slot were not built.                             |
+| P1       | Board inspector               | Data built: `ref.inspect()`. The Rozenite DevTools panel moves to 1.5, as a separate dev package.                                                                                         |
+| P2       | Persisted queue and jitter    | Built. `serializeQueue`, `restoreQueue`, `MoveQueue.pending()`, `jitteredRank()`, with a property test for concurrent drops.                                                              |
+| P1       | Board to board                | Moved to 2.0. It needs one drag overlay and one queue across boards, which is the headless engine's job.                                                                                  |
+| P2       | Headless engine, experimental | Moved to 2.0, where it ships stable instead of experimental.                                                                                                                              |
+| P2       | Skia dot renderer             | Moved to 2.0. Only needed if the dot level misses its view budget on a phone, which is still unmeasured.                                                                                  |
 
-### 1.5.0: beyond touch
+Checked in unit tests (415), on the iOS simulator, and on the Android emulator in a release build: holding data during a drag, the cancel when a held card changes, the time machine and playback, diff mode, proposals (accept, accept all, decline all), presence, commands, swimlanes with a timeline, the ageing chart and its drag, undo in the journal, and dark mode. The emulator run found and fixed three bugs: a drop whose neighbours both left during the hold landed one card too low, flights drew outside the board, and the lifted card at the `dot` level drew white. Still open: phone runs on the vivo and an iPhone, and S7 by hand, are 1.5's first job.
 
-| Priority | Feature               | Scope                                                                                                                                                                                                                                                                                                                                                                               |
-| -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P0       | Keyboard moves        | Planned for after 1.0 in 0.8. React Native now has `onKeyDown` on Android behind the experimental `enableKeyEvents` flag. iOS has nothing in core yet, so it needs `react-native-external-keyboard` 2.x (React Native 0.87 or later). `keyboardMoves`: ⌘ or Ctrl with the arrows moves the focused card, and Space lifts it. Both modules are optional, the same way haptics is.    |
-| P1       | Drag between apps     | _Experimental_, in a separate package with a native module, so the main package stays pure JS. On iPad, Android tablets and ChromeOS, links, text and images dropped from another app land in a cell through `onExternalDrop`. A card dragged out carries `getItemShareData(item)`. No React Native board does this. The risk is sharing gestures with the board's own drag engine. |
-| P2       | Shortcuts and widgets | Recipes, not code: "Move card to Done" from Shortcuts with `expo-app-intents` (alpha in SDK 58), and a widget that shows a column's count, both built on `planMove`.                                                                                                                                                                                                                |
+### 1.5.0: fixes (planned)
 
-### 2.0 candidates
+Bug fixes and the gates that have been open since 0.6. No new props, types or labels.
 
-Not planned for a date yet. Each would break something.
+- Phone runs of S2–S9 on the vivo and an iPhone, and a low-end Android, for 1.3 and 1.4. S10: scrub 100 journal entries at 60 fps.
+- S7 with TalkBack and VoiceOver by hand, including the ageing chart's column summaries and proposal actions.
+- The five-developer usability study.
+- Swimlane headers show `incoming` and `proposed`.
+- The inspector panel: a Rozenite plugin in its own `board-view-inspector` package, reading `ref.inspect()`, with no cost in production builds.
+- Whatever 1.4 users report.
 
-- **Web.** Through a list adapter, so Legend List v3, which runs on the web, can stand in for FlashList. Drax and react-native-sortables already run on the web, and it is the most requested feature after moving cards between lists.
-- **Gesture Handler 3 only.** It has been stable since May 2026. Dropping 2.x removes a second code path.
-- **New `MoveSource` members:** `'suggestion'`, `'command'` and `'external'`.
-- **Dragging a header itself**, as well as the sheet.
+## 2.0: the engine becomes a platform
+
+The breaking release, and the announcement: react-native-board-view stops being a Kanban component and becomes the move engine for any interface where things are placed, the server decides, and the history matters. Three packages:
+
+| Package                          | For                                  | Holds                                                                        |
+| -------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
+| `board-view-core`                | Servers, sync engines, agents        | Model, ranks, queue, commands, journal. The same code on phone and server.   |
+| `react-native-board-view/engine` | Developers building their own layout | Headless drag, 2D geometry, flights, detail levels, accessibility contracts. |
+| `react-native-board-view`        | Apps that want a board today         | The layouts, sheets, dock, zoom and time machine, built on the engine.       |
+
+Planned:
+
+- **Headless engine, stable.** `useDraggable`, `useDropCell`, `DragSurface` and `useFlights`, with `resolve(point)` geometry. The built-in layouts move onto the same hooks, so the public engine is the one the board runs on. Proved by three layouts outside the library (a radial, a timetable and a seating chart) before it is frozen.
+- **Board to board.** One drag scope and one queue across boards and tabs, with the drag sources and drag-to-create that slipped from 1.2, spring-loaded tab targets, and `onScopeMove` with both boards' ids.
+- **Web,** through a list adapter (Legend List), now that the engine is headless. Same core, same journal.
+- **Flights by default,** and new `MoveSource` members: `'command'`, `'proposal'` and `'external'`, replacing `context.origin` for those.
+- **Gesture Handler 3 only,** removing the second code path.
+- **Skia dot renderer,** optional and found at runtime, if the phone runs show the dot level needs it.
+- **Dragging a header itself,** as well as the sheet.
+
+Watched, not planned: keyboard moves (when React Native's key events leave experimental), drag between apps on tablets (a separate native package), relation lines between linked cards, and piles.
 
 ### Not planned
 
 - **Flick to move.** Removed from after 1.0. A sideways flick competes with paging, as swipe does ([0003](decisions/0003-swipe-stays-experimental.md)). ClickUp closed its swipe-to-change-status request. Revisit only if the five-developer study asks for it.
 - **Shared transition from a card to its detail screen.** Reanimated's shared element transitions are still experimental. A recipe once they are stable.
 - **Gallery cells.** Drop slots in two dimensions cost more than they are worth on a phone.
-- **A natural-language box in the board.** That belongs in the app. 1.5 gives it the commands.
+- **A natural-language box in the board.** That belongs in the app. 1.4 gives it commands and proposals.
+- **Landing effects, glass chrome as a feature, a charts package.** Decoration, a theme recipe, and other libraries' job. The board ships the flow data and the one chart only a board can draw.
 
 ## Board types
 

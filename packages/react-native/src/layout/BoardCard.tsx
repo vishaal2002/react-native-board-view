@@ -20,11 +20,14 @@ import { cellId as makeCellId, parseCellId, type BoardCell, type GroupValue } fr
 import { useBoard, useCard } from '../context';
 import { MenuButton } from './defaults';
 import { DotCard, MiniCard } from './Overview';
+import { DOT } from './ageing';
 import { SwipeActions, type SwipeAction } from './SwipeActions';
-import type { CardRenderInfo } from '../types';
+import type { BoardPresence, CardProposal, CardRenderInfo } from '../types';
 
 const MOVE_TO = 'moveTo';
 const SELECT = 'select';
+const ACCEPT_PROPOSAL = 'acceptProposal';
+const DECLINE_PROPOSAL = 'declineProposal';
 /** Cards narrower than this get `compact` render info and no "…" button. */
 const COMPACT_CARD_WIDTH = 200;
 
@@ -105,6 +108,13 @@ export const BoardCard = memo(function BoardCard({
     () => selection.get().size > 0,
     () => false,
   );
+  const { cardBadges } = card;
+  const mark = useSyncExternalStore(
+    cardBadges.subscribe,
+    () => cardBadges.get().get(itemId) ?? null,
+    () => null,
+  );
+  const proposal = mark?.proposal ?? null;
   const { toggleSelected: toggle } = card;
   const toggleSelected = useCallback(() => toggle(itemId), [toggle, itemId]);
   // Pointer hover (iPad, Android with a mouse, ChromeOS): a quiet outline.
@@ -132,6 +142,10 @@ export const BoardCard = memo(function BoardCard({
   const actions = useMemo(() => {
     const list: { name: string; label: string }[] = [];
     if (!accessibilityActions) return list;
+    if (proposal) {
+      list.push({ name: ACCEPT_PROPOSAL, label: `${labels.acceptProposal}: ${proposal.target.column.label}` });
+      list.push({ name: DECLINE_PROPOSAL, label: labels.declineProposal });
+    }
     if (sheetMode !== false) list.push({ name: MOVE_TO, label: labels.moveTo });
     if (selectable) list.push({ name: SELECT, label: selected ? labels.deselect : labels.select });
     for (const target of allColumns) {
@@ -160,6 +174,7 @@ export const BoardCard = memo(function BoardCard({
     item,
     labels,
     laneKey,
+    proposal,
     selectable,
     selected,
     sheetMode,
@@ -172,7 +187,9 @@ export const BoardCard = memo(function BoardCard({
       const reveal = (moved: boolean) => {
         if (moved) requestAnimationFrame(() => card.scrollApi.current?.toItem(itemId, !card.reducedMotion));
       };
-      if (name === MOVE_TO) openSheet();
+      if (name === ACCEPT_PROPOSAL) proposal?.accept();
+      else if (name === DECLINE_PROPOSAL) proposal?.decline();
+      else if (name === MOVE_TO) openSheet();
       else if (name === SELECT) toggleSelected();
       else if (name.startsWith(COLUMN_PREFIX))
         reveal(moveItem(itemId, makeCellId(laneKey, name.slice(2)), 0, 'accessibility'));
@@ -180,7 +197,7 @@ export const BoardCard = memo(function BoardCard({
         reveal(moveItem(itemId, makeCellId(name.slice(2), columnKey), 0, 'accessibility'));
       else if (name.startsWith(ACTION_PREFIX)) runCardAction(itemId, name.slice(2), 'accessibility');
     },
-    [card, columnKey, itemId, laneKey, moveItem, openSheet, runCardAction, toggleSelected],
+    [card, columnKey, itemId, laneKey, moveItem, openSheet, proposal, runCardAction, toggleSelected],
   );
 
   const { columns, canDrag } = card;
@@ -208,7 +225,7 @@ export const BoardCard = memo(function BoardCard({
   );
 
   const compact = card.cardWidth(columnKey) < COMPACT_CARD_WIDTH || card.detail === 'compact';
-  const described = card.describeCard(item);
+  const described = card.describeCard(item, columnKey);
   const color = card.getItemColor?.(item) ?? column.color;
   const label = card.getItemLabel ? card.getItemLabel(item) : itemId;
   const info: CardRenderInfo<unknown> = {
@@ -230,24 +247,45 @@ export const BoardCard = memo(function BoardCard({
     dragCount: 0,
     openMoveSheet: openSheet,
     toggleSelected,
+    proposal,
+    presence: mark?.presence,
+    changedSince: mark?.changed === true,
   };
   const marks = card.cardMarks === 'auto';
+  // What the label adds for marks the board draws: blocked, a proposal, someone else holding it, the diff.
+  const extra: string[] = [];
+  if (described.blocked)
+    extra.push(described.blockedReason ? `${labels.blocked}: ${described.blockedReason}` : labels.blocked);
+  if (proposal) {
+    extra.push(
+      labels.proposed({
+        column: proposal.target.column.label,
+        lane: proposal.target.lane?.label ?? null,
+        label: proposal.label ?? null,
+      }),
+    );
+    if (proposal.reason) extra.push(proposal.reason);
+  }
+  if (mark?.presence?.length) extra.push(labels.presenceMoving({ names: mark.presence.map((entry) => entry.name) }));
+  if (mark?.changed) extra.push(labels.changedSince);
 
   const content = (
     <View
       ref={accessibleRef}
       accessible
-      accessibilityLabel={labels.card({
-        item: label,
-        column: column.label,
-        lane: lane?.label ?? null,
-        position: index + 1,
-        count,
-        pending,
-        dimmed: described.dimmed,
-        staleDays: described.stale ? Math.round(described.age ?? 0) : null,
-        selected,
-      })}
+      accessibilityLabel={
+        labels.card({
+          item: label,
+          column: column.label,
+          lane: lane?.label ?? null,
+          position: index + 1,
+          count,
+          pending,
+          dimmed: described.dimmed,
+          staleDays: described.stale ? Math.round(described.age ?? 0) : null,
+          selected,
+        }) + extra.map((part) => `, ${part}`).join('')
+      }
       accessibilityState={selecting ? { selected } : undefined}
       accessibilityActions={actions}
       onAccessibilityAction={onAccessibilityAction}
@@ -292,6 +330,14 @@ export const BoardCard = memo(function BoardCard({
         />
       ) : null}
       {marks && selected ? <SelectedMark itemId={itemId} /> : null}
+      {marks && mark?.changed ? (
+        <View
+          pointerEvents="none"
+          style={[styles.ring, { borderColor: theme.accent, borderRadius: theme.cardRadius + RING_OUTSET }]}
+        />
+      ) : null}
+      {marks && mark?.presence?.length ? <PresenceMark people={mark.presence} /> : null}
+      {marks && proposal && !overview ? <ProposalStrip proposal={proposal} /> : null}
       {selecting && !overview ? (
         // While selecting, a tap picks the card instead of reaching the card's own onPress.
         <Pressable
@@ -324,6 +370,62 @@ export const BoardCard = memo(function BoardCard({
 });
 
 const RING_OUTSET = 3;
+
+/** Someone else holds this card: a ring in their color and their name. */
+function PresenceMark({ people }: { people: readonly BoardPresence[] }) {
+  const { theme } = useCard();
+  const color = people[0]?.color ?? theme.accent;
+  const names = people.map((entry) => entry.name).join(', ');
+  return (
+    <>
+      <View
+        pointerEvents="none"
+        style={[styles.ring, styles.presenceRing, { borderColor: color, borderRadius: theme.cardRadius + RING_OUTSET }]}
+      />
+      <View pointerEvents="none" style={[styles.presenceName, { backgroundColor: color }]}>
+        <Text numberOfLines={1} style={[styles.presenceText, { color: theme.cardBackground }]}>
+          {names}
+        </Text>
+      </View>
+    </>
+  );
+}
+
+/** A suggested move under the card: where it would go, and Accept or Decline. */
+function ProposalStrip({ proposal }: { proposal: CardProposal }) {
+  const { theme, labels } = useCard();
+  const where = proposal.target.lane
+    ? `${proposal.target.column.label} · ${proposal.target.lane.label}`
+    : proposal.target.column.label;
+  return (
+    <View
+      style={[styles.proposal, { borderColor: theme.accent, borderRadius: theme.cardRadius }]}
+      // The card's own label and actions carry it for screen readers.
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+    >
+      <Text numberOfLines={1} style={[styles.proposalText, { color: theme.text }]}>
+        {'→ '}
+        {where}
+        {proposal.label ? <Text style={{ color: theme.mutedText }}>{` · ${proposal.label}`}</Text> : null}
+      </Text>
+      <Pressable
+        onPress={proposal.decline}
+        hitSlop={8}
+        style={({ pressed }) => [styles.proposalButton, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        <Text style={[styles.proposalButtonText, { color: theme.mutedText }]}>{labels.declineProposal}</Text>
+      </Pressable>
+      <Pressable
+        onPress={proposal.accept}
+        hitSlop={8}
+        style={({ pressed }) => [styles.proposalButton, { backgroundColor: theme.accent, opacity: pressed ? 0.7 : 1 }]}
+      >
+        <Text style={[styles.proposalButtonText, { color: theme.cardBackground }]}>{labels.acceptProposal}</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 /** The outline `scrollToItem({ highlight: true })` flashes on a card. Opacity only, so it never moves layout. */
 function HighlightRing({
@@ -466,6 +568,22 @@ function HoverBody({
   const board = useBoard();
   const { cardWidth } = useCard();
   const { controller, props } = board;
+  if (board.detail === 'dot') {
+    // A dot or a bar in the card's color, the size it is on the board: the title card does not fit in it.
+    const color = (props.getItemColor as ((entry: unknown) => string | null | undefined) | undefined)?.(item);
+    const ageing = typeof props.zoom === 'object' && props.zoom.dotLayout === 'age';
+    return (
+      <View
+        style={[
+          styles.hoverDot,
+          { height: ageing ? DOT : 6, borderRadius: ageing ? DOT / 2 : board.theme.cardRadius },
+          { backgroundColor: color ?? cell.column.color ?? board.theme.accent },
+        ]}
+        importantForAccessibility="no-hide-descendants"
+        accessibilityElementsHidden
+      />
+    );
+  }
   if (board.overview) {
     return (
       <View style={styles.hover} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
@@ -485,7 +603,7 @@ function HoverBody({
         pending: controller.isPending(itemId),
         dragging,
         compact: cardWidth(cell.columnKey) < COMPACT_CARD_WIDTH,
-        ...board.describeCard(item),
+        ...board.describeCard(item, cell.columnKey),
         dimmed: false,
         selected: board.selection.get().has(itemId),
         selecting: board.selection.get().size > 0,
@@ -501,6 +619,7 @@ function HoverBody({
 
 const styles = StyleSheet.create({
   hover: { width: '100%' },
+  hoverDot: { width: '100%' },
   cover: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   hoverRing: { opacity: 0.35, borderWidth: 2 },
   selectedRing: { borderWidth: 2.5 },
@@ -554,4 +673,30 @@ const styles = StyleSheet.create({
     bottom: -RING_OUTSET,
     borderWidth: 3,
   },
+  presenceRing: { borderWidth: 2.5, borderStyle: 'dashed' },
+  presenceName: {
+    position: 'absolute',
+    top: -9,
+    left: 10,
+    maxWidth: '70%',
+    paddingHorizontal: 7,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+  },
+  presenceText: { fontSize: 11, fontWeight: '800' },
+  proposal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    paddingLeft: 8,
+    paddingRight: 4,
+    minHeight: 34,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+  },
+  proposalText: { flex: 1, fontSize: 12, fontWeight: '700' },
+  proposalButton: { minHeight: 26, paddingHorizontal: 8, borderRadius: 13, justifyContent: 'center' },
+  proposalButtonText: { fontSize: 12, fontWeight: '800' },
 });

@@ -1000,7 +1000,7 @@ function DragBoard(props: DragBoardProps) {
     (x: number, y: number) => {
       const current = propsRef.current;
       const hit = findCell(store.cells, x, y);
-      const card = hit ? hit[1].itemAt(y) : null;
+      const card = hit ? hit[1].itemAt(y, x) : null;
       if (!hit || !card || (current.canDrag && !current.canDrag(card.itemId))) {
         phase.value = PHASE_IDLE;
         return;
@@ -1246,7 +1246,7 @@ function DragBoard(props: DragBoardProps) {
       const onGather = propsRef.current.onGather;
       if (!active || active.ended || !onGather) return;
       const hit = findCell(store.cells, x, y);
-      const found = hit ? hit[1].itemAt(y) : null;
+      const found = hit ? hit[1].itemAt(y, x) : null;
       if (!found || found.itemId === active.itemId || !onGather(found.itemId, active.itemId)) return;
       const copy: GatherCopy = {
         key: `${found.itemId}:${dragKey}`,

@@ -2,7 +2,7 @@
 
 > Kanban, swimlane and week-planner boards for React Native and Expo. You pass a flat array of items and say which field makes the columns. The board shows each move at once, calls your `onMove`, and rolls the card back if `onMove` throws or times out. It never creates, edits, fetches or stores items.
 
-Two packages: `react-native-board-view` (the `Board` component, `CardView`, `DragHandle`, a test kit at `react-native-board-view/testing`, and a re-export of the core) and `board-view-core` (grouping, fractional ranks, move planning and the move queue, with no React, so it also runs on a Node server). 1.x needs React Native 0.83 or later on the New Architecture, React 19, Reanimated 4.1 to 4.x, Worklets 0.5 to 0.x, Gesture Handler 2.28 to 3.x and FlashList 2.0.2 to 2.x. Expo needs a development build, or Expo Go from SDK 58. Web, the old architecture and Reanimated 3 are not supported. Coding agents should read the skill shipped in the package first: `node_modules/react-native-board-view/skills/board-view/SKILL.md`.
+Two packages: `react-native-board-view` (the `Board` component, `CardView`, `DragHandle`, a test kit at `react-native-board-view/testing`, and a re-export of the core) and `board-view-core` (grouping, fractional ranks, move planning, the move queue, commands and the journal, with no React, so it also runs on a Node server). 1.x needs React Native 0.83 or later on the New Architecture, React 19, Reanimated 4.1 to 4.x, Worklets 0.5 to 0.x, Gesture Handler 2.28 to 3.x and FlashList 2.0.2 to 2.x. Expo needs a development build, or Expo Go from SDK 58. Web, the old architecture and Reanimated 3 are not supported. Coding agents should read the skill shipped in the package first: `node_modules/react-native-board-view/skills/board-view/SKILL.md`.
 
 ## Start here
 
@@ -17,6 +17,9 @@ Two packages: `react-native-board-view` (the `Board` component, `CardView`, `Dra
 - [Ways to move a card](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#ways-to-move-a-card): Long-press drag, handles, the Move sheet, the dock, selection, screen readers and moves from code.
 - [Drag handles](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#drag-handles): `moveModes={{ drag: 'handle' }}`, rules with `canDrag` and `canDrop`, `readOnly` and haptics.
 - [Drop dock and undo](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#drop-dock-and-undo): `cardActions`, `onCardAction` and the undo banner.
+- [Zoom, flights and catching up](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#zoom-flights-and-catching-up): `zoom` levels, `animateChanges`, `initialSnapshot`, `describeMove`.
+- [A board with a memory](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#a-board-with-a-memory): `useBoardTimeline` and `BoardScrubber`, live data mid-drag, `ref.run` commands, `proposals`, the ageing chart, `presence`, queue persistence and `jitteredRank`.
+- [Moves that ask first](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#moves-that-ask-first): `gateMove`, `confirmInto`, `onCardDrop` and drop targets outside the board.
 - [Several cards at once](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#several-cards-at-once): Multi-select, and how a batch reaches `onMove`.
 - [Reorder columns and lanes](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#reorder-columns-and-lanes): `onColumnOrderChange` and `onLaneOrderChange`.
 - [Your data at a glance](https://github.com/vishaal2002/react-native-board-view/blob/main/README.md#your-data-at-a-glance): WIP limits, sums, spotlight and ageing.
@@ -48,6 +51,7 @@ Two packages: `react-native-board-view` (the `Board` component, `CardView`, `Dra
 
 ## Reference
 
+- [A board with a memory (1.4) API](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#a-board-with-a-memory-14): Commands and their refusals, `BoardTimeline`, `BoardFlow`, proposals, presence and the core journal exports.
 - [API reference](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md): Every prop, ref method, render info, component, theme token, label, event type, the test kit and the core exports.
 - [Board props](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#board-props): Types and defaults for each prop.
 - [Ref handle](https://github.com/vishaal2002/react-native-board-view/blob/main/docs/api.md#ref-handle-boardhandle): `BoardHandle` methods.

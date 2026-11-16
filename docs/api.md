@@ -1,6 +1,6 @@
 # API reference
 
-This page lists the public API of `react-native-board-view` 1.0 and of `board-view-core`, the package it builds on. It covers every prop, ref method, render info, component, hook, theme token, label, event type, the testing kit and the core functions.
+This page lists the public API of `react-native-board-view` 1.4 and of `board-view-core` 1.2, the package it builds on. It covers every prop, ref method, render info, component, hook, theme token, label, event type, the testing kit and the core functions.
 
 Everything listed here is the stable 1.0 API, and semantic versioning applies to it, except what is marked _Experimental_: the overview (`overview`, `overviewOpen`, `onOverviewChange`, `setOverview`), swipe-to-move (`moveModes.swipe`), and in 1.3 `moveModes.gather`, `moveModes.throw` and `dragLens`. Those are off by default and may change in a minor release. Three entry points make up that API:
 
@@ -20,6 +20,7 @@ For a guided tour, read the [README](../README.md). For patterns such as paging,
 - [Components, hooks and helpers](#components-hooks-and-helpers)
 - [Theme and labels](#theme-and-labels)
 - [Event and operation types](#event-and-operation-types)
+- [A board with a memory (1.4)](#a-board-with-a-memory-14)
 - [Testing kit](#testing-kit)
 - [Core exports](#core-exports-board-view-core)
 
@@ -195,7 +196,7 @@ Swimlanes are not a layout. Add `groupBy.lanes` to any layout.
 | `formatValue`    | `(value: number) => string`                | `formatCompact` | How header sums read, such as `12.4k`.                                                                                                         |
 | `spotlight`      | `(item: T) => boolean`                     |                 | Cards it returns `false` for fade back and keep their place. Moving still works.                                                               |
 | `getItemAge`     | `(item: T) => number \| null \| undefined` |                 | A card's age in days. Passed to `renderCard` as `age`. Negative values count as 0, non-finite values as no age.                                |
-| `staleAfterDays` | `number`                                   | `14`            | Cards at least this many days old are `stale`.                                                                                                 |
+| `staleAfterDays` | `number \| Record<string, number>`         | `14`            | Cards at least this many days old are `stale`. <sup>1.4</sup> One number per column id; columns left out use 14.                               |
 | `onEdgeReached`  | `(edge: 'start' \| 'end') => void`         |                 | The board reached its first or last column. Fires in `planner`, `multi` and `fit`, and once per width on a board that fits the screen.         |
 
 See [Your data at a glance](../README.md#your-data-at-a-glance).
@@ -342,16 +343,16 @@ Passed to `renderColumnFooter`.
 
 ### Supporting types
 
-| Type             | Shape                                                                                 | Notes                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `LimitState`     | `'none' \| 'under' \| 'at' \| 'over'`                                                 | Where a column stands against its limit. `'at'` is full: one more card goes over. |
-| `LaneShare`      | `{ readonly column: GroupValue; readonly count: number }`                             | One entry of `LaneHeaderRenderInfo.distribution`.                                 |
-| `PlannerDay`     | `{ readonly date: Date; readonly today: boolean; readonly weekend: boolean }`         | The day of a planner column. `weekend` is Saturday or Sunday.                     |
-| `ZoomLevel`      | `'card' \| 'compact' \| 'title' \| 'dot'`                                             | How much of each card the board draws. <sup>1.3</sup>                             |
-| `ZoomOptions`    | `{ levels?: readonly ZoomLevel[] }`                                                   | The levels a pinch steps through. `card` is always one. <sup>1.3</sup>            |
-| `BoardSnapshot`  | `{ version: 1; at: number; places: Record<string, [cellId: string, index: number]> }` | From `ref.snapshot()`, for `initialSnapshot`. <sup>1.3</sup>                      |
-| `CatchUpContext` | `{ moved: number; added: number; removed: number }`                                   | What changed since a snapshot. <sup>1.3</sup>                                     |
-| `MovePreview<T>` | `{ item; itemId; itemIds; from: MoveTarget; to: MoveTarget; index: number }`          | The move `describeMove` describes. <sup>1.3</sup>                                 |
+| Type             | Shape                                                                                          | Notes                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `LimitState`     | `'none' \| 'under' \| 'at' \| 'over'`                                                          | Where a column stands against its limit. `'at'` is full: one more card goes over.                                                                                                    |
+| `LaneShare`      | `{ readonly column: GroupValue; readonly count: number }`                                      | One entry of `LaneHeaderRenderInfo.distribution`.                                                                                                                                    |
+| `PlannerDay`     | `{ readonly date: Date; readonly today: boolean; readonly weekend: boolean }`                  | The day of a planner column. `weekend` is Saturday or Sunday.                                                                                                                        |
+| `ZoomLevel`      | `'card' \| 'compact' \| 'title' \| 'dot'`                                                      | How much of each card the board draws. <sup>1.3</sup>                                                                                                                                |
+| `ZoomOptions`    | `{ levels?: readonly ZoomLevel[]; dotLayout?: 'rank' \| 'age'; ageBands?: readonly number[] }` | The levels a pinch steps through. `card` is always one. <sup>1.3</sup> `dotLayout: 'age'` draws the dot level as an ageing chart; `ageBands` sets its bands, in days. <sup>1.4</sup> |
+| `BoardSnapshot`  | `{ version: 1; at: number; places: Record<string, [cellId: string, index: number]> }`          | From `ref.snapshot()`, for `initialSnapshot`. <sup>1.3</sup>                                                                                                                         |
+| `CatchUpContext` | `{ moved: number; added: number; removed: number }`                                            | What changed since a snapshot. <sup>1.3</sup>                                                                                                                                        |
+| `MovePreview<T>` | `{ item; itemId; itemIds; from: MoveTarget; to: MoveTarget; index: number }`                   | The move `describeMove` describes. <sup>1.3</sup>                                                                                                                                    |
 
 ## Components, hooks and helpers
 
@@ -740,6 +741,120 @@ Any other value `onMove` throws or rejects with reaches `onMoveError` unchanged.
 | `MotionPreset`    | `'standard' \| 'calm' \| 'snappy' \| 'playful'`                               |
 | `ThemePresetName` | `'standard' \| 'paper' \| 'slate' \| 'aurora'`                                |
 
+## A board with a memory (1.4)
+
+Everything 1.4 added, in one place. All of it is optional.
+
+### Props
+
+| Prop                       | Type                                                  | Default | Notes                                                                                                                                                                                                      |
+| -------------------------- | ----------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `timeline`                 | `BoardTimeline`                                       |         | From `useBoardTimeline()`. The board records its moves and the moves `items` made by itself, and draws the past while the timeline is scrubbed, read-only. Without it the board keeps no history.          |
+| `holdChangesWhileDragging` | `boolean`                                             | `true`  | New `items` wait while a card is lifted. The drop is planned against live data next to the cards the user saw. A change to the lifted card cancels the drag, with `DragEndEvent.reason`.                   |
+| `proposals`                | `readonly MoveProposal[]`                             |         | Suggested moves, on their cards with Accept and Decline, counted in the target header (`proposed`), with a bar for Accept all and Decline all.                                                             |
+| `onProposal`               | `(event: ProposalEvent<T>) => void`                   |         | A proposal was accepted or declined. Remove it from `proposals`. Accepting runs the move with `context.origin: 'proposal'`; `moved` says whether the board took it. Accept all stops at the first refusal. |
+| `presence`                 | `readonly BoardPresence[]`                            |         | Cards other people are holding: a ring in their color and their name.                                                                                                                                      |
+| `lockPresence`             | `boolean`                                             | `true`  | Cards in `presence` cannot be dragged here.                                                                                                                                                                |
+| `onLocalPresence`          | `(event: LocalPresenceEvent) => void`                 |         | This user lifted a card, moved it to a new slot, or let go (`itemId: null`).                                                                                                                               |
+| `getBlocked`               | `(item: T) => boolean \| string \| null \| undefined` |         | Blocked cards: `true`, or a reason. Render info gets `blocked` and `blockedReason`; screen readers hear it.                                                                                                |
+
+### Ref methods
+
+| Method                | Returns           | Notes                                                                                                                        |
+| --------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `run(command)`        | `CommandResult`   | Runs a `BoardCommand`. Moves reach `onMove` with `source: 'api'` and the command's `origin` as `context.origin`.             |
+| `serializeQueue()`    | `string`          | Moves `onMove` has not accepted yet, as JSON.                                                                                |
+| `restoreQueue(saved)` | `number`          | Queues saved moves again, skipping op ids already queued. Returns how many.                                                  |
+| `inspect()`           | `BoardInspection` | `cards`, `cells`, `pending`, `overlays`, `gate`, `holding`, `selection`, `zoomLevel` and `timeline` (`entries`, `position`). |
+
+### Commands
+
+`BoardCommand` is plain JSON. Every command takes an optional `origin` string.
+
+| `type`           | Fields                                        | Refused with                                             |
+| ---------------- | --------------------------------------------- | -------------------------------------------------------- |
+| `move`           | `itemId`, `to: { columnId, laneId?, index? }` | `unknown-item`, `unknown-column`, `no-change`, `refused` |
+| `moveMany`       | `itemIds`, `to`                               | `unknown-item`, `unknown-column`, `refused`              |
+| `undo`           |                                               | `no-change`, `refused`                                   |
+| `select`         | `itemIds` (empty ends it)                     | `unavailable` when `selectable` is off                   |
+| `scrollToColumn` | `columnId`                                    | `unknown-column`                                         |
+| `revealItem`     | `itemId`: scrolls to it and flashes it        | `unknown-item`                                           |
+| `zoom`           | `level`, `columnId?`                          | `unavailable` without that level                         |
+| `openMoveSheet`  | `itemId`                                      | `unavailable` without the sheet                          |
+
+`CommandResult` is `{ ok: true; command; moved? }` or `{ ok: false; reason: CommandRefusal; error? }`. Anything that is not a command is refused with `invalid` and an `error` that says why. `validateCommand(value)` runs the same check on its own, and `boardCommandSchema` is a JSON Schema (2020-12) for the same shapes.
+
+### `useBoardTimeline(options?)`
+
+`BoardTimelineOptions<T>`:
+
+| Option     | Type                                            | Default | Notes                                                                   |
+| ---------- | ----------------------------------------------- | ------- | ----------------------------------------------------------------------- |
+| `limit`    | `number`                                        | `1000`  | Entries kept; the oldest go first.                                      |
+| `initial`  | `string \| SerializedJournal \| JournalEntry[]` |         | A saved journal, read once on mount.                                    |
+| `actor`    | `string`                                        |         | Written on this board's moves.                                          |
+| `getActor` | `(item: T) => string \| null \| undefined`      |         | Who moved a card that `items` moved by itself.                          |
+| `onChange` | `(entries: readonly JournalEntry[]) => void`    |         | The journal changed. Not called for `initial`. Save `serialize()` here. |
+
+`BoardTimeline`:
+
+| Field or method                                 | Notes                                                                                                            |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `entries`                                       | Oldest first.                                                                                                    |
+| `position`                                      | Entries applied to the board shown. `null` is live.                                                              |
+| `mode`                                          | `'past'`: the board as it was, read-only. `'diff'`: the board live, with cards that changed column since ringed. |
+| `playing`, `at`, `steps`                        | Whether it plays; the time of the newest entry shown; the positions worth stopping at (one per change).          |
+| `seek(position, mode?)`                         | At the end, or `null`, the board is live again.                                                                  |
+| `seekTime(at, mode?)`                           | The board as it was at a time, in ms.                                                                            |
+| `step(delta)`                                   | Moves through `steps`.                                                                                           |
+| `play({ from?, stepMs? })`, `pause()`, `live()` | Plays the changes up to now, one step per `stepMs` (700).                                                        |
+| `serialize()`, `clear()`                        | Plain JSON for `initial`; forget everything.                                                                     |
+
+`JournalEntry`: `id`, `at`, `itemId`, `from` and `to` (`{ cellId, rank }`, or `null` when the card arrived or left), `observed` (true when `items` made the move by itself), and on local moves `source`, `opId` and `batchId`, plus `actor` and `origin` when known. Cards that left the app's `items` cannot be drawn in the past.
+
+### `useBoardFlow(timeline, options?)`
+
+`boardFlow` over a timeline's entries. `options.doneColumns` names the finished columns. Returns `BoardFlow`: `throughput` (`{ day: 'YYYY-MM-DD', count }[]`, local days), `columns` (by column id: `entered`, `left`, `days` with `mean`, `median` and `p85`, or `null`), `enteredAt` (when each card entered its column) and `cycleTimes` (days).
+
+### `<BoardScrubber>`
+
+| Prop       | Type                   | Default                        | Notes                                          |
+| ---------- | ---------------------- | ------------------------------ | ---------------------------------------------- |
+| `timeline` | `BoardTimeline`        |                                | Required.                                      |
+| `theme`    | `BoardTheme`           | the board's, else `lightTheme` | Pass `darkTheme` outside a board in dark mode. |
+| `labels`   | `Partial<…>`           | built in                       | `live`, `play`, `pause`, `timelinePosition`.   |
+| `stepMs`   | `number`               | `700`                          | Per step while playing.                        |
+| `style`    | `StyleProp<ViewStyle>` |                                |                                                |
+
+The track snaps to `steps`. Screen readers adjust it a step at a time.
+
+### Types
+
+| Type                 | Shape                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `MoveProposal`       | `{ id; itemId; to: MoveDestination; label?; reason? }`                                                    |
+| `CardProposal`       | `MoveProposal` plus `target: { column; lane }`, `accept()` and `decline()`. In `CardRenderInfo.proposal`. |
+| `ProposalEvent<T>`   | `{ proposal; item; decision: 'accept' \| 'decline'; moved? }`                                             |
+| `BoardPresence`      | `{ userId; name; itemId; color? }`                                                                        |
+| `LocalPresenceEvent` | `{ itemId: string \| null; from: MoveTarget \| null; to: MoveTarget \| null }`                            |
+| `BoardInspection`    | What `inspect()` returns.                                                                                 |
+
+New optional fields: `CardRenderInfo.blocked`, `blockedReason`, `proposal`, `presence` and `changedSince`; `ColumnHeaderRenderInfo.proposed`; `BoardMoveContext.origin`; `DragEndEvent.reason` (`'changed' | 'removed'`). `CardView` takes `blocked`.
+
+New labels: `cardChangedWhileDragging({ item, reason })`, `blocked`, `proposed({ column, lane, label })`, `acceptProposal`, `declineProposal`, `proposalCount(count)`, `acceptAll`, `declineAll`, `presenceMoving({ names })`, `timelinePosition({ at, step, steps })`, `live`, `play`, `pause`, `changedSince`, `ageColumnSummary({ column, count, oldest, overBand })` and `showCards`.
+
+### Core additions (`board-view-core` 1.2)
+
+| Export                                                                           | Notes                                                                                                |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `validateCommand`, `boardCommandSchema`                                          | Check untrusted commands; the JSON Schema.                                                           |
+| `createJournal`, `serializeJournal`, `restoreJournal`                            | A bounded, subscribable journal; save and load it. `restoreJournal` drops entries that do not parse. |
+| `placesOf(model)`, `placesAt(entries, now, position)`, `positionAt(entries, at)` | Where every card is, and was after `position` entries.                                               |
+| `diffBoards(before, after, include, stamp)`                                      | Journal entries for what changed between two boards.                                                 |
+| `boardFlow(entries, options)`, `percentile(values, p)`                           | Flow metrics, and nearest-rank percentiles.                                                          |
+| `serializeQueue(queue)`, `restoreQueue(queue, saved)`, `parseQueue(saved)`       | Keep unsent moves. `MoveQueue.pending()` lists them, oldest first.                                   |
+| `jitteredRank({ seed?, random?, digits? })`                                      | A `RankStrategy` that adds random digits (4) so concurrent drops between the same cards do not tie.  |
+
 ## Testing kit
 
 `react-native-board-view/testing` runs the board's own move code on plain data: planning, limits, `canDrop`, the optimistic queue, undo and batches. It renders nothing and needs no native mocks. It works in Jest and Vitest. See [Testing your board](../README.md#testing-your-board) for an example.
@@ -762,24 +877,27 @@ These props work as on `<Board>`: `items`, `getItemId`, `groupBy`, `getRank`, `g
 
 ### `BoardTester<T>`
 
-| Member          | Signature                                                                                | Notes                                                                                                                                                          |
-| --------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `column`        | `column(columnId: string, laneId?: string): string[]`                                    | Card ids in one cell, in display order, pending moves included. Without `laneId` on a swimlane board, every lane of the column.                                |
-| `columns`       | `columns(): Record<string, string[]>`                                                    | Every column's card ids, by column id, all lanes together.                                                                                                     |
-| `model`         | `model(): BoardModel<T>`                                                                 | The board as `<Board>` would draw it now.                                                                                                                      |
-| `drag`          | `drag(itemId: string, to: MoveDestination): boolean`                                     | Moves a card as a drop does, with `source: 'drag'`. `false` when the board refuses it.                                                                         |
-| `move`          | `move(itemId: string, to: MoveDestination, source?: MoveSource): boolean`                | Moves a card with another source. Default `'api'`.                                                                                                             |
-| `moveMany`      | `moveMany(itemIds: readonly string[], to: MoveDestination, source?: MoveSource): number` | Moves several cards as a batch. Default source `'api'`. Returns how many moved.                                                                                |
-| `canMove`       | `canMove(itemId: string, to: Pick<MoveDestination, 'columnId' \| 'laneId'>): boolean`    | Whether a drop of the card there would be taken. `laneId` defaults to the card's lane.                                                                         |
-| `undo`          | `undo(): boolean`                                                                        | As `BoardHandle.undo`.                                                                                                                                         |
-| `canUndo`       | `canUndo(): boolean`                                                                     | As `BoardHandle.canUndo`.                                                                                                                                      |
-| `isPending`     | `isPending(itemId: string): boolean`                                                     | `true` while a move of this card waits for `onMove` or for `items` to show it.                                                                                 |
-| `setItems`      | `setItems(items: readonly T[]): void`                                                    | Replaces the items, as a re-render with new data would.                                                                                                        |
-| `items`         | `items(): readonly T[]`                                                                  | The items the tester holds now.                                                                                                                                |
-| `moves`         | `readonly MoveOperation[]`                                                               | Every op `onMove` received, in order.                                                                                                                          |
-| `announcements` | `readonly string[]`                                                                      | What the board said to screen readers, in order.                                                                                                               |
-| `settle`        | `settle(): Promise<void>`                                                                | Lets pending `onMove` promises and the queue run. Await it after a move. It waits four `setTimeout(0)` turns, so with fake timers, advance them while it runs. |
-| `dispose`       | `dispose(): void`                                                                        | Clears the queue's timers and aborts in-flight moves.                                                                                                          |
+| Member                           | Signature                                                                                | Notes                                                                                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `column`                         | `column(columnId: string, laneId?: string): string[]`                                    | Card ids in one cell, in display order, pending moves included. Without `laneId` on a swimlane board, every lane of the column.                                |
+| `columns`                        | `columns(): Record<string, string[]>`                                                    | Every column's card ids, by column id, all lanes together.                                                                                                     |
+| `model`                          | `model(): BoardModel<T>`                                                                 | The board as `<Board>` would draw it now.                                                                                                                      |
+| `drag`                           | `drag(itemId: string, to: MoveDestination): boolean`                                     | Moves a card as a drop does, with `source: 'drag'`. `false` when the board refuses it.                                                                         |
+| `move`                           | `move(itemId: string, to: MoveDestination, source?: MoveSource): boolean`                | Moves a card with another source. Default `'api'`.                                                                                                             |
+| `moveMany`                       | `moveMany(itemIds: readonly string[], to: MoveDestination, source?: MoveSource): number` | Moves several cards as a batch. Default source `'api'`. Returns how many moved.                                                                                |
+| `canMove`                        | `canMove(itemId: string, to: Pick<MoveDestination, 'columnId' \| 'laneId'>): boolean`    | Whether a drop of the card there would be taken. `laneId` defaults to the card's lane.                                                                         |
+| `undo`                           | `undo(): boolean`                                                                        | As `BoardHandle.undo`.                                                                                                                                         |
+| `canUndo`                        | `canUndo(): boolean`                                                                     | As `BoardHandle.canUndo`.                                                                                                                                      |
+| `isPending`                      | `isPending(itemId: string): boolean`                                                     | `true` while a move of this card waits for `onMove` or for `items` to show it.                                                                                 |
+| `run`                            | `run(command: unknown): CommandResult`                                                   | <sup>1.4</sup> As `BoardHandle.run`, for move and undo commands. View commands come back `unavailable`.                                                        |
+| `origins`                        | `ReadonlyMap<string, string>`                                                            | <sup>1.4</sup> Every `context.origin` `onMove` received, by op id.                                                                                             |
+| `serializeQueue`, `restoreQueue` | `serializeQueue(): string`, `restoreQueue(saved: string): number`                        | <sup>1.4</sup> As on `BoardHandle`.                                                                                                                            |
+| `setItems`                       | `setItems(items: readonly T[]): void`                                                    | Replaces the items, as a re-render with new data would.                                                                                                        |
+| `items`                          | `items(): readonly T[]`                                                                  | The items the tester holds now.                                                                                                                                |
+| `moves`                          | `readonly MoveOperation[]`                                                               | Every op `onMove` received, in order.                                                                                                                          |
+| `announcements`                  | `readonly string[]`                                                                      | What the board said to screen readers, in order.                                                                                                               |
+| `settle`                         | `settle(): Promise<void>`                                                                | Lets pending `onMove` promises and the queue run. Await it after a move. It waits four `setTimeout(0)` turns, so with fake timers, advance them while it runs. |
+| `dispose`                        | `dispose(): void`                                                                        | Clears the queue's timers and aborts in-flight moves.                                                                                                          |
 
 ## Core exports (`board-view-core`)
 

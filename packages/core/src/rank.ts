@@ -81,3 +81,70 @@ export function shouldRebalance(ranks: readonly string[], maxLength = 48): boole
   }
   return false;
 }
+
+const DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+
+/** A small seeded generator (mulberry32), so a seed gives the same ranks in tests. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export interface JitteredRankOptions {
+  /** Seeds the random digits, for repeatable tests. Default: `Math.random`. */
+  seed?: number;
+  /** Your own source of numbers in [0, 1). Wins over `seed`. */
+  random?: () => number;
+  /** Random digits added to each key. More digits, fewer collisions, longer keys. Default 4. */
+  digits?: number;
+}
+
+/**
+ * A rank strategy for boards several people edit at once. Two clients that
+ * drop a card between the same neighbours would get the same fractional
+ * key and tie; this one adds a few random digits, so their cards land in a
+ * stable order instead. Keys stay valid fractional-indexing keys and sort
+ * the same way, so it mixes with ranks made by `fractionalRank`.
+ */
+export function jitteredRank(options: JitteredRankOptions = {}): RankStrategy {
+  const random = options.random ?? (options.seed != null ? seeded(options.seed) : Math.random);
+  const digits = Math.max(1, Math.floor(options.digits ?? 4));
+  const jitter = (start: string, before: string | null, upper: string | null) => {
+    // Digits after a key that is the start of the next one could pass it ("a0" + "x" > "a0G1"): step inside first.
+    let key = start;
+    for (let tries = 0; upper != null && upper.startsWith(key) && tries < 4; tries += 1)
+      key = generateKeyBetween(key, upper);
+    let suffix = '';
+    for (let index = 0; index < digits; index += 1) {
+      // A fractional key may not end in "0".
+      const low = index === digits - 1 ? 1 : 0;
+      suffix += DIGITS[low + Math.floor(random() * (DIGITS.length - low))];
+    }
+    const candidate = key + suffix;
+    const above = before == null || candidate > before;
+    const below = upper == null || candidate < upper;
+    return above && below ? candidate : start;
+  };
+  return {
+    between(before, after) {
+      return jitter(generateKeyBetween(before, after), before, after);
+    },
+    nBetween(before, after, count) {
+      if (count <= 0) return [];
+      const keys = generateNKeysBetween(before, after, count);
+      let previous = before;
+      return keys.map((key, index) => {
+        const next = jitter(key, previous, keys[index + 1] ?? after);
+        previous = next;
+        return next;
+      });
+    },
+    compare: fractionalRank.compare,
+  };
+}
