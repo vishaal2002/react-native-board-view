@@ -39,5 +39,12 @@ describe('queue persistence', () => {
     expect(parseQueue('nope')).toEqual([]);
     expect(parseQueue(null)).toEqual([]);
     expect(parseQueue(JSON.stringify({ version: 1, ops: [op('1', 'a'), { opId: 2 }] }))).toEqual([op('1', 'a')]);
+    const bad = [
+      { ...op('2', 'b'), batch: 'x' },
+      { ...op('3', 'c'), rank: '' },
+      { ...op('4', 'd'), batch: { id: 'b', index: 0 } },
+    ];
+    const good = { ...op('5', 'e'), batch: { id: 'b', index: 0, size: 2 } };
+    expect(parseQueue(JSON.stringify({ version: 1, ops: [...bad, good] }))).toEqual([good]);
   });
 });

@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-11-15. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped on 2026-10-20. Features marked _experimental_ ship off by default and can change in a minor release (see the [support policy](support.md)). 1.1 to 1.4 are built (see below). 1.4 is the last feature release of 1.x: 1.5 is fixes and open gates only, and the next features are [2.0](#20-the-engine-becomes-a-platform). 1.2 was planned from the [October 2026 research](research-2026-10.md); 1.3 and 1.4 come from the November 2026 innovation report.
+Updated 2026-11-16. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped on 2026-10-20. Features marked _experimental_ ship off by default and can change in a minor release (see the [support policy](support.md)). 1.1 to 1.4 are built (see below). 1.4 is the last feature release of 1.x: 1.5 is fixes and open gates only, and the next features are [2.0](#20-the-engine-becomes-a-platform). 1.2 was planned from the [October 2026 research](research-2026-10.md); 1.3 and 1.4 come from the November 2026 innovation report.
 
 | Version | Theme                           | Headline                                                                |
 | ------- | ------------------------------- | ----------------------------------------------------------------------- |
@@ -13,7 +13,7 @@ Updated 2026-11-15. 1.0.0, the stable release, is built. 0.8.0 and 0.8.1 shipped
 | 1.2.0   | Moves that ask first (built)    | Drop gates, drop on a card, drop targets and sources outside the board  |
 | 1.3.0   | See everything (built)          | Zoom to bars, flights, since you were away, drop previews, gather       |
 | 1.4.0   | A board with a memory (built)   | Commands, journal, time machine, live data mid-drag, ageing chart       |
-| 1.5.0   | Fixes (planned)                 | Bug fixes, open device gates, the inspector panel. No new API           |
+| 1.5.0   | Fixes (built)                   | Ten bug fixes from a code review. Device gates and the panel still open |
 | 2.0.0   | The engine becomes a platform   | Headless engine, board to board, web, flights by default                |
 
 ## 0.6.0: phone-first moves (shipped)

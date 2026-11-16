@@ -64,6 +64,19 @@ describe('createJournal', () => {
     expect(calls).toBe(2);
     stop();
   });
+
+  it('relinks a later move of the same card when an earlier one rolls back', () => {
+    const journal = createJournal();
+    const a = { cellId: '_::todo', rank: 'a0' };
+    const b = { cellId: '_::doing', rank: 'a0' };
+    const c = { cellId: '_::done', rank: 'a0' };
+    journal.append([
+      { ...entry('x', a, b, 1), opId: 'op1' },
+      { ...entry('x', b, c, 2), opId: 'op2' },
+    ]);
+    journal.removeOp('op1');
+    expect(journal.entries().map((e) => [e.opId, e.from, e.to])).toEqual([['op2', a, c]]);
+  });
 });
 
 describe('serializeJournal and restoreJournal', () => {

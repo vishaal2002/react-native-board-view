@@ -733,10 +733,10 @@ function DragBoard(props: DragBoardProps) {
    * finger does not slide away. Leaving the card ends it. True while one is.
    */
   const cardTargetAt = useCallback(
-    (active: ActiveDrag, geometry: CellGeometry, y: number): boolean => {
+    (active: ActiveDrag, geometry: CellGeometry, y: number, x: number): boolean => {
       const current = propsRef.current;
       if (!current.onCardDrop) return false;
-      const under = geometry.itemAt(y);
+      const under = geometry.itemAt(y, x);
       const card =
         under && under.itemId !== active.itemId && (current.canDropOnCard?.(active.itemId, under.itemId) ?? true)
           ? under
@@ -803,7 +803,13 @@ function DragBoard(props: DragBoardProps) {
     }
     // A card target counts as a zone: the lifted copy shrinks toward the finger so the target shows, and
     // nothing scrolls under it.
-    const onCard = hit != null && !edge && cardTargetAt(active, hit[1], y);
+    const onCard = hit != null && !edge && cardTargetAt(active, hit[1], y, x);
+    // Over a zone, in a gap or in an edge-scroll band no card is the target any more: it must not win the drop.
+    if (!onCard && active.cardTarget != null) {
+      active.cardTarget = null;
+      active.cardCandidate = null;
+      active.outlineKey = '';
+    }
     const zoneId = zone ? zone[0] : onCard ? CARD_TARGET + active.cardTarget : '';
     if (zoneId !== active.zoneId) {
       active.zoneId = zoneId;

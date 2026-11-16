@@ -81,7 +81,25 @@ export function createJournal(options: JournalOptions = {}): Journal {
     },
     removeOp(opId) {
       if (!list.some((entry) => entry.opId === opId)) return;
-      publish(list.filter((entry) => entry.opId !== opId));
+      // A later move of the same card started from where the rolled-back move said it went. It really started
+      // from where the card stood before, so a replay does not put the card in a place it never was.
+      const gone = new Map<string, JournalEntry>();
+      const next: JournalEntry[] = [];
+      for (const entry of list) {
+        if (entry.opId === opId) {
+          if (!gone.has(entry.itemId)) gone.set(entry.itemId, entry);
+          continue;
+        }
+        const removed = gone.get(entry.itemId);
+        gone.delete(entry.itemId);
+        const chained =
+          removed?.to != null &&
+          entry.from != null &&
+          entry.from.cellId === removed.to.cellId &&
+          entry.from.rank === removed.to.rank;
+        next.push(chained ? { ...entry, from: removed.from } : entry);
+      }
+      publish(next);
     },
     reset(entries) {
       publish(entries.slice(-limit));

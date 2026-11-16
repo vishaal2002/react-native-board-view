@@ -53,4 +53,11 @@ describe('snapshots', () => {
     expect(old.items.map(getItemId)).toEqual(['a', 'b']);
     expect(catchUpCounts(snapshot, project(before.slice(0, 2)))).toEqual({ moved: 0, added: 0, removed: 1 });
   });
+
+  it('treats card ids that match Object.prototype keys as new cards', () => {
+    const now = [...before, task('constructor', 'todo', 4), task('toString', 'done', 5)];
+    const old = snapshotBoard(snapshot, now, getItemId, groupBy);
+    expect(old.items.map(getItemId)).toEqual(['a', 'b', 'c']);
+    expect(catchUpCounts(snapshot, project(now))).toEqual({ moved: 0, added: 2, removed: 0 });
+  });
 });

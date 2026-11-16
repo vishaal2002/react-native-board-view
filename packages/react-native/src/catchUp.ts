@@ -42,7 +42,8 @@ export function snapshotBoard<T>(
   const kept: T[] = [];
   for (const item of items) {
     const itemId = getItemId(item);
-    const place = snapshot.places[itemId];
+    // `places` is a plain object: an id such as "constructor" must not read Object.prototype.
+    const place = Object.hasOwn(snapshot.places, itemId) ? snapshot.places[itemId] : undefined;
     if (!place) continue;
     const [cellId, index] = place;
     let parts: { laneKey: string; columnKey: string };
@@ -89,7 +90,7 @@ export function catchUpCounts<T>(
   let moved = 0;
   let added = 0;
   for (const [itemId, location] of model.locations) {
-    const place = snapshot.places[itemId];
+    const place = Object.hasOwn(snapshot.places, itemId) ? snapshot.places[itemId] : undefined;
     if (!place) added += 1;
     else if (place[0] !== location.cellId) moved += 1;
   }

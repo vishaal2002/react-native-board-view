@@ -2,6 +2,29 @@
 
 This project follows [Semantic Versioning](https://semver.org/). Before 1.0, a minor version may include breaking changes; they are listed under **Breaking**. From 1.0, what counts as breaking is in the [support policy](docs/support.md).
 
+## 1.5.0
+
+`react-native-board-view` 1.5.0 and `board-view-core` 1.2.1. Publish core first: the board depends on it.
+
+Fixes only, no new API. Found by reading the 1.0 to 1.4 code, and checked on the Android emulator.
+
+### Fixed
+
+- **Drops while a card is held.** Dropping on another card, or on a `BoardDropTarget`, read the data as it was at the lift. A card deleted or edited during the drag still accepted the drop, and `onCardDrop` and `onDrop` got the old item. Both now read the data as it is.
+- **A card target that outlived the finger.** After resting on a card, sliding onto the dock, an outside target or a gap between cells still dropped onto that card on release. Leaving the card now clears it.
+- **Card targets on the matrix layout.** The card under the finger ignored its sideways position, so any spot at the height of a dot counted as over it.
+- **Commands while the past is shown.** `ref.run` could move cards, or undo, while the time machine drew an earlier time. The board now refuses them until it is live again.
+- **Accept all.** A proposal whose card was already in its column stopped the batch. Only a move the board refuses (a full column, a gate) stops it now.
+- **A rolled-back move in the journal.** A later move of the same card kept starting from a column it never reached, so the time machine drew it in the wrong place and flow counts were off.
+- **The drag lens after a dock drop.** It zoomed back to the column the card came from, not the one it landed in.
+- **Catching up with a card id like `constructor`.** `initialSnapshot` read the id off `Object.prototype` and the board crashed while drawing. It now treats the card as new.
+- **Presence.** `onLocalPresence` fired on every card the finger crossed, which for most apps is a network send each time. It now fires once per cell.
+- **Saved moves.** `restoreQueue` and `parseQueue` accepted a move with a malformed `batch` or an empty `rank` or `opId`. They are dropped now.
+
+### Not in 1.5
+
+Open gates stay open: a physical iPhone, S7 by hand, a low-end Android phone and the five-developer study. Three review findings were left for [2.0](docs/roadmap.md#20-the-engine-becomes-a-platform) because they change behaviour: throw tuning, a gated move planned against changed data, and the time stamps of changes that arrive during a drag.
+
 ## 1.4.0
 
 `react-native-board-view` 1.4.0 and `board-view-core` 1.2.0. Publish core first: the board depends on it.

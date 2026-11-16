@@ -500,10 +500,11 @@ export function Board<T>(props: BoardProps<T>) {
           hasLanes,
           columnIds: new Set(allColumnsRef.current.map((column) => column.id)),
           laneIds: new Set(allLanesRef.current.map((lane) => lane.id)),
-          moveTo: (itemId, to, origin) => fullController.moveToFrom(itemId, to, origin),
-          moveManyTo: (itemIds, to, origin) => fullController.moveManyToFrom(itemIds, to, origin),
-          undo: () => undo(),
-          canUndo,
+          // The past is drawn read-only: a command must not move cards under a board that shows an earlier time.
+          moveTo: (itemId, to, origin) => !scrubbing && fullController.moveToFrom(itemId, to, origin),
+          moveManyTo: (itemIds, to, origin) => (scrubbing ? 0 : fullController.moveManyToFrom(itemIds, to, origin)),
+          undo: () => !scrubbing && undo(),
+          canUndo: () => !scrubbing && canUndo(),
           select: selectable ? setSelection : undefined,
           scrollToColumn: (columnId) => scrollApi.current?.toColumn(columnId, true),
           revealItem: (itemId) => {
@@ -544,6 +545,7 @@ export function Board<T>(props: BoardProps<T>) {
     [
       fullController,
       hasLanes,
+      scrubbing,
       selectable,
       sheetMode,
       timeline,
@@ -609,9 +611,11 @@ export function Board<T>(props: BoardProps<T>) {
   );
   const dropOnCard = useCallback(
     (itemId: string, targetId: string, source: CardDropEvent<unknown>['source']) => {
-      const item = fullController.itemsById.get(itemId);
-      const target = fullController.itemsById.get(targetId);
-      if (item == null || target == null || !canDropOnCard(itemId, targetId)) return false;
+      // A held board draws the data as it was at the lift; the drop reports the data as it is now.
+      const item = fullController.liveItem(itemId);
+      const target = fullController.liveItem(targetId);
+      if (item == null || target == null || itemId === targetId) return false;
+      if (events.current.canDropOnCard?.(item, target) === false) return false;
       const selected = selectionGet();
       const ids =
         selected.length > 1 && selected.includes(itemId) ? selected.filter((id) => id !== targetId) : [itemId];
@@ -622,7 +626,7 @@ export function Board<T>(props: BoardProps<T>) {
       if (ids.length > 1) selectionSet([]);
       return true;
     },
-    [announce, canDropOnCard, fullController, labels, selectionGet, selectionSet],
+    [announce, fullController, labels, selectionGet, selectionSet],
   );
   const onCardDrop = useCallback(
     ({ itemId, targetId }: { itemId: string; targetId: string }) => {
@@ -688,11 +692,19 @@ export function Board<T>(props: BoardProps<T>) {
   const decideAll = useCallback(
     (decision: 'accept' | 'decline') => {
       // Accepting stops at the first move the board refuses: a full column, or one that now waits for its gate.
+      // A card that is already where the proposal points is not a refusal: the move has nothing to do.
       for (const proposal of [...(events.current.proposals ?? [])]) {
-        if (decideProposal(proposal.id, decision) === false) break;
+        const at = fullController.model.locations.get(proposal.itemId);
+        const there = at ? parseCellId(at.cellId) : null;
+        const alreadyThere =
+          there != null &&
+          there.columnKey === proposal.to.columnId &&
+          proposal.to.index === undefined &&
+          (proposal.to.laneId === undefined || there.laneKey === proposal.to.laneId);
+        if (decideProposal(proposal.id, decision) === false && !alreadyThere) break;
       }
     },
-    [decideProposal],
+    [decideProposal, fullController],
   );
   const proposals = scrubbing ? undefined : props.proposals;
   const proposedInto = useMemo(() => proposedCounts(proposals, fullModel.locations), [fullModel.locations, proposals]);
@@ -1130,11 +1142,13 @@ export function Board<T>(props: BoardProps<T>) {
     ({ itemId, sourceCellId, zoneId }: { itemId: string; sourceCellId: string; zoneId: string }) => {
       if (zoneId.startsWith(DOCK_COLUMN)) {
         const target = makeCellId(parseCellId(sourceCellId).laneKey, zoneId.slice(DOCK_COLUMN.length));
-        return drop(itemId, target, 0);
+        const taken = drop(itemId, target, 0);
+        if (taken) landedColumn.current = parseCellId(target).columnKey;
+        return taken;
       }
       if (zoneId.startsWith(DOCK_ACTION)) return runCardAction(itemId, zoneId.slice(DOCK_ACTION.length), 'dock');
       if (zoneId.startsWith(OUTSIDE_TARGET)) {
-        const item = fullController.itemsById.get(itemId);
+        const item = fullController.liveItem(itemId);
         if (item == null) return false;
         const itemIds = riders(itemId) ?? [itemId];
         const taken = dropOnOutsideTarget(dropScope, zoneId.slice(OUTSIDE_TARGET.length), {
@@ -1149,11 +1163,12 @@ export function Board<T>(props: BoardProps<T>) {
       }
       return false;
     },
-    [drop, dropScope, fullController.itemsById, fullModel, riders, runCardAction, selectionSet],
+    [drop, dropScope, fullController, fullModel, riders, runCardAction, selectionSet],
   );
   // A card is lifted: read by the pinch on the UI thread.
   const dragging = useSharedValue(false);
   const dragFrom = useRef<MoveTarget | null>(null);
+  const presenceCell = useRef<string | null>(null);
   const releaseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -1175,6 +1190,7 @@ export function Board<T>(props: BoardProps<T>) {
       dragCancel.current = null;
       const from = moveTargetOf(cellId);
       dragFrom.current = from;
+      presenceCell.current = cellId;
       events.current.onLocalPresence?.({ itemId, from, to: from });
       if (lensAvailable) {
         returnColumn.current = parseCellId(cellId).columnKey;
@@ -1193,6 +1209,9 @@ export function Board<T>(props: BoardProps<T>) {
   const onDragOver = useCallback(({ itemId, cellId, index }: { itemId: string; cellId: string; index: number }) => {
     const target = moveTargetOf(cellId);
     events.current.onDragOver?.({ itemId, target, index });
+    // Presence names the cell, not the slot: say it once per cell, not on every step over its cards.
+    if (presenceCell.current === cellId) return;
+    presenceCell.current = cellId;
     events.current.onLocalPresence?.({ itemId, from: dragFrom.current, to: target });
   }, []);
   const dropMs = theme.dropDuration;
@@ -1202,6 +1221,7 @@ export function Board<T>(props: BoardProps<T>) {
       const reason = dragCancel.current;
       dragCancel.current = null;
       dragFrom.current = null;
+      presenceCell.current = null;
       events.current.onDragEnd?.(reason ? { ...event, reason } : event);
       events.current.onLocalPresence?.({ itemId: null, from: null, to: null });
       if (reason) announce(labels.cardChangedWhileDragging({ item: fullController.itemLabel(event.itemId), reason }));

@@ -86,6 +86,8 @@ export interface BoardController<T> {
   changedSinceHold(itemId: string): 'changed' | 'removed' | null;
   /** The board plans read now, overlays included: live data, unless a hold has not been resumed. */
   liveModel(): BoardModel<T>;
+  /** An item as `items` has it now, even while a hold keeps the board drawing the data as it was. */
+  liveItem(itemId: string): T | undefined;
   /** Moves `onMove` has not accepted yet. */
   pendingMoves(): readonly MoveOperation[];
   readonly queue: MoveQueue;
@@ -230,6 +232,7 @@ export function useBoardController<T>(props: BoardProps<T>, labels: BoardLabels)
       holding: held != null,
       changedSinceHold,
       liveModel: session.live,
+      liveItem: (itemId: string) => latest.current.itemsById.get(itemId),
       pendingMoves: () => queueRef.current.pending(),
       queue,
     }),

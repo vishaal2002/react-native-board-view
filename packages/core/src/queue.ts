@@ -408,11 +408,20 @@ function isOp(value: unknown): value is MoveOperation {
     typeof record === 'object' &&
     record !== null &&
     Object.values(record).every((field) => field === null || typeof field === 'string');
+  const batch = (value: unknown) => {
+    if (value === undefined) return true;
+    if (typeof value !== 'object' || value === null) return false;
+    const { id, index, size } = value as Record<string, unknown>;
+    return typeof id === 'string' && Number.isInteger(index) && Number.isInteger(size);
+  };
   return (
     typeof op.opId === 'string' &&
+    op.opId !== '' &&
     typeof op.id === 'string' &&
     typeof op.rank === 'string' &&
+    op.rank !== '' &&
     typeof op.source === 'string' &&
+    batch(op.batch) &&
     (op.previousId === null || typeof op.previousId === 'string') &&
     (op.nextId === null || typeof op.nextId === 'string') &&
     fields(op.changes) &&
